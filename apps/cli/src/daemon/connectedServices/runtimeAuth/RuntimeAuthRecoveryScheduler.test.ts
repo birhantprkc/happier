@@ -956,6 +956,25 @@ describe('RuntimeAuthRecoveryScheduler', () => {
     }));
   });
 
+  it('rechecks a transiently unavailable alternative before the exhausted account weekly reset', async () => {
+    const scheduler = new RuntimeAuthRecoveryScheduler({
+      nowMs: () => 1_000, baseBackoffMs: 100, maxBackoffMs: 1_000, jitterMs: () => 0,
+      recover: async () => ({
+        status: 'no_eligible_member' as const, generation: 12, groupExhausted: true,
+        retryAtMs: 600_000,
+        excluded: [{ profileId: 'backup', reason: 'credential_unavailable' }],
+      }),
+    });
+    const recoveryKey = buildRuntimeAuthRecoveryKey({
+      sessionId: 'session-1', serviceId: 'openai-codex', profileId: 'primary', groupId: 'team',
+    });
+    await scheduler.beginClassifiedFailure({
+      sessionId: 'session-1', switchesThisTurn: 0, classification: classificationFor({ resetsAtMs: 600_000 }),
+    });
+    await scheduler.wakeByKey({ recoveryKey, reason: 'manual' });
+    expect(scheduler.readByKey(recoveryKey)).toMatchObject({ status: 'waiting', nextRetryAtMs: 31_000 });
+  });
+
   it('uses the group-exhausted floor when no_eligible_member has no future reset evidence', async () => {
     const diagnostics: RuntimeAuthRecoveryDiagnostic[] = [];
     let nowMs = 1_000;

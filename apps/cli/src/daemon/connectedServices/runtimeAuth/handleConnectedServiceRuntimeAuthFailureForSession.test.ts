@@ -4589,13 +4589,29 @@ describe('handleConnectedServiceRuntimeAuthFailureForSession', () => {
     });
   });
 
-  it('does not continue when observed generation still names the failed account', async () => {
+  it.each([
+    [null, 'reset-1', 80, 1_000, false],
+    ['no_receipt', 'reset-1', 80, 1_000, true],
+    ['not_available', 'reset-1', 80, 1_000, true],
+    ['unknown_after_timeout', 'reset-1', 80, 1_000, false],
+    ['consumed', 'reset-1', 80, 1_000, true],
+    ['consumed', 'reset-2', 80, 1_000, true],
+    ['already_consumed', 'reset-1', 80, 1_000, true],
+    ['nothing_to_reset', 'reset-1', 80, 1_000, true],
+    ['consumed', 'reset-1', 0, 1_000, false],
+    ['consumed', 'reset-1', NaN, 1_000, false],
+    ['consumed', 'reset-1', 80, NaN, false],
+  ] as const)('continues the failed account only with usable quota reset evidence (%s, %s, %s, %s)', async (resetStatus, resetKey, remainingPercent, capturedAtMs, shouldContinue) => {
     const continueAfterRuntimeAuthSwitch = vi.fn(async () => {});
     const switchAfterClassifiedFailure = vi.fn(async () => ({
       status: 'observed_generation' as const,
       activeProfileId: 'primary',
       generation: 2,
       credentialRevision: 'csr_7123456789ABCDEFGHJKMNPQRS',
+      ...(resetStatus ? { quotaRecovery: {
+        ...(resetStatus === 'no_receipt' ? {} : { receipt: { idempotencyKey: resetKey, status: resetStatus } }),
+        quotaSnapshot: { effectiveRemainingPercent: remainingPercent, capturedAtMs },
+      } } : {}),
     }));
     const tracked = {
       startedBy: 'daemon' as const,
@@ -4650,7 +4666,15 @@ describe('handleConnectedServiceRuntimeAuthFailureForSession', () => {
       },
     });
 
-    expect(continueAfterRuntimeAuthSwitch).not.toHaveBeenCalled();
+    if (shouldContinue) {
+      expect(continueAfterRuntimeAuthSwitch).toHaveBeenCalledWith(expect.objectContaining({
+        attemptId: `connected-service-auth-switch|hot_applied|openai-codex:group:main:primary:2|quota-recovery:${JSON.stringify(resetStatus === 'no_receipt' ? `quota-snapshot:${capturedAtMs}` : resetKey)}`,
+        action: 'hot_applied',
+        target: { serviceId: 'openai-codex', groupId: 'main', profileId: 'primary', generation: 2 },
+      }));
+    } else {
+      expect(continueAfterRuntimeAuthSwitch).not.toHaveBeenCalled();
+    }
   });
 
   it('settles a superseding generation before continuing the interrupted turn', async () => {

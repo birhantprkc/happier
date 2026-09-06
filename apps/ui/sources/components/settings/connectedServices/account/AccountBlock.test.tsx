@@ -62,10 +62,11 @@ vi.mock('@/modal', () => ({
     },
 }));
 
-const featureState = vi.hoisted(() => ({ quotasEnabled: true }));
+const featureState = vi.hoisted(() => ({ quotasEnabled: true, subscriptionEnabled: false }));
 vi.mock('@/hooks/server/useFeatureEnabled', () => ({
     useFeatureEnabled: (featureId: string) =>
-        featureId === 'connectedServices.quotas' ? featureState.quotasEnabled : true,
+        featureId === 'connectedServices.quotas' ? featureState.quotasEnabled
+            : featureId === 'connectedServices.subscription' ? featureState.subscriptionEnabled : true,
 }));
 
 const quotaHookState = vi.hoisted(() => ({

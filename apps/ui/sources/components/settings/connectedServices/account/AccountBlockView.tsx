@@ -28,6 +28,7 @@ import {
 } from '@/sync/domains/connectedServices/resolveConnectedServiceCollapseKey';
 import { useSettingMutable } from '@/sync/store/hooks';
 import type { ConnectedServiceCredentialHealthStatusV1, ConnectedServiceId } from '@happier-dev/protocol';
+import type { ProviderAccountSubscriptionV1 } from '@happier-dev/protocol';
 import { t } from '@/text';
 
 import { resolveAccountCapacityRings, type AccountUsageRow } from './accountBlockModel';
@@ -65,6 +66,7 @@ export type AccountBlockQuotaView = Readonly<{
     consumeRecoveryCreditPending: boolean;
     consumeRecoveryCreditPendingTarget: Readonly<{ providerCreditId: string | null }> | null;
     canConsume: boolean;
+    subscription: ProviderAccountSubscriptionV1 | null;
 }>;
 
 export interface AccountBlockViewProps {
@@ -564,6 +566,27 @@ export const AccountBlockView = React.memo<AccountBlockViewProps>((props) => {
             style={[styles.usageSections, quota.isRefreshing && styles.refreshingDim]}
             pointerEvents={quota.isRefreshing ? 'none' : 'auto'}
         >
+            {quota.subscription ? (
+                <ItemSection testID={`${testID}:subscription`} caption={t('connectedServices.subscription.title')}>
+                    <ItemGroupColumn>
+                        <Text>{quota.subscription.status === 'none'
+                            ? t('connectedServices.subscription.none')
+                            : quota.subscription.status === 'unavailable'
+                                ? t('connectedServices.subscription.unavailable')
+                                : quota.subscription.renewal === 'on'
+                                    ? t('connectedServices.subscription.renewalOn')
+                                    : quota.subscription.renewal === 'off'
+                                        ? t('connectedServices.subscription.renewalOff')
+                                        : t('connectedServices.subscription.renewalUnknown')}</Text>
+                        {quota.subscription.currentPeriodEndAtMs ? (
+                            <Eyebrow>{t('connectedServices.subscription.periodEnds', {
+                                date: new Date(quota.subscription.currentPeriodEndAtMs).toLocaleDateString(),
+                            })}</Eyebrow>
+                        ) : null}
+                    </ItemGroupColumn>
+                </ItemSection>
+            ) : null}
+
             {quota.usageRows.length > 0 ? (
                 <ItemSection testID={`${testID}:usage`} caption={t('connectedServices.account.usageCaption')}>
                     {quota.usageRows.map((row) => (

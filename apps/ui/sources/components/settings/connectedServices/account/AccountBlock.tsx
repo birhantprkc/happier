@@ -161,6 +161,7 @@ function buildQuotaView(hook: UseConnectedServiceQuotaSnapshotResult): AccountBl
         consumeRecoveryCreditPendingTarget: hook.consumeRecoveryCreditPendingTarget,
         // A reset can only be consumed when a target machine is resolved.
         canConsume: hook.canConsumeRecoveryCredit && hook.recoveryCreditMachineId != null,
+        subscription: snapshot?.subscription ?? null,
     };
 }
 
@@ -187,6 +188,7 @@ const QuotaConnectedAccountBlock = React.memo(function QuotaConnectedAccountBloc
 
 export const AccountBlock = React.memo(function AccountBlock(props: AccountBlockProps) {
     const quotasEnabled = useFeatureEnabled('connectedServices.quotas');
+    const subscriptionEnabled = useFeatureEnabled('connectedServices.subscription');
 
     const testID = props.testID ?? defaultAccountBlockTestID({
         serviceId: props.serviceId,
@@ -223,7 +225,7 @@ export const AccountBlock = React.memo(function AccountBlock(props: AccountBlock
     // Usage display fails OPEN: hide quota only for an EXPLICIT needs_reauth
     // credential (shared with the snapshot hook). Absent/unknown status still
     // shows usage so healthy accounts never blank their capacity avatar.
-    if (!quotasEnabled || shouldHideQuotaForCredentialStatus(props.status)) {
+    if ((!quotasEnabled && !subscriptionEnabled) || shouldHideQuotaForCredentialStatus(props.status)) {
         return <AccountBlockView {...shared} quota={null} />;
     }
 

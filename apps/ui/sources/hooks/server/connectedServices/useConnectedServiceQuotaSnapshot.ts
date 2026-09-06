@@ -64,8 +64,10 @@ export function useConnectedServiceQuotaSnapshot(params: Readonly<{
     serviceId: ConnectedServiceId;
     profileId: string;
     credentialHealthStatus?: unknown;
+    enabled?: boolean;
 }>): UseConnectedServiceQuotaSnapshotResult {
     const { serviceId, profileId } = params;
+    const enabled = params.enabled !== false;
     const auth = useAuth();
     const credentials = auth.credentials;
 
@@ -77,14 +79,14 @@ export function useConnectedServiceQuotaSnapshot(params: Readonly<{
     // the fetch key can never disagree (absent/unknown status still fetches).
     const credentialHealthUsable = !shouldHideQuotaForCredentialStatus(params.credentialHealthStatus);
 
-    const key = credentials && credentialHealthUsable
+    const key = enabled && credentials && credentialHealthUsable
         ? buildQuotaSnapshotScopeKey(credentialScope, serviceId, profileId)
         : null;
 
     const loadContext = React.useMemo<QuotaSnapshotLoadContext | null>(() => {
-        if (!credentials || !credentialHealthUsable) return null;
+        if (!enabled || !credentials || !credentialHealthUsable) return null;
         return { credentials, credentialScope, serviceId, profileId, resolveAccountMode };
-    }, [credentialHealthUsable, credentials, credentialScope, serviceId, profileId, resolveAccountMode]);
+    }, [enabled, credentialHealthUsable, credentials, credentialScope, serviceId, profileId, resolveAccountMode]);
 
     const subscribe = React.useCallback(
         (onChange: () => void) => subscribeQuotaSnapshotEntry(key, onChange),

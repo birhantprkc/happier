@@ -788,6 +788,16 @@ function maybeRestartAfterRuntimeGroupSwitch(input: Readonly<{
   });
 }
 
+function readQuotaRecoveryIdempotencyKey(result: ConnectedServiceAuthGroupSwitchResult): string | null {
+  if (result.status !== 'observed_generation') return null;
+  const recovery = result.quotaRecovery;
+  if (!recovery || recovery.receipt?.status === 'unknown_after_timeout') return null;
+  const remainingPercent = recovery.quotaSnapshot.effectiveRemainingPercent;
+  if (typeof remainingPercent !== 'number' || !Number.isFinite(remainingPercent) || remainingPercent <= 0
+    || !Number.isFinite(recovery.quotaSnapshot.capturedAtMs)) return null;
+  return recovery.receipt?.idempotencyKey ?? `quota-snapshot:${recovery.quotaSnapshot.capturedAtMs}`;
+}
+
 function doesRuntimeGroupSwitchProveUsableReplacement(
   result: ConnectedServiceAuthGroupSwitchResult,
   failedProfileId: string | null,
@@ -795,6 +805,7 @@ function doesRuntimeGroupSwitchProveUsableReplacement(
 ): boolean {
   if (result.status === 'switched' || result.status === 'superseded_after_apply') return true;
   if (result.status !== 'observed_generation') return false;
+  if (readQuotaRecoveryIdempotencyKey(result) !== null) return true;
   const observedProfileId = normalizeNullableProfileId(result.activeProfileId);
   if (observedProfileId !== null && failedProfileId !== null && observedProfileId !== failedProfileId) {
     return true;
@@ -814,6 +825,7 @@ function resolveRuntimeGroupSwitchContinuationContext(
   action: 'hot_applied' | 'restart_requested';
   activeProfileId: string | null;
   generation: number;
+  quotaRecoveryIdempotencyKey?: string;
 }> | null {
   if (result.status === 'superseded_after_apply' && supersedingGenerationSettled) {
     return { action: 'hot_applied', activeProfileId: result.activeProfileId, generation: result.generation };
@@ -826,7 +838,11 @@ function resolveRuntimeGroupSwitchContinuationContext(
       failedCredentialRevision,
     )
   ) {
-    return { action: 'hot_applied', activeProfileId: result.activeProfileId, generation: result.generation };
+    const quotaRecoveryIdempotencyKey = readQuotaRecoveryIdempotencyKey(result);
+    return {
+      action: 'hot_applied', activeProfileId: result.activeProfileId, generation: result.generation,
+      ...(quotaRecoveryIdempotencyKey === null ? {} : { quotaRecoveryIdempotencyKey }),
+    };
   }
   if (result.status !== 'switched') return null;
   if (result.mode === 'hot_apply') {
@@ -888,6 +904,9 @@ async function maybeContinueAfterRuntimeGroupSwitch(input: Readonly<{
       expectedGroupGenerationByServiceId: {
         [serviceId]: continuationContext.generation,
       },
+      ...(continuationContext.quotaRecoveryIdempotencyKey === undefined
+        ? {}
+        : { quotaRecoveryIdempotencyKey: continuationContext.quotaRecoveryIdempotencyKey }),
     }),
     normalizedBindings,
     serviceIds,

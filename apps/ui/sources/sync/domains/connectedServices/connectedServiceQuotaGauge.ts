@@ -54,6 +54,16 @@ export type ConnectedServiceQuotaGaugeLabelFormatter = Readonly<{
 }>;
 
 export type ConnectedServiceQuotaGaugeViewModel = Readonly<{
+    subscription?: Readonly<{
+        summary: string;
+        period: string | null;
+        renewal: 'on' | 'off' | 'unknown';
+        renewalLabel: string;
+        checkedLabel: string;
+        notice: string | null;
+        accessUntilLabel: string | null;
+        isLastKnown: boolean;
+    }>;
     serviceId: string;
     providerDisplayName: string | null;
     activeAccountDisplayLabel: string | null;
@@ -326,7 +336,24 @@ export function computeConnectedServiceQuotaGaugeViewModel(_params: Readonly<{
     const remainingValueLabel = params.formatter.remaining({ percent: `${roundedRemaining}%` });
     const staleAt = params.snapshot.fetchedAt + params.snapshot.staleAfterMs;
     const isStale = params.nowMs > staleAt;
+    const sourceSubscription = params.snapshot.subscription;
+    const subscription = sourceSubscription ? {
+        summary: sourceSubscription.status === 'none' ? 'No subscription'
+            : sourceSubscription.status === 'unavailable' ? 'Subscription details unavailable'
+                : sourceSubscription.currentPeriodEndAtMs
+                    ? `${sourceSubscription.renewal === 'on' ? 'Renews' : 'Ends'} ${new Date(sourceSubscription.currentPeriodEndAtMs).toLocaleDateString()}`
+                    : 'Subscription active',
+        period: sourceSubscription.currentPeriodStartAtMs && sourceSubscription.currentPeriodEndAtMs
+            ? `${new Date(sourceSubscription.currentPeriodStartAtMs).toLocaleDateString()} – ${new Date(sourceSubscription.currentPeriodEndAtMs).toLocaleDateString()}` : null,
+        renewal: sourceSubscription.renewal,
+        renewalLabel: sourceSubscription.renewal === 'on' ? 'On' : sourceSubscription.renewal === 'off' ? 'Off' : 'Unknown',
+        checkedLabel: `Checked ${new Date(sourceSubscription.observedAtMs).toLocaleString()}`,
+        notice: sourceSubscription.lastRefreshError ? 'Subscription details may be out of date.' : null,
+        accessUntilLabel: sourceSubscription.currentPeriodEndAtMs ? `Access continues until ${new Date(sourceSubscription.currentPeriodEndAtMs).toLocaleDateString()}` : null,
+        isLastKnown: sourceSubscription.status === 'unavailable',
+    } : undefined;
     return {
+        subscription,
         serviceId: params.snapshot.serviceId,
         providerDisplayName: params.providerDisplayName ?? null,
         activeAccountDisplayLabel: params.activeAccountDisplayLabel ?? params.snapshot.accountLabel ?? null,

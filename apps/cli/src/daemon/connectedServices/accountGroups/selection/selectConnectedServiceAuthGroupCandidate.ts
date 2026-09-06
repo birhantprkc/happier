@@ -29,6 +29,7 @@ export type ConnectedServiceAuthGroupPolicyV1 = Readonly<{
   cooldownMs: number;
   honorProviderResetsAt: boolean;
   autoRestorePrimaryWhenReset: boolean;
+  autoUseQuotaResetsWhenExhausted?: boolean;
   maxSwitchesPerTurn: number;
   maxSwitchesPerSessionHour: number;
   softSwitchRemainingPercent: number;
@@ -136,6 +137,7 @@ type ConnectedServiceAuthGroupCandidateExclusion = Readonly<{
       | 'quota_exhausted'
       | 'capacity_limited'
       | 'auth_invalid'
+      | 'credential_unavailable'
       | 'plan_unavailable'
       | 'validation_blocked'
       | 'policy_wait_until_reset';
@@ -334,6 +336,27 @@ function isQuotaExhausted(snapshot: ConnectedServiceAuthGroupQuotaSnapshot): boo
   }
   const remaining = numberOrNull(snapshot.effectiveRemainingPercent);
   return remaining !== null && remaining <= 0;
+}
+
+/** A reset is a quota remedy, not a fallback for every reason a pool cannot select. */
+export function resolveConnectedServiceAuthGroupQuotaResetCandidates(
+  params: Parameters<typeof selectConnectedServiceAuthGroupCandidate>[0],
+): ReadonlyArray<ConnectedServiceAuthGroupMember> {
+  const selection = selectConnectedServiceAuthGroupCandidate({ ...params, allowCurrentProfileRetry: true });
+  if (selection.selected || selection.reason === 'manual_strategy') return [];
+  const resettable = new Set<string>();
+  for (const excluded of selection.excluded) {
+    if (excluded.reason === 'disabled' || excluded.reason === 'auth_invalid' || excluded.reason === 'plan_unavailable') continue;
+    if (excluded.reason !== 'quota_exhausted') return [];
+    const snapshot = params.memberStatesByProfileId.get(excluded.profileId)?.quotaSnapshot;
+    if (!isFreshQuotaSnapshot(snapshot, params.nowMs, params.quotaFreshnessMs) || !snapshot) return [];
+    // A banked usage reset cannot repair request-rate or capacity throttling. Require the
+    // actual usage-window evidence, not a generic effective meter or a persisted cooldown.
+    if (!(snapshot.meters ?? []).some((meter) => isQuotaMeter(meter) && meterIsExhausted(meter))) return [];
+    if ((snapshot.meters ?? []).some((meter) => isRateLimitMeter(meter) && meterIsExhausted(meter))) return [];
+    resettable.add(excluded.profileId);
+  }
+  return params.members.filter((member) => resettable.has(member.profileId)).sort(comparePriority);
 }
 
 function resolveQuotaSnapshotExhaustionRetryAtMs(
@@ -607,6 +630,7 @@ export function selectConnectedServiceAuthGroupCandidate(params: Readonly<{
   members: ReadonlyArray<ConnectedServiceAuthGroupMember>;
   memberStatesByProfileId: ReadonlyMap<string, ConnectedServiceAuthGroupMemberRuntimeState>;
   allowCurrentProfileRetry?: boolean;
+  unavailableProfileIds?: ReadonlySet<string>;
 }>): ConnectedServiceAuthGroupCandidateSelection {
   if (params.policy.strategy === 'manual') {
     return {
@@ -669,6 +693,16 @@ export function selectConnectedServiceAuthGroupCandidate(params: Readonly<{
         profileId: member.profileId,
         decision: 'excluded',
         exclusionReason: 'current_active',
+        quotaEvidence,
+      });
+      continue;
+    }
+    if (params.unavailableProfileIds?.has(member.profileId)) {
+      excluded.push({ profileId: member.profileId, reason: 'credential_unavailable' });
+      decisionTraceCandidates.push({
+        profileId: member.profileId,
+        decision: 'excluded',
+        exclusionReason: 'credential_unavailable',
         quotaEvidence,
       });
       continue;
