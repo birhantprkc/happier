@@ -100,7 +100,7 @@ describe('Pending queue HTTP wire contract', () => {
             waitingForWireMode: true,
         });
         expect(request).not.toHaveBeenCalled();
-        expect(loadPendingOutboxForSession(sessionId, outboxScope)).toEqual([
+        expect((await loadPendingOutboxForSession(sessionId, outboxScope))).toEqual([
             expect.objectContaining({ localId: 'local-indeterminate-wire', operation: 'enqueue' }),
         ]);
     });
@@ -121,7 +121,7 @@ describe('Pending queue HTTP wire contract', () => {
             requestedAction: { v: 1, kind: 'enqueue' },
         })).toThrow('Pending localId must not be blank');
         expect(request).not.toHaveBeenCalled();
-        expect(loadPendingOutboxForSession(sessionId, outboxScope)).toEqual([]);
+        expect((await loadPendingOutboxForSession(sessionId, outboxScope))).toEqual([]);
     });
 
     it('retires response-loss custody only for an exact terminal committed-message proof', async () => {
@@ -147,7 +147,7 @@ describe('Pending queue HTTP wire contract', () => {
             wireMode: 'pending_input_v1',
             requestedAction: { v: 1, kind: 'enqueue' },
         })).resolves.toEqual({ accepted: true, localId, terminal: true });
-        expect(loadPendingOutboxForSession(sessionId, outboxScope)).toEqual([]);
+        expect((await loadPendingOutboxForSession(sessionId, outboxScope))).toEqual([]);
     });
 
     it('reports an enqueue already settled by a concurrent owner as an explicit successful no-op', async () => {
@@ -165,7 +165,7 @@ describe('Pending queue HTTP wire contract', () => {
             text: 'hello',
             encryption,
             request: async () => {
-                removePendingOutboxMessage(sessionId, localId, outboxScope);
+                (await removePendingOutboxMessage(sessionId, localId, outboxScope));
                 return Response.json({
                     terminal: true,
                     requestedAction: { v: 1, kind: 'enqueue' },
@@ -176,7 +176,7 @@ describe('Pending queue HTTP wire contract', () => {
             wireMode: 'pending_input_v1',
             requestedAction: { v: 1, kind: 'enqueue' },
         })).resolves.toEqual({ accepted: true, localId, settled: true });
-        expect(loadPendingOutboxForSession(sessionId, outboxScope)).toEqual([]);
+        expect((await loadPendingOutboxForSession(sessionId, outboxScope))).toEqual([]);
     });
 
     it('keeps response-loss custody when terminal committed-message proof has another localId', async () => {
@@ -202,7 +202,7 @@ describe('Pending queue HTTP wire contract', () => {
             wireMode: 'pending_input_v1',
             requestedAction: { v: 1, kind: 'enqueue' },
         })).resolves.toEqual({ localId, accepted: false });
-        expect(loadPendingOutboxForSession(sessionId, outboxScope)).toEqual([
+        expect((await loadPendingOutboxForSession(sessionId, outboxScope))).toEqual([
             expect.objectContaining({ localId, operation: 'enqueue' }),
         ]);
     });
@@ -302,7 +302,7 @@ describe('Pending queue HTTP wire contract', () => {
         })).resolves.toEqual({ localId: 'local-released-mismatch', accepted: false });
         expect(request).toHaveBeenCalledTimes(1);
         expect(onWireContractMismatch).toHaveBeenCalledTimes(1);
-        expect(loadPendingOutboxForSession(sessionId, outboxScope)).toEqual([
+        expect((await loadPendingOutboxForSession(sessionId, outboxScope))).toEqual([
             expect.objectContaining({ localId: 'local-released-mismatch', operation: 'enqueue' }),
         ]);
     });
