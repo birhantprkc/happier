@@ -1009,7 +1009,7 @@ describe('startDaemon spawn resume wiring (integration)', () => {
     }
   });
 
-  it('activates one exact inactive Pending row after the UI disappears, coalesces a duplicate, and does not restart an active neighbor', async () => {
+  it('activates one exact Pending row after the UI disappears and delegates stale active state to runner serviceability', async () => {
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
     const refreshEnvOriginal = process.env.HAPPIER_CONNECTED_SERVICES_REFRESH_ENABLED;
     process.env.HAPPIER_CONNECTED_SERVICES_REFRESH_ENABLED = 'false';
@@ -1039,7 +1039,7 @@ describe('startDaemon spawn resume wiring (integration)', () => {
 
     try {
       const activationModule = await import('./sessions/activatePendingInactiveSession');
-      const activationSpy = vi.spyOn(activationModule, 'activatePendingInactiveSession');
+      const activationSpy = vi.spyOn(activationModule, 'activatePendingSessionRuntime');
       const { startDaemon } = await import('./startDaemon');
       run = startDaemon();
       await waitForSpawnSessionRegistration();
@@ -1088,10 +1088,7 @@ describe('startDaemon spawn resume wiring (integration)', () => {
         source: 'live',
       });
       expect(activationSpy).toHaveBeenCalledTimes(3);
-      await expect(activationSpy.mock.results[2]?.value).resolves.toEqual({
-        status: 'not-needed',
-        reason: 'active',
-      });
+      await expect(activationSpy.mock.results[2]?.value).resolves.toMatchObject({ status: 'activated' });
 
       harness.requestShutdown('happier-cli');
       await run;
@@ -1149,7 +1146,7 @@ describe('startDaemon spawn resume wiring (integration)', () => {
 
     try {
       const activationModule = await import('./sessions/activatePendingInactiveSession');
-      const activationSpy = vi.spyOn(activationModule, 'activatePendingInactiveSession');
+      const activationSpy = vi.spyOn(activationModule, 'activatePendingSessionRuntime');
       const { startDaemon } = await import('./startDaemon');
       run = startDaemon();
       await vi.waitFor(() => expect(fetchSessionsPage).toHaveBeenCalled(), { timeout: 10_000 });

@@ -104,7 +104,7 @@ import { resolveDaemonServiceCliRuntimeFromEnv } from '@/daemon/service/cli';
 import { forceStopKnownDaemonPid, isDaemonRunningCurrentlyInstalledHappyVersion, resolveDaemonSpawnSessionByNonce, stopDaemon } from './controlClient';
 import { startDaemonControlServer } from './controlServer';
 import { resolveTrackedSessionCatalogAgentId } from './sessions/resolveTrackedSessionCatalogAgentId';
-import { activatePendingInactiveSession } from './sessions/activatePendingInactiveSession';
+import { activatePendingSessionRuntime } from './sessions/activatePendingInactiveSession';
 import {
   recoverPendingSessionActivations,
   type PendingSessionActivationInput,
@@ -8455,7 +8455,7 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
 
               const activateExactPendingSession = async (hint: PendingSessionActivationInput): Promise<void> => {
                 try {
-                  const result = await activatePendingInactiveSession({
+                  const result = await activatePendingSessionRuntime({
                     credentials,
                     machineId,
                     sessionId: hint.sessionId,
@@ -8464,7 +8464,7 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
                     spawnSession: async (options) => await spawnSession(options),
                   });
                   if (result.status === 'rejected') {
-                    logger.warn('[DAEMON RUN] Exact inactive Pending activation was rejected', {
+                    logger.warn('[DAEMON RUN] Exact Pending runtime activation was rejected', {
                       sessionId: hint.sessionId,
                       requestId: hint.requestId,
                       source: hint.source,
@@ -8472,7 +8472,7 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
                     });
                   }
                 } catch (error) {
-                  logger.warn('[DAEMON RUN] Exact inactive Pending activation failed; durable authorization retained', {
+                  logger.warn('[DAEMON RUN] Exact Pending runtime activation failed; durable authorization retained', {
                     sessionId: hint.sessionId,
                     requestId: hint.requestId,
                     source: hint.source,
