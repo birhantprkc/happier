@@ -84,6 +84,9 @@ const sessionOptimisticThinkingAt = vi.hoisted(() => ({
 const sessionResumingAt = vi.hoisted(() => ({
     current: null as number | null,
 }));
+const sessionMachineReachability = vi.hoisted(() => ({
+    current: { machineReachable: true, machineOnline: true, machineRpcTargetAvailable: true },
+}));
 const draftHookState = vi.hoisted(() => ({
     valuesBySessionId: new Map<string, string>(),
 }));
@@ -565,7 +568,7 @@ vi.mock('@/components/sessions/model/resolveSessionMachineReachability', () => (
     resolveSessionMachineReachability: () => true,
 }));
 vi.mock('@/components/sessions/model/useSessionMachineReachability', () => ({
-    useSessionMachineReachability: () => ({ machineReachable: true, machineOnline: true, machineRpcTargetAvailable: true }),
+    useSessionMachineReachability: () => sessionMachineReachability.current,
 }));
 vi.mock('@/components/sessions/model/useSessionMachineTarget', () => ({
     useSessionMachineTarget: () => ({
@@ -752,6 +755,7 @@ describe('SessionView (sendMessage resumeInactive pendingQueue)', () => {
         machineEncryptionAvailable.current = true;
         sessionOptimisticThinkingAt.current = null;
         sessionResumingAt.current = null;
+        sessionMachineReachability.current = { machineReachable: true, machineOnline: true, machineRpcTargetAvailable: true };
         const { storage } = await import('@/sync/domains/state/storage');
         storage.getState().clearSessionResuming('s1');
         inactiveSessionUiState.current = { noticeKind: 'none', inactiveStatusTextKey: null, shouldShowInput: true };
@@ -841,6 +845,7 @@ describe('SessionView (sendMessage resumeInactive pendingQueue)', () => {
         const row = durablePendingRow('queued-row', 'enqueue');
         pendingMessagesState.current = { messages: [row], discarded: [], isLoaded: true };
         sessionStateOverrides.current = { active: false, activeAt: 100, presence: 0 };
+        sessionMachineReachability.current = { machineReachable: false, machineOnline: false, machineRpcTargetAvailable: true };
 
         const screen = await renderSessionView();
 
@@ -862,9 +867,33 @@ describe('SessionView (sendMessage resumeInactive pendingQueue)', () => {
         await screen.unmount();
     });
 
+    it('resumes through the canonical session action from the online queued banner', async () => {
+        const row = durablePendingRow('queued-row', 'enqueue');
+        pendingMessagesState.current = { messages: [row], discarded: [], isLoaded: true };
+        sessionStateOverrides.current = { active: false, activeAt: 100, presence: 0 };
+        resumeSessionSpy.mockImplementationOnce(async () => {
+            const { storage } = await import('@/sync/domains/state/storage');
+            storage.getState().markSessionResuming('s1');
+            return { type: 'success' as const };
+        });
+
+        const screen = await renderSessionView();
+
+        expect(screen.findByTestId('session-pendingActivation-resume')).toBeTruthy();
+        await screen.pressByTestIdAsync('session-pendingActivation-resume');
+
+        expect(resumeSessionSpy).toHaveBeenCalledTimes(1);
+        expect(sendPendingMessageNowSpy).not.toHaveBeenCalled();
+        expect(findAgentInput(screen).props.connectionStatus?.text).toBe('session.resuming');
+        expect(screen.findAllByTestId('session-pendingActivation')).toHaveLength(0);
+
+        await screen.unmount();
+    });
+
     it('shows durable waiting state while offline and keeps the exact row queued on request', async () => {
         const row = durablePendingRow('waiting-row');
         pendingMessagesState.current = { messages: [row], discarded: [], isLoaded: true };
+        sessionMachineReachability.current = { machineReachable: false, machineOnline: false, machineRpcTargetAvailable: true };
         sessionStateOverrides.current = {
             active: false,
             activeAt: 100,
@@ -965,6 +994,7 @@ describe('SessionView (sendMessage resumeInactive pendingQueue)', () => {
         expect(findAgentInput(screen).props.isSending).toBe(false);
         expect(findAgentInput(screen).props.connectionStatus?.text).toBe('session.resuming');
         expect(findAgentInput(screen).props.connectionStatus?.isPulsing).toBe(true);
+        expect(screen.findAllByTestId('session-pendingActivation')).toHaveLength(0);
 
         await act(async () => {
             sessionOptimisticThinkingAt.current = Date.now();

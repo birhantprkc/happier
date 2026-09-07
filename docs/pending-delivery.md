@@ -1,5 +1,32 @@
 # Pending delivery architecture
 
+## Live runner wake-up recovery (development)
+
+The session client owns pending-input wake subscriptions. A transient socket
+disconnect does not end those subscriptions: idle and active-turn consumers must
+still observe later eligibility updates. Caller cancellation and client close
+release the client's listeners. The runtime separately aborts its consumer when
+the turn or session ends.
+
+Idle and active consumers share the same wake handling. The existing backoff for
+unavailable adapters does not periodically materialize the queue. Reconnect does
+not bypass settings convergence, admission, or the Pending row's blocked state;
+an explicitly blocked message still requires its existing Retry action.
+
+If the session socket stays connected after a transient server-feature probe
+failure, a later pending materialization attempt reuses the session client's
+connection-readiness convergence. It re-probes that same connection and, for
+the current Runtime Activity contract, waits for the publisher's snapshot
+settlement before claiming input.
+Authentication failures and unsupported contracts still fail closed; this
+recovery adds no polling or reconnect side effects.
+
+In current development source, an admitted prompt does not wait for the daemon's
+`prompt_or_steer` lifecycle response. That notification informs recovery and
+switching; it is not input authorization. A delayed or failed notification does
+not block the Pending row. Exact turn-marker and terminal notifications retain
+their existing serialized lifecycle handling.
+
 ## Current Queue V2 activation ownership
 
 Pending Queue V2 remains the sole durable owner of message custody, ordering, and exact-row actions. An inactive-session start request is a small session-level authorization for the current eligible `send_now` row; it is not another message-delivery state machine.

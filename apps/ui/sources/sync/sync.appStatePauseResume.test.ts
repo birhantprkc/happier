@@ -97,8 +97,8 @@ describe('sync AppState pause/resume', () => {
         const otherScope = { ...activeScope, accountId: 'account-b' } as const;
         storage.getState().activateProfileScope(activeScope);
 
-        const save = (sessionId: string, localId: string, scope: ServerAccountScope) => {
-            savePendingOutboxMessage({
+        const save = async (sessionId: string, localId: string, scope: ServerAccountScope) => {
+            (await savePendingOutboxMessage({
                 sessionId,
                 localId,
                 createdAt: 100,
@@ -112,11 +112,11 @@ describe('sync AppState pause/resume', () => {
                         messageRole: 'user',
                     }),
                 },
-            }, scope);
+            }, scope));
         };
-        save('session-b', 'local-b', activeScope);
-        save('session-a', 'local-a', activeScope);
-        save('other-account-session', 'other-local', otherScope);
+        (await save('session-b', 'local-b', activeScope));
+        (await save('session-a', 'local-a', activeScope));
+        (await save('other-account-session', 'other-local', otherScope));
 
         const { sync } = await import('./sync');
         let releaseReplay!: () => void;

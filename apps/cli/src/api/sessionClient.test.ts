@@ -2667,14 +2667,20 @@ describe('ApiSessionClient connection handling', () => {
         await expect(waitPromise).resolves.toBe(true);
     });
 
-    it('waitForMetadataUpdate resolves false when user-scoped socket disconnects', async () => {
+    it('waitForMetadataUpdate stays subscribed across user-scoped disconnects', async () => {
         mockUserSocket.connected = true;
         const client = createClient('fake-token', mockSession);
 
         const waitPromise = startMetadataWait(client);
 
-        triggerLastUserSocketLifecycleEvent('disconnect');
-        await expect(waitPromise).resolves.toBe(false);
+        mockUserSocket.trigger('disconnect', 'transport close');
+        emitMetadataWakeUpdate({
+            session: mockSession,
+            path: '/tmp/after-disconnect',
+            updateId: 'update-after-disconnect',
+            seq: 2,
+        });
+        await expect(waitPromise).resolves.toBe(true);
     });
 
     it('waitForMetadataUpdate does not miss fast user-scoped update-session wakeups', async () => {

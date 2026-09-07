@@ -455,6 +455,7 @@ import {
     type UsageLimitRecoveryOperationStatus,
 } from '@/components/sessions/usageLimitRecovery/sessionUsageLimitRecoveryPresentation';
 import { hasMeaningfulActivityAfterRuntimeIssue } from '@/components/sessions/usageLimitRecovery/sessionUsageLimitActivityStaleness';
+import { SessionUsageLimitRecoveryBanner } from '@/components/sessions/usageLimitRecovery/SessionUsageLimitRecoveryBanner';
 import {
     buildSessionUsageLimitRecoveryOperationFailureAlert,
     type SessionUsageLimitRecoveryOperationFailureResult,
@@ -580,6 +581,10 @@ const connectedServiceQuotaGaugeFormatter: ConnectedServiceQuotaGaugeLabelFormat
     durationHoursMinutes: ({ hours, minutes }) => t('agentInput.providerUsage.duration.hoursMinutes', { hours, minutes }),
     durationHours: ({ hours }) => t('agentInput.providerUsage.duration.hours', { hours }),
     durationMinutes: ({ minutes }) => t('agentInput.providerUsage.duration.minutes', { minutes }),
+    subscriptionEnds: ({ date }) => t('connectedServices.subscription.ends', { date }),
+    subscriptionEndsInDays: ({ days }) => t('connectedServices.subscription.endsInDays', { days }),
+    subscriptionRenews: ({ date }) => t('connectedServices.subscription.renews', { date }),
+    subscriptionRenewsInDays: ({ days }) => t('connectedServices.subscription.renewsInDays', { days }),
 };
 
 function isOwnedSessionRootPathname(pathname: string | null | undefined, sessionId: string): boolean {
@@ -2403,6 +2408,7 @@ function SessionViewLoaded({
         || resolveServerIdForSessionIdFromLocalCache(sessionId)
         || activeServerId;
     const capabilityServerId = sessionRouteServerId;
+    const { machineReachable: isMachineReachable, machineOnline } = useSessionMachineReachability(sessionId);
     /**
      * WHERE anything belonging to this session opens — the one decision, asked rather than repeated.
      *
@@ -2685,10 +2691,11 @@ function SessionViewLoaded({
         authorization: session.pendingActivationAuthorization,
         activeAt: session.activeAt,
         active: session.active,
-        machineReachable: Boolean(sessionMachineRecord && isMachineOnline(sessionMachineRecord)),
+        machineReachable: isMachineReachable,
         canWrite: hasWriteAccess,
+        resumingAt: sessionRuntimeStatusSource.resumingAt,
         pendingMessages,
-    }), [hasWriteAccess, pendingMessages, session.active, session.activeAt, session.pendingActivationAuthorization, sessionMachineRecord]);
+    }), [hasWriteAccess, isMachineReachable, pendingMessages, session.active, session.activeAt, session.pendingActivationAuthorization, sessionRuntimeStatusSource.resumingAt]);
     const [pendingActivationActionBusy, setPendingActivationActionBusy] = React.useState(false);
     const providerSupportsEditableSessionGoals = React.useMemo(
         () => supportsEditableSessionGoals({ agentId, session, daemonGoalControlsSupported }),
@@ -2837,6 +2844,7 @@ function SessionViewLoaded({
         || pendingMessages.length > 0
     ), [pendingMessages.length, session.active, session.metadata]);
     const baseUsageLimitRecoveryPresentation = React.useMemo(() => buildSessionUsageLimitRecoveryPresentation({
+        machineReachable: isMachineReachable,
         featureEnabled: usageLimitRecoveryFeatureEnabled,
         latestTurnStatus: sessionRuntimeStatusSource.latestTurnStatus ?? null,
         issue: sessionRuntimeStatusSource.lastRuntimeIssue ?? null,
@@ -2852,6 +2860,7 @@ function SessionViewLoaded({
         translate: translateSessionUsageLimitRecovery,
         formatTime: formatUsageLimitRecoveryTime,
     }), [
+        isMachineReachable,
         formatUsageLimitRecoveryTime,
         sessionRuntimeStatusSource.latestTurnStatus,
         sessionRuntimeStatusSource.latestTurnStatusObservedAt,
@@ -2882,6 +2891,7 @@ function SessionViewLoaded({
     const activeUsageLimitRecoveryOperationStatus = activeUsageLimitRecoveryOperation?.status ?? null;
     const activeUsageLimitRecoveryOperationRetryAtMs = activeUsageLimitRecoveryOperation?.retryAtMs ?? null;
     const usageLimitRecoveryPresentation = React.useMemo(() => buildSessionUsageLimitRecoveryPresentation({
+        machineReachable: isMachineReachable,
         featureEnabled: usageLimitRecoveryFeatureEnabled && !usageLimitRecoveryIssueResolved,
         latestTurnStatus: sessionRuntimeStatusSource.latestTurnStatus ?? null,
         issue: sessionRuntimeStatusSource.lastRuntimeIssue ?? null,
@@ -2898,6 +2908,7 @@ function SessionViewLoaded({
         translate: translateSessionUsageLimitRecovery,
         formatTime: formatUsageLimitRecoveryTime,
     }), [
+        isMachineReachable,
         activeUsageLimitRecoveryOperationRetryAtMs,
         activeUsageLimitRecoveryOperationStatus,
         formatUsageLimitRecoveryTime,
@@ -2968,9 +2979,10 @@ function SessionViewLoaded({
         });
     }, [usageLimitRecoveryPresentation?.issueFingerprint]);
     const usageLimitRecoveryOperationOptions = React.useMemo(() => ({
+        machineOnly: Boolean(usageLimitRecoveryPresentation?.banner.temporaryThrottle),
         serverId: sessionRouteServerId,
         refreshMachineTargets: () => sync.refreshMachinesThrottled({ staleMs: 0, force: true }),
-    }), [sessionRouteServerId]);
+    }), [sessionRouteServerId, usageLimitRecoveryPresentation?.banner.temporaryThrottle]);
     const consumeConnectedServiceRecoveryCreditForProfile = React.useCallback(async (params: Readonly<{
         profileRef: Readonly<{ serviceId: string; profileId: string }>;
         providerCreditId?: string | null;
@@ -3463,6 +3475,11 @@ function SessionViewLoaded({
                     return;
                 }
                 showUsageLimitRecoveryOperationFailure(result);
+                return;
+            }
+            if (usageLimitRecoveryPresentation?.banner.temporaryThrottle) {
+                // Dispatch/cancellation acknowledgements do not prove provider recovery.
+                setUsageLimitRecoveryOperationStatus(null);
                 return;
             }
             if (isUsageLimitRecoveryControlAction(kind) && result.status && usageLimitRecoveryPresentation?.issueFingerprint) {
@@ -4245,8 +4262,6 @@ function SessionViewLoaded({
         }),
         [session.metadata, sessionId],
     );
-
-    const { machineReachable: isMachineReachable, machineOnline } = useSessionMachineReachability(sessionId);
 
     useWarmRepositoryDirectoryCacheOnSessionOpen({
         sessionId,
@@ -6124,6 +6139,10 @@ function SessionViewLoaded({
                                     if (!row?.localId) return;
                                     setPendingActivationActionBusy(true);
                                     try {
+                                        if (pendingActivationPresentation.primaryAction === 'resume') {
+                                            await handleResumeSession();
+                                            return;
+                                        }
                                         await sync.sendPendingMessageNow(sessionId, {
                                             localId: row.localId,
                                             createdAt: row.createdAt,
@@ -6198,21 +6217,23 @@ function SessionViewLoaded({
             ) : null}
             {visibleUsageLimitRecoveryPresentation ? (
                 <ComposerAuxiliaryFrame>
-                    <SessionWarningActionBanner
+                    <SessionUsageLimitRecoveryBanner
+                        temporaryThrottle={visibleUsageLimitRecoveryPresentation.banner.temporaryThrottle}
+                        surfaceFocused={surfaceFocused}
                         testID={visibleUsageLimitRecoveryPresentation.banner.testID}
                         actionTestID={visibleUsageLimitRecoveryPresentation.banner.primaryAction.testID}
                         title={visibleUsageLimitRecoveryPresentation.banner.title}
                         body={visibleUsageLimitRecoveryPresentation.banner.body}
                         actionLabel={visibleUsageLimitRecoveryPresentation.banner.primaryAction.label}
                         actionAccessibilityLabel={visibleUsageLimitRecoveryPresentation.banner.primaryAction.accessibilityLabel}
-                        disabled={usageLimitRecoveryActionsDisabled}
+                        disabled={usageLimitRecoveryActionsDisabled || !hasWriteAccess || visibleUsageLimitRecoveryPresentation.banner.actionsDisabled}
                         onActionPress={() => void handleUsageLimitRecoveryAction(visibleUsageLimitRecoveryPresentation.banner.primaryAction.kind)}
                         secondaryActions={visibleUsageLimitRecoveryPresentation.banner.secondaryActions.map((action) => ({
                             key: action.kind,
                             testID: action.testID,
                             label: action.label,
                             accessibilityLabel: action.accessibilityLabel,
-                            disabled: usageLimitRecoveryActionsDisabled,
+                            disabled: usageLimitRecoveryActionsDisabled || !hasWriteAccess || visibleUsageLimitRecoveryPresentation.banner.actionsDisabled,
                             onPress: () => void handleUsageLimitRecoveryAction(action.kind),
                         }))}
                     />

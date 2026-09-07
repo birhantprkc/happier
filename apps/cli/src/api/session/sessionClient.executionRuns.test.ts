@@ -129,8 +129,24 @@ describe('ApiSessionClient execution-run backend wiring', () => {
       backendTarget: { kind: 'configuredAcpBackend', backendId: 'review-bot' },
       permissionMode: 'read_only',
       accountSettings,
+      interactivePermissionHandler: expect.objectContaining({
+        handleToolCall: expect.any(Function),
+        cancelPendingRequest: expect.any(Function),
+      }),
     }));
 
+    await client.close();
+  });
+
+  it('routes execution-run completion through the canonical Session user-message ingress', async () => {
+    const { ApiSessionClient } = await import('./sessionClient');
+    const client = new ApiSessionClient('tok', createPlainSessionFixture({ id: 's1', metadata: createTestMetadata({ path: '/tmp/project' }) }));
+    const enqueue = vi.spyOn(client, 'enqueueSessionUserMessage').mockResolvedValue(undefined);
+    const input = { text: 'run finished', meta: { source: 'execution_run' } };
+
+    await sessionSocketStubState.executionRunHandlerContext.enqueueParentSessionInput(input);
+
+    expect(enqueue).toHaveBeenCalledWith({ ...input, inputOrigin: 'session_generated' });
     await client.close();
   });
 
