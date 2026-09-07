@@ -1087,9 +1087,14 @@ function readPendingProofTarget(result: unknown): RuntimeAuthPendingProofTarget 
   const switchResult = readRuntimeAuthRecoverySwitchResult(result);
   if (!switchResult) return null;
   const status = readString(switchResult.status);
-  if (status !== 'switched' && status !== 'observed_generation') return null;
+  const activeProfileId = readString(switchResult.activeProfileId);
+  if (
+    status !== 'switched'
+    && status !== 'observed_generation'
+    && !(status === 'credential_refreshed' && activeProfileId !== null)
+  ) return null;
   return {
-    activeProfileId: readString(switchResult.activeProfileId),
+    activeProfileId,
     generation: readNonNegativeNumber(switchResult.generation),
   };
 }

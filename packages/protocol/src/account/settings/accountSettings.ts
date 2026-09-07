@@ -371,6 +371,7 @@ export const AccountSettingsSchema = z.preprocess(
       actionsSettingsV1: ActionsSettingsV1Schema.catch(DEFAULT_ACTIONS_SETTINGS_V1).default(DEFAULT_ACTIONS_SETTINGS_V1),
       notificationsSettingsV1: NotificationsSettingsV1Schema.default(DEFAULT_NOTIFICATIONS_SETTINGS_V1),
       usageLimitRecoverySettingsV1: UsageLimitRecoverySettingsV1Schema.default(DEFAULT_USAGE_LIMIT_RECOVERY_SETTINGS_V1),
+      executionRunsNotifyParentOnCompletionDefault: z.boolean().default(false),
       sessionPendingQueueDrainMode: SessionPendingQueueDrainModeSchema.default(DEFAULT_SESSION_PENDING_QUEUE_DRAIN_MODE),
       sessionPendingQueueDeliveryTiming: SessionPendingQueueDeliveryTimingSchema.default(
         DEFAULT_SESSION_PENDING_QUEUE_DELIVERY_TIMING,

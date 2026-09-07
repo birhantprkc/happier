@@ -96,6 +96,10 @@ const GAUGE_LABEL_FORMATTER: ConnectedServiceQuotaGaugeLabelFormatter = {
         t('connectedServices.quota.duration.hoursMinutes', { hours, minutes }),
     durationHours: ({ hours }) => t('connectedServices.quota.duration.hours', { hours }),
     durationMinutes: ({ minutes }) => t('connectedServices.quota.duration.minutes', { minutes }),
+    subscriptionEnds: ({ date }) => t('connectedServices.subscription.ends', { date }),
+    subscriptionEndsInDays: ({ days }) => t('connectedServices.subscription.endsInDays', { days }),
+    subscriptionRenews: ({ date }) => t('connectedServices.subscription.renews', { date }),
+    subscriptionRenewsInDays: ({ days }) => t('connectedServices.subscription.renewsInDays', { days }),
 };
 
 const RESET_COUNTDOWN_DAYS_FORMATTER: ResetCountdownDaysFormatter = {
@@ -142,6 +146,7 @@ function buildQuotaView(hook: UseConnectedServiceQuotaSnapshotResult): AccountBl
     return {
         loading: hook.loading,
         hasSnapshot: snapshot != null,
+        nowMs,
         isStale: hook.isStale,
         canRefresh: hook.canRefresh,
         isRefreshing: hook.isRefreshing,

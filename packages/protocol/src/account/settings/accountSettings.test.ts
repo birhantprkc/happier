@@ -5,6 +5,10 @@ import { resolveConnectedServicesProviderStateSharingPolicyV1 } from './connecte
 import { isActionEnabledByActionsSettings } from '../../actions/actionSettings.js';
 
 describe('accountSettings', () => {
+  it('defaults execution-run parent completion notifications off and accepts an explicit value', () => {
+    expect(accountSettingsParse({}).executionRunsNotifyParentOnCompletionDefault).toBe(false);
+    expect(accountSettingsParse({ executionRunsNotifyParentOnCompletionDefault: true }).executionRunsNotifyParentOnCompletionDefault).toBe(true);
+  });
   it('defaults usage-limit recovery to asking before waiting', () => {
     const parsed = accountSettingsParse({});
 

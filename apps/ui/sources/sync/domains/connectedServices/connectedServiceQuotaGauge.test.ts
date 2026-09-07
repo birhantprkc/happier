@@ -51,6 +51,10 @@ const formatter: ConnectedServiceQuotaGaugeLabelFormatter = {
     durationHoursMinutes: ({ hours, minutes }) => `${hours}h ${minutes}m`,
     durationHours: ({ hours }) => `${hours}h`,
     durationMinutes: ({ minutes }) => `${minutes}m`,
+    subscriptionEnds: ({ date }) => `Ends ${date}`,
+    subscriptionEndsInDays: ({ days }) => `Ends in ${days} day${days === 1 ? '' : 's'}`,
+    subscriptionRenews: ({ date }) => `Renews ${date}`,
+    subscriptionRenewsInDays: ({ days }) => `Renews in ${days} day${days === 1 ? '' : 's'}`,
 };
 
 describe('computeConnectedServiceQuotaGaugeViewModel', () => {
@@ -70,7 +74,8 @@ describe('computeConnectedServiceQuotaGaugeViewModel', () => {
             formatter,
         });
         expect(viewModel?.isStale).toBe(false);
-        expect(viewModel?.subscription).toMatchObject({ renewal: 'off', isLastKnown: true });
+        expect(viewModel?.subscription).toMatchObject({ renewal: 'off', isLastKnown: false });
+        expect(viewModel?.subscription?.summary).toBe('Ends in 1 day');
     });
 
     it('selects the reliable meter with the least remaining quota for most_constrained mode', () => {

@@ -1870,6 +1870,7 @@ export const pl: TranslationStructure = {
             title: "Instrukcje uruchomień Happier",
             subtitle: "Wyłączenie usuwa routing z priorytetem natywnym i mechanikę uruchomień Happier z promptów systemowych agentów kodujących.",
           },
+          notifyParentOnCompletion: { title: 'Powiadom agenta nadrzędnego po zakończeniu', subtitle: 'Wysyła do agenta nadrzędnego ustrukturyzowane zdarzenie zakończenia.' },
           characterBudget: {
             title: "Limit reguł niestandardowych",
             subtitle: ({ value }: { value: string }) => `${value} znaków`,
@@ -2507,6 +2508,8 @@ export const pl: TranslationStructure = {
           renewalUnknown: "Nieznane",
           renews: ({ date }: { date: string }) => `Odnowienie: ${date}`,
           ends: ({ date }: { date: string }) => `Koniec: ${date}`,
+          renewsInDays: ({ days }: { days: number }) => `Odnowienie za ${days} dni`,
+          endsInDays: ({ days }: { days: number }) => `Koniec za ${days} dni`,
           periodEnds: ({ date }: { date: string }) => `Bieżący okres kończy się ${date}`,
           period: ({ start, end }: { start: string; end: string }) => `${start} – ${end}`,
           periodStarted: ({ date }: { date: string }) => `Początek: ${date}`,
@@ -5113,6 +5116,16 @@ export const pl: TranslationStructure = {
       railScrollDownA11y: "Przewiń nawigację w dół",
     },
     usageLimitRecovery: {
+        overloadTitle: "Model przeciążony",
+        overloadWaiting: "Oczekiwanie na ponowienie.",
+        overloadDispatching: "Ponawianie teraz.",
+        overloadAwaiting: "Oczekiwanie na odpowiedź modelu.",
+        overloadStopped: "Automatyczne próby zatrzymane. Możesz ponowić.",
+        overloadExhausted: "Automatyczne próby wyczerpane. Możesz ponowić.",
+        overloadOffline: "Połącz się ponownie z maszyną sesji, aby sprawdzić stan prób.",
+        stopRetrying: "Zatrzymaj próby",
+        overloadCountdown: ({ seconds, attempt }: { seconds: number; attempt: number }) => `Model przeciążony — ponowienie za ${seconds} s · próba ${attempt}`,
+        overloadAttempt: ({ attempt }: { attempt: number }) => `Próba ${attempt}`,
       title: "Osiągnięto limit użycia",
       readyTitle: "Limit użycia został zresetowany",
       resetBody: ({ time }: { time: string }) =>

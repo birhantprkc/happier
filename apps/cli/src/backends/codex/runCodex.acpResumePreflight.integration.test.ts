@@ -4315,23 +4315,47 @@ describe('runCodex CodexACP resume behavior', () => {
     expect(warnCalls.some((call) => call.some((value) => value instanceof Error && value.message.includes('secret-test-token')))).toBe(false);
   });
 
-  it('does not report a group usage limit again after the app-server terminal owner requests recovery', async () => {
+  it.each([
+    {
+      label: 'usage limit',
+      prompt: 'continue after usage limit',
+      classification: {
+        kind: 'usage_limit' as const,
+        serviceId: 'openai-codex' as const,
+        profileId: 'limited',
+        groupId: 'main',
+        resetsAtMs: 2_000,
+        retryAfterMs: null,
+        planType: null,
+        rateLimits: null,
+        source: 'provider_runtime_marker' as const,
+      },
+    },
+    {
+      label: 'plan-incompatible permission failure',
+      prompt: 'continue after switching away from an unsupported free account',
+      classification: {
+        kind: 'permission_denied' as const,
+        limitCategory: 'plan_invalid' as const,
+        serviceId: 'openai-codex' as const,
+        profileId: 'free-account',
+        groupId: 'main',
+        resetsAtMs: null,
+        retryAfterMs: null,
+        planType: null,
+        rateLimits: null,
+        source: 'structured_provider_error' as const,
+      },
+    },
+  ])('does not report a group $label again after the app-server terminal owner requests recovery', async ({
+    classification: runtimeAuthClassification,
+    prompt,
+  }) => {
     resolveRunnerMcpServersSpy.mockImplementationOnce(async () => ({
       happierMcpServer: { url: 'http://127.0.0.1:0', stop: vi.fn() },
       mcpServers: {},
     }));
-    const runtimeAuthClassification = {
-      kind: 'usage_limit',
-      serviceId: 'openai-codex',
-      profileId: 'limited',
-      groupId: 'main',
-      resetsAtMs: 2_000,
-      retryAfterMs: null,
-      planType: null,
-      rateLimits: null,
-      source: 'provider_runtime_marker',
-    };
-    const providerError = Object.assign(new Error('usage limit reached'), {
+    const providerError = Object.assign(new Error('connected-service group recovery required'), {
       runtimeAuthClassification,
     });
     const flushTurn = vi.fn(async () => {});
@@ -4367,7 +4391,7 @@ describe('runCodex CodexACP resume behavior', () => {
       waitCallCount += 1;
       if (waitCallCount === 1) {
         return {
-          message: 'continue after usage limit',
+          message: prompt,
           mode: {
             permissionMode: 'default',
             permissionModeUpdatedAt: 1,
@@ -4391,7 +4415,7 @@ describe('runCodex CodexACP resume behavior', () => {
       .then(() => ({ ok: true as const }))
       .catch((error: unknown) => ({ ok: false as const, error }));
 
-    expect(outcome).toMatchObject({ ok: true });
+    if (!outcome.ok) throw outcome.error;
     expect(notifyDaemonConnectedServiceRuntimeAuthFailureSpy).toHaveBeenCalledTimes(1);
     expect(notifyDaemonConnectedServiceRuntimeAuthFailureSpy).toHaveBeenCalledWith(
       expect.objectContaining({

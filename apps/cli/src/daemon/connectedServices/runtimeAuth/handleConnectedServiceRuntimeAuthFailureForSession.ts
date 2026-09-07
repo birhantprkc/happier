@@ -158,6 +158,11 @@ export type RuntimeAuthFailureSourceAuthorization =
       /** Exact live binding, when source authorization had to re-read the runtime. */
       sourceBinding?: RuntimeAuthFailureSourceBinding;
     }>
+  | Readonly<{
+      status: 'current_credential_revision';
+      tracked: TrackedSession;
+      sourceBinding: RuntimeAuthFailureSourceBinding;
+    }>
   | RuntimeAuthRecoverySuperseded;
 
 export function applyAuthorizedRuntimeAuthFailureSourceBinding(
@@ -208,6 +213,9 @@ type RuntimeAuthCredentialRefreshProviderOutcomeWaiting = Readonly<{
   status: 'credential_refreshed';
   restartRequested: false;
   pendingProviderOutcome: true;
+  activeProfileId?: string;
+  generation?: number | null;
+  credentialRevision?: string;
 }>;
 
 const unavailableSwitchCoordinator: SwitchCoordinatorLike = {
@@ -229,6 +237,7 @@ export async function authorizeConnectedServiceRuntimeAuthFailureSource(input: R
   resolveCurrentRuntimeAuthFailureSource?: RuntimeAuthFailureSourceBindingResolver | null;
   resolveProviderQualifiedRuntimeAuthFailureSource?: ProviderQualifiedRuntimeAuthFailureSourceResolver | null;
   runtimeAuthApply?: ConnectedServiceRuntimeAuthApplyCapability | null;
+  recoveryInvocationSource?: RuntimeAuthRecoveryInvocationSource;
   sessionId: string;
   classification: ConnectedServiceRuntimeFailureClassification | null;
 }>): Promise<RuntimeAuthFailureSourceAuthorization> {
@@ -377,6 +386,32 @@ export async function authorizeConnectedServiceRuntimeAuthFailureSource(input: R
       && registeredCredentialRevision === reportedCredentialRevision;
     if (registeredBindingMatchesReport) {
       return { status: 'authorized', tracked, sourceBinding: exactRegisteredBinding };
+    }
+    const scheduledRecoveryTargetsCurrentCredential =
+      input.recoveryInvocationSource === 'scheduler_retry'
+      && exactRegisteredBinding.serviceId === classification.serviceId
+      && registeredGroupId === (reportedGroupId || null)
+      && registeredProfileId === reportedProfileId
+      && registeredCredentialRevision !== reportedCredentialRevision
+      && (
+        (registeredGroupId === null && registeredGeneration === null && reportedGeneration === null)
+        || (
+          registeredGroupId !== null
+          && registeredGeneration !== null
+          && reportedGeneration !== null
+          && registeredGeneration >= reportedGeneration
+        )
+      );
+    if (scheduledRecoveryTargetsCurrentCredential) {
+      // A persisted retry describes the failure that armed it, not a fresh failure from the
+      // credential now installed on the same runtime target. Continue on that exact current
+      // target and wait for provider proof; never re-attribute the old failure to the new
+      // revision or select another account. Fresh daemon reports remain exact and fail closed.
+      return {
+        status: 'current_credential_revision',
+        tracked,
+        sourceBinding: exactRegisteredBinding,
+      };
     }
     const registeredBindingProvesNewerGroupGeneration =
       exactRegisteredBinding.serviceId === classification.serviceId
@@ -601,6 +636,9 @@ async function resolveRuntimeAuthRecoveryTrackedSession(input: Readonly<{
 }
 
 function isRuntimeCredentialFailure(classification: ConnectedServiceRuntimeFailureClassification): boolean {
+  if (classification.kind === 'permission_denied' && classification.limitCategory === 'plan_invalid') {
+    return false;
+  }
   return classification.kind === 'auth_expired'
     || classification.kind === 'refresh_failed'
     || classification.kind === 'permission_denied';
@@ -1167,6 +1205,39 @@ export async function handleConnectedServiceRuntimeAuthFailureForSession(input: 
     }>
 > {
   const sourceAuthorization = input.sourceAuthorization ?? await authorizeConnectedServiceRuntimeAuthFailureSource(input);
+  if (sourceAuthorization.status === 'current_credential_revision') {
+    const sourceBinding = sourceAuthorization.sourceBinding;
+    const selection: RuntimeRecoverySelection = sourceBinding.groupId
+      ? {
+          kind: 'group',
+          serviceId: sourceBinding.serviceId,
+          groupId: sourceBinding.groupId,
+          activeProfileId: sourceBinding.profileId,
+          fallbackProfileId: sourceBinding.profileId,
+        }
+      : {
+          kind: 'profile',
+          serviceId: sourceBinding.serviceId,
+          profileId: sourceBinding.profileId,
+        };
+    await maybeContinueAfterCredentialRefresh({
+      tracked: sourceAuthorization.tracked,
+      sessionId: input.sessionId,
+      selection,
+      profileId: sourceBinding.profileId,
+      continueAfterRuntimeAuthSwitch: input.continueAfterRuntimeAuthSwitch ?? null,
+    });
+    return {
+      status: 'credential_refreshed',
+      restartRequested: false,
+      pendingProviderOutcome: true,
+      activeProfileId: sourceBinding.profileId,
+      generation: sourceBinding.generation,
+      ...(sourceBinding.credentialRevision
+        ? { credentialRevision: sourceBinding.credentialRevision }
+        : {}),
+    };
+  }
   if (sourceAuthorization.status !== 'authorized') return sourceAuthorization;
   const tracked = sourceAuthorization.tracked;
   const classification = input.classification

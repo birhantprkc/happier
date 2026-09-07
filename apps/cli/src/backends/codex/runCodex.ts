@@ -81,6 +81,7 @@ import { normalizePermissionModeToIntent, resolvePermissionModeUpdatedAtFromMess
 import { publishCodexSessionIdMetadata } from './utils/codexSessionIdMetadata';
 import { createCodexAcpRuntime } from './acp/runtime';
 import { createCodexAppServerRuntime } from './appServer/runtime';
+import { isCodexAppServerTerminalOwnedGroupRecoveryClassification } from './appServer/recovery/terminalGroupRecovery';
 import {
     createCodexAcpProviderInputOutcomeBridge,
     createCodexAppServerProviderInputOutcomeBridge,
@@ -210,16 +211,6 @@ function readRuntimeAuthClassification(error: unknown): ConnectedServiceRuntimeF
     const record = error as Record<string, unknown>;
     const classification = record.runtimeAuthClassification ?? null;
     return isRuntimeAuthFailureClassification(classification) ? classification : null;
-}
-
-function isAppServerTerminalOwnedUsageLimitGroupRecovery(
-    classification: ConnectedServiceRuntimeFailureClassification,
-): boolean {
-    return classification.kind === 'usage_limit'
-        && typeof classification.groupId === 'string'
-        && classification.groupId.length > 0
-        && typeof classification.profileId === 'string'
-        && classification.profileId.length > 0;
 }
 
 function readRuntimeAuthClassificationLogField(
@@ -2901,10 +2892,10 @@ export async function runCodex(opts: {
                     let runtimeAuthRecoveryStatusEmitted = false;
                     if (runtimeAuthClassification) {
                         const appServerTerminalOwnsRecovery = useCodexAppServer
-                            && isAppServerTerminalOwnedUsageLimitGroupRecovery(runtimeAuthClassification);
+                            && isCodexAppServerTerminalOwnedGroupRecoveryClassification(runtimeAuthClassification);
                         if (appServerTerminalOwnsRecovery) {
                             // The app-server terminal notification owns this exact group-bound
-                            // usage-limit report. It settles the provider turn before delegating to
+                            // runtime-failure report. It settles the provider turn before delegating to
                             // the shared reporter, including when the outer prompt await has already
                             // failed through a different error path. Do not report or flush it twice.
                             providerTurnSettledBeforeRuntimeAuthRecovery = true;

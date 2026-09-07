@@ -1810,6 +1810,7 @@ export const ru: TranslationStructure = {
           title: "Инструкции для запусков Happier",
           subtitle: "Отключение удаляет приоритет нативной маршрутизации и механику запусков Happier из системных промптов агентов программирования.",
         },
+        notifyParentOnCompletion: { title: 'Уведомлять родительский агент о завершении', subtitle: 'Отправляет родительскому агенту структурированное событие завершения.' },
         characterBudget: {
           title: "Лимит пользовательских правил",
           subtitle: ({ value }: { value: string }) => `${value} символов`,
@@ -2437,6 +2438,8 @@ export const ru: TranslationStructure = {
           renewalUnknown: "Неизвестно",
           renews: ({ date }: { date: string }) => `Продление ${date}`,
           ends: ({ date }: { date: string }) => `Окончание ${date}`,
+          renewsInDays: ({ days }: { days: number }) => `Продление через ${days} дн.`,
+          endsInDays: ({ days }: { days: number }) => `Окончание через ${days} дн.`,
           periodEnds: ({ date }: { date: string }) => `Текущий период заканчивается ${date}`,
           period: ({ start, end }: { start: string; end: string }) => `${start} – ${end}`,
           periodStarted: ({ date }: { date: string }) => `Начало ${date}`,
@@ -5588,6 +5591,16 @@ export const ru: TranslationStructure = {
       railScrollDownA11y: "Прокрутить навигацию вниз",
     },
     usageLimitRecovery: {
+        overloadTitle: "Модель перегружена",
+        overloadWaiting: "Ожидание повторной попытки.",
+        overloadDispatching: "Повторная попытка.",
+        overloadAwaiting: "Ожидание ответа модели.",
+        overloadStopped: "Автоматические попытки остановлены. Можно повторить вручную.",
+        overloadExhausted: "Автоматические попытки исчерпаны. Можно повторить вручную.",
+        overloadOffline: "Подключитесь к машине сессии, чтобы проверить состояние попыток.",
+        stopRetrying: "Остановить попытки",
+        overloadCountdown: ({ seconds, attempt }: { seconds: number; attempt: number }) => `Модель перегружена — повтор через ${seconds} с · попытка ${attempt}`,
+        overloadAttempt: ({ attempt }: { attempt: number }) => `Попытка ${attempt}`,
       title: "Достигнут лимит использования",
       readyTitle: "Лимит использования сброшен",
       resetBody: ({ time }: { time: string }) =>

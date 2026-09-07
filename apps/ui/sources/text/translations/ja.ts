@@ -2143,6 +2143,7 @@ export const ja: TranslationStructure = {
         title: "Happier 実行の指示",
         subtitle: "オフにすると、ネイティブ優先ルーティングと Happier 実行の仕組みがコーディングエージェントのシステムプロンプトから削除されます。",
       },
+      notifyParentOnCompletion: { title: '実行完了時に親へ通知', subtitle: '親エージェントに構造化された完了イベントを送信します。' },
       characterBudget: {
         title: "カスタムルールの文字数上限",
         subtitle: ({ value }: { value: string }) => `${value} 文字`,
@@ -2777,6 +2778,8 @@ localTailscale: {
           renewalUnknown: "不明",
           renews: ({ date }: { date: string }) => `${date}に更新`,
           ends: ({ date }: { date: string }) => `${date}に終了`,
+          renewsInDays: ({ days }: { days: number }) => `${days}日後に更新`,
+          endsInDays: ({ days }: { days: number }) => `${days}日後に終了`,
           periodEnds: ({ date }: { date: string }) => `現在の期間は${date}に終了`,
           period: ({ start, end }: { start: string; end: string }) => `${start} – ${end}`,
           periodStarted: ({ date }: { date: string }) => `${date}に開始`,
@@ -5361,6 +5364,16 @@ localTailscale: {
       railScrollDownA11y: "ナビゲーションを下にスクロール",
     },
     usageLimitRecovery: {
+        overloadTitle: "モデルが過負荷です",
+        overloadWaiting: "再試行を待機中。",
+        overloadDispatching: "再試行中。",
+        overloadAwaiting: "モデルの応答を待っています。",
+        overloadStopped: "自動再試行を停止しました。準備ができたら再試行できます。",
+        overloadExhausted: "自動再試行の上限に達しました。手動で再試行できます。",
+        overloadOffline: "再試行の状態を確認するにはセッションのマシンに再接続してください。",
+        stopRetrying: "再試行を停止",
+        overloadCountdown: ({ seconds, attempt }: { seconds: number; attempt: number }) => `モデルが過負荷です — ${seconds}秒後に再試行 · ${attempt}回目`,
+        overloadAttempt: ({ attempt }: { attempt: number }) => `${attempt}回目`,
       title: "使用制限に達しました",
       readyTitle: "使用制限がリセットされました",
       resetBody: ({ time }: { time: string }) =>

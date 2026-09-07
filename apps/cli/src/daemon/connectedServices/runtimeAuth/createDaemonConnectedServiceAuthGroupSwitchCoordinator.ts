@@ -505,6 +505,7 @@ export function createDaemonConnectedServiceAuthGroupSwitchCoordinator(params: R
                 existing: existingState,
                 policy,
                 reason: input.reason,
+                limitCategory: input.limitCategory,
                 retryAtMs: resolveRetryAtMs({
                   retryAtMs: input.retryAtMs,
                   retryAfterMs: input.retryAfterMs,

@@ -150,6 +150,7 @@ export class ConnectedServiceAuthGroupSwitchCoordinator {
       groupId: string;
       loaded: ConnectedServiceAuthGroupSwitchState;
       reason: string;
+      limitCategory?: string | null;
       observedProfileId?: string | null;
       retryAtMs?: number | null;
       retryAfterMs?: number | null;
@@ -535,6 +536,7 @@ export class ConnectedServiceAuthGroupSwitchCoordinator {
     groupId: string;
     loaded: ConnectedServiceAuthGroupSwitchState;
     reason: string;
+    limitCategory?: string | null;
     observedProfileId?: string | null;
     retryAtMs?: number | null;
     retryAfterMs?: number | null;
@@ -554,6 +556,7 @@ export class ConnectedServiceAuthGroupSwitchCoordinator {
           groupId: input.groupId,
           loaded,
           reason: input.reason,
+          limitCategory: input.limitCategory,
           observedProfileId: input.observedProfileId,
           retryAtMs: input.retryAtMs,
           retryAfterMs: input.retryAfterMs,
@@ -989,6 +992,7 @@ export class ConnectedServiceAuthGroupSwitchCoordinator {
           groupId: input.groupId,
           loaded,
           reason: input.reason,
+          limitCategory: input.limitCategory,
           observedProfileId: input.observedProfileId,
           retryAtMs: input.retryAtMs,
           retryAfterMs: input.retryAfterMs,

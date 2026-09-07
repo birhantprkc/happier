@@ -200,6 +200,48 @@ describe('AccountBlock', () => {
         expect(screen.getTextContent()).not.toContain('connectedServices.account.usageCaption');
     });
 
+    it('shows a non-renewing subscription end date beside the reset count when collapsed', async () => {
+        settingsState.collapsed = { 'anthropic:account:work': true };
+        quotaHookState.value = buildQuotaResult({
+            snapshot: buildSnapshot({
+                subscription: {
+                    status: 'subscribed',
+                    renewal: 'off',
+                    observedAtMs: NOW_MS,
+                    staleAfterMs: 60_000,
+                    currentPeriodEndAtMs: NOW_MS + 10 * DAY_MS,
+                },
+            }),
+        });
+
+        const screen = await renderAccountBlock();
+
+        expect(screen.findByTestId('acct:subscription-end')).toBeTruthy();
+        expect(screen.getTextContent()).toContain('connectedServices.subscription.endsInDays');
+    });
+
+    it('aligns subscription renewal status to the right of its heading and keeps the end date in body text', async () => {
+        quotaHookState.value = buildQuotaResult({
+            snapshot: buildSnapshot({
+                subscription: {
+                    status: 'subscribed',
+                    renewal: 'off',
+                    observedAtMs: NOW_MS,
+                    staleAfterMs: 60_000,
+                    currentPeriodEndAtMs: NOW_MS + 10 * DAY_MS,
+                },
+            }),
+        });
+
+        const screen = await renderAccountBlock();
+
+        expect(screen.findByTestId('acct:subscription:header')).toBeTruthy();
+        expect(screen.findByTestId('acct:subscription:renewal')).toBeTruthy();
+        expect(screen.findByTestId('acct:subscription:period')).toBeTruthy();
+        expect(screen.getTextContent()).toContain('connectedServices.subscription.renewalOff');
+        expect(screen.getTextContent()).toContain('connectedServices.subscription.endsInDays');
+    });
+
     it('moves pool membership into a labelled "Pools" section when expanded', async () => {
         // Detail variant defaults to expanded.
         const screen = await renderAccountBlock({ poolLabels: ['Team'] });

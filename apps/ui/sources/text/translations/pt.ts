@@ -1962,6 +1962,7 @@ export const pt: TranslationStructure = {
         title: "Instruções de execuções do Happier",
         subtitle: "Desativar remove o roteamento nativo primeiro e a mecânica de execuções do Happier dos prompts de sistema dos agentes de código.",
       },
+      notifyParentOnCompletion: { title: 'Notificar o agente pai ao terminar', subtitle: 'Envia ao agente pai um evento de conclusão estruturado.' },
       characterBudget: {
         title: "Limite de regras personalizadas",
         subtitle: ({ value }: { value: string }) => `${value} caracteres`,
@@ -2600,6 +2601,8 @@ export const pt: TranslationStructure = {
           renewalUnknown: "Desconhecida",
           renews: ({ date }: { date: string }) => `Renova em ${date}`,
           ends: ({ date }: { date: string }) => `Termina em ${date}`,
+          renewsInDays: ({ days }: { days: number }) => `Renova em ${days} dia${days === 1 ? '' : 's'}`,
+          endsInDays: ({ days }: { days: number }) => `Termina em ${days} dia${days === 1 ? '' : 's'}`,
           periodEnds: ({ date }: { date: string }) => `O período atual termina em ${date}`,
           period: ({ start, end }: { start: string; end: string }) => `${start} – ${end}`,
           periodStarted: ({ date }: { date: string }) => `Iniciada em ${date}`,
@@ -5212,6 +5215,16 @@ export const pt: TranslationStructure = {
       railScrollDownA11y: "Deslocar a navegação para baixo",
     },
     usageLimitRecovery: {
+        overloadTitle: "Modelo sobrecarregado",
+        overloadWaiting: "Aguardando para tentar novamente.",
+        overloadDispatching: "Tentando novamente agora.",
+        overloadAwaiting: "Aguardando uma resposta do modelo.",
+        overloadStopped: "Tentativas automáticas interrompidas. Você pode tentar novamente.",
+        overloadExhausted: "Tentativas automáticas esgotadas. Você pode tentar novamente.",
+        overloadOffline: "Reconecte-se à máquina da sessão para verificar as tentativas.",
+        stopRetrying: "Parar tentativas",
+        overloadCountdown: ({ seconds, attempt }: { seconds: number; attempt: number }) => `Modelo sobrecarregado — nova tentativa em ${seconds} segundos · tentativa ${attempt}`,
+        overloadAttempt: ({ attempt }: { attempt: number }) => `Tentativa ${attempt}`,
       title: "Limite de uso atingido",
       readyTitle: "Limite de uso redefinido",
       resetBody: ({ time }: { time: string }) =>

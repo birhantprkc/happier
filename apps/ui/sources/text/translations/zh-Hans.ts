@@ -1787,6 +1787,7 @@ export const zhHans: TranslationStructure = {
         title: "Happier 运行指令",
         subtitle: "关闭后，编码代理的系统提示词中将移除原生优先路由说明和 Happier 运行机制。",
       },
+      notifyParentOnCompletion: { title: '运行完成时通知父代理', subtitle: '向父代理发送结构化的完成事件。' },
       characterBudget: {
         title: "自定义规则字符上限",
         subtitle: ({ value }: { value: string }) => `${value} 个字符`,
@@ -2409,6 +2410,8 @@ export const zhHans: TranslationStructure = {
           renewalUnknown: "未知",
           renews: ({ date }: { date: string }) => `${date}续订`,
           ends: ({ date }: { date: string }) => `${date}结束`,
+          renewsInDays: ({ days }: { days: number }) => `${days}天后续订`,
+          endsInDays: ({ days }: { days: number }) => `${days}天后结束`,
           periodEnds: ({ date }: { date: string }) => `当前周期于${date}结束`,
           period: ({ start, end }: { start: string; end: string }) => `${start} – ${end}`,
           periodStarted: ({ date }: { date: string }) => `${date}开始`,
@@ -4914,6 +4917,16 @@ export const zhHans: TranslationStructure = {
       railScrollDownA11y: "向下滚动导航",
     },
     usageLimitRecovery: {
+        overloadTitle: "模型过载",
+        overloadWaiting: "等待重试。",
+        overloadDispatching: "正在重试。",
+        overloadAwaiting: "正在等待模型响应。",
+        overloadStopped: "自动重试已停止。准备好后可重试。",
+        overloadExhausted: "自动重试次数已用尽。准备好后可重试。",
+        overloadOffline: "请重新连接会话所在机器以查看重试状态。",
+        stopRetrying: "停止重试",
+        overloadCountdown: ({ seconds, attempt }: { seconds: number; attempt: number }) => `模型过载 — ${seconds}秒后重试 · 第${attempt}次`,
+        overloadAttempt: ({ attempt }: { attempt: number }) => `第${attempt}次`,
       title: "已达到使用限制",
       readyTitle: "使用限制已重置",
       resetBody: ({ time }: { time: string }) =>

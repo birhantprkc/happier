@@ -2175,6 +2175,7 @@ export const it: TranslationStructure = {
             title: "Istruzioni per le esecuzioni Happier",
             subtitle: "Disattivandole, il routing nativo prioritario e i meccanismi delle esecuzioni Happier vengono rimossi dai prompt di sistema degli agenti di coding.",
           },
+          notifyParentOnCompletion: { title: 'Avvisa il genitore al termine delle esecuzioni', subtitle: 'Invia all’agente genitore un evento di completamento strutturato.' },
           characterBudget: {
             title: "Limite regole personalizzate",
             subtitle: ({ value }: { value: string }) => `${value} caratteri`,
@@ -2815,6 +2816,8 @@ export const it: TranslationStructure = {
           renewalUnknown: "Sconosciuto",
           renews: ({ date }: { date: string }) => `Si rinnova il ${date}`,
           ends: ({ date }: { date: string }) => `Termina il ${date}`,
+          renewsInDays: ({ days }: { days: number }) => `Si rinnova tra ${days} ${days === 1 ? 'giorno' : 'giorni'}`,
+          endsInDays: ({ days }: { days: number }) => `Termina tra ${days} ${days === 1 ? 'giorno' : 'giorni'}`,
           periodEnds: ({ date }: { date: string }) => `Il periodo attuale termina il ${date}`,
           period: ({ start, end }: { start: string; end: string }) => `${start} – ${end}`,
           periodStarted: ({ date }: { date: string }) => `Iniziato il ${date}`,
@@ -5434,6 +5437,16 @@ export const it: TranslationStructure = {
       railScrollDownA11y: "Scorri la navigazione verso il basso",
     },
     usageLimitRecovery: {
+        overloadTitle: "Modello sovraccarico",
+        overloadWaiting: "In attesa di riprovare.",
+        overloadDispatching: "Nuovo tentativo in corso.",
+        overloadAwaiting: "In attesa di una risposta dal modello.",
+        overloadStopped: "Tentativi automatici interrotti. Puoi riprovare.",
+        overloadExhausted: "Tentativi automatici esauriti. Puoi riprovare.",
+        overloadOffline: "Riconnettiti alla macchina della sessione per verificare i tentativi.",
+        stopRetrying: "Interrompi tentativi",
+        overloadCountdown: ({ seconds, attempt }: { seconds: number; attempt: number }) => `Modello sovraccarico — nuovo tentativo tra ${seconds} secondi · tentativo ${attempt}`,
+        overloadAttempt: ({ attempt }: { attempt: number }) => `Tentativo ${attempt}`,
       title: "Limite di utilizzo raggiunto",
       readyTitle: "Limite di utilizzo reimpostato",
       resetBody: ({ time }: { time: string }) =>
