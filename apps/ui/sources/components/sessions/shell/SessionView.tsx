@@ -5311,7 +5311,6 @@ function SessionViewLoaded({
                     text: trimmedText,
                     permissionModeApplyTiming,
                     nonSteerableSendPrompt,
-                    sessionInactiveResumePolicy,
                     providerNonSteerablePayloadReason,
                     nowMs: Date.now(),
                 });
@@ -6143,13 +6142,12 @@ function SessionViewLoaded({
                                             await handleResumeSession();
                                             return;
                                         }
-                                        await sync.sendPendingMessageNow(sessionId, {
-                                            localId: row.localId,
-                                            createdAt: row.createdAt,
-                                            rawRecord: row.rawRecord,
-                                            text: row.text,
-                                            displayText: row.displayText,
-                                        });
+                                        await sync.updatePendingRequestedAction(
+                                            sessionId,
+                                            row.localId,
+                                            row.requestedAction ?? { v: 1, kind: 'enqueue' },
+                                            { resumeWhenAvailable: true },
+                                        );
                                     } catch (error) {
                                         Modal.alert(t('common.error'), error instanceof Error ? error.message : t('session.pendingMessages.errors.sendFailed'));
                                     } finally {
@@ -6171,7 +6169,15 @@ function SessionViewLoaded({
                                         if (!localId) return;
                                         setPendingActivationActionBusy(true);
                                         try {
-                                            await sync.updatePendingRequestedAction(sessionId, localId, { v: 1, kind: 'enqueue' });
+                                            const requestedAction = pendingActivationPresentation.row?.requestedAction;
+                                            await sync.updatePendingRequestedAction(
+                                                sessionId,
+                                                localId,
+                                                requestedAction?.kind === 'send_now'
+                                                    ? { v: 1, kind: 'enqueue' }
+                                                    : requestedAction ?? { v: 1, kind: 'enqueue' },
+                                                { resumeWhenAvailable: false },
+                                            );
                                         } catch (error) {
                                             Modal.alert(t('common.error'), error instanceof Error ? error.message : t('session.pendingMessages.errors.sendFailed'));
                                         } finally {

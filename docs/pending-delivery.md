@@ -29,17 +29,17 @@ their existing serialized lifecycle handling.
 
 ## Current Queue V2 activation ownership
 
-Pending Queue V2 remains the sole durable owner of message custody, ordering, and exact-row actions. An inactive-session start request is a small session-level authorization for the current eligible `send_now` row; it is not another message-delivery state machine.
+Pending Queue V2 remains the sole durable owner of message custody, ordering, and exact-row actions. An inactive-session start request is a small session-level authorization for one exact eligible queued row; it is not another message-delivery state machine and does not change that row's delivery priority.
 
-- The server transaction that mutates Pending rows is the only writer of the current activation authorization. It arms one exact request, clears only that request when its row no longer asks to send now, and never silently retargets older queued input.
+- The server transaction that mutates Pending rows is the only writer of the current activation authorization. Pending Input V2 accepts `resumeWhenAvailable` as a mutation command, applies it atomically to the existing Session authorization, and never persists it as a second row-level desired state.
 - `Session.lastActiveAt` is the lifecycle fence. An authorization at or before that value is stale and is not projected. Publisher activity therefore invalidates an old start request without a second client-owned timestamp.
 - The Pending activation hint is lossy notification only. The authorization persisted on `Session` is authoritative.
 - The daemon on the session's exact owning machine is the only unattended starter. It consumes live hints and one finite reconnect scan through the same activator, re-reads the session and exact Pending row, and then uses the existing inactive-session resume path.
-- Machine unreachability leaves the request in `waiting`. A genuine terminal inability to start records `failed`; it is not retried merely because a daemon reconnects. Explicit retry reuses the existing Pending `send_now` action.
+- Machine unreachability leaves the request in `waiting`. A genuine terminal inability to start records `failed`; it is not retried merely because a daemon reconnects. Explicit retry re-arms the same exact Session authorization without changing the row's delivery action.
 - Current clients delegate unattended starts only when the server advertises Pending Input V2 and the exact target machine advertises daemon activation support. Otherwise they retain the released direct-resume compatibility path.
-- The account preference has one three-state owner. `when_available` persists `send_now` and therefore authorizes the daemon; `online_only` persists `enqueue` and makes at most one user-present UI resume attempt when the exact machine is currently reachable; `manual` only persists `enqueue`. The default is `online_only`.
-- The `online_only` attempt never delegates to the daemon and never changes the row to `send_now`. If reachability changes or the attempt fails, Pending custody remains without authorization for a later unattended start.
-- The banner action **Process when online** reuses the exact-row Pending `send_now` mutation for the displayed message. It does not change the account preference or create a second activation path.
+- The account preference has one three-state owner. All ordinary inactive/offline input persists as FIFO `enqueue`. `when_available` additionally arms the exact Session authorization; `online_only` makes at most one user-present UI resume attempt when the exact machine is currently reachable; `manual` only persists the row. The default is `online_only`.
+- Neither `when_available` nor `online_only` changes an ordinary row to `send_now`; that action remains reserved for an explicit immediate-delivery request. If reachability changes or an `online_only` attempt fails, Pending custody remains without authorization for a later unattended start.
+- The banner actions **Process when online** and **Retry** re-arm the exact Session authorization. **Keep queued** clears that authorization and preserves FIFO delivery. These actions do not change the account preference or create a second activation path.
 
 This design intentionally has no polling loop, lease, generation, retry counter, or client-side activation clock. Pending owns the payload; the server owns activation intent; session activity fences staleness; and the daemon owns process start.
 

@@ -3128,6 +3128,7 @@ class Sync {
         sessionId: string,
         localId: string,
         requestedAction: import('@happier-dev/protocol').PendingRequestedActionV1,
+        options?: Readonly<{ resumeWhenAvailable?: boolean }>,
     ): Promise<void> {
         assertSafePendingIdPathSegment(localId);
         const ownerContext = await this.resolvePendingQueueOwnerContext(sessionId);
@@ -3138,6 +3139,9 @@ class Sync {
             sessionId,
             localId,
             requestedAction,
+            ...(options?.resumeWhenAvailable !== undefined
+                ? { resumeWhenAvailable: options.resumeWhenAvailable }
+                : {}),
             request: ownerContext.request,
             outboxScope: ownerContext.outboxScope,
             wireMode,
@@ -3158,8 +3162,8 @@ class Sync {
             sendMessage: (targetSessionId, targetText, targetDisplayText, targetMetaOverrides, options) =>
                 this.sendMessage(targetSessionId, targetText, targetDisplayText, targetMetaOverrides, options),
             abortSession: (targetSessionId) => this.abortSession(targetSessionId),
-            updatePendingRequestedAction: (targetSessionId, localId, requestedAction) =>
-                this.updatePendingRequestedAction(targetSessionId, localId, requestedAction),
+            updatePendingRequestedAction: (targetSessionId, localId, requestedAction, options) =>
+                this.updatePendingRequestedAction(targetSessionId, localId, requestedAction, options),
             ensureSessionRuntimeForPendingInput: (options) => ensureSessionRuntimeForPendingInput(options),
             shouldDelegatePendingActivationToDaemon: (session, serverId, machineId) =>
                 shouldDelegatePendingActivationToDaemon({
@@ -3597,6 +3601,7 @@ class Sync {
             deliveryMode?: 'external_handoff';
             onLocalPendingProjectionCreated?: (event: Readonly<{ localId: string }>) => void;
             requestedAction: import('@happier-dev/protocol').PendingRequestedActionV1;
+            resumeWhenAvailable?: true;
         }>,
     ): Promise<PendingMessageEnqueueResultV2> {
         const ownerContext = await this.resolvePendingQueueOwnerContext(sessionId);
@@ -3618,6 +3623,7 @@ class Sync {
             request: ownerContext.request,
             outboxScope,
             requestedAction: options?.requestedAction ?? { v: 1, kind: 'enqueue' },
+            ...(options?.resumeWhenAvailable === true ? { resumeWhenAvailable: true as const } : {}),
             wireMode,
             onWireContractMismatch: async () => {
                 await getServerFeaturesSnapshot({ serverId: outboxScope.serverId, force: true });

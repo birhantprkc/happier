@@ -856,13 +856,13 @@ describe('SessionView (sendMessage resumeInactive pendingQueue)', () => {
 
         await screen.pressByTestIdAsync('session-pendingActivation-process_when_online');
 
-        expect(sendPendingMessageNowSpy).toHaveBeenCalledWith('s1', {
-            localId: 'queued-row',
-            createdAt: 200,
-            rawRecord: row.rawRecord,
-            text: 'parked input',
-            displayText: undefined,
-        });
+        expect(updatePendingRequestedActionSpy).toHaveBeenCalledWith(
+            's1',
+            'queued-row',
+            { v: 1, kind: 'enqueue' },
+            { resumeWhenAvailable: true },
+        );
+        expect(sendPendingMessageNowSpy).not.toHaveBeenCalled();
 
         await screen.unmount();
     });
@@ -916,6 +916,7 @@ describe('SessionView (sendMessage resumeInactive pendingQueue)', () => {
             's1',
             'waiting-row',
             { v: 1, kind: 'enqueue' },
+            { resumeWhenAvailable: false },
         );
 
         await screen.unmount();
@@ -1226,7 +1227,7 @@ describe('SessionView (sendMessage resumeInactive pendingQueue)', () => {
     });
 
     it('retries the exact durable row after terminal activation failure', async () => {
-        const row = durablePendingRow('failed-row');
+        const row = durablePendingRow('failed-row', 'enqueue');
         pendingMessagesState.current = { messages: [row], discarded: [], isLoaded: true };
         sessionStateOverrides.current = {
             active: false,
@@ -1246,13 +1247,13 @@ describe('SessionView (sendMessage resumeInactive pendingQueue)', () => {
 
         await screen.pressByTestIdAsync('session-pendingActivation-retry');
 
-        expect(sendPendingMessageNowSpy).toHaveBeenCalledWith('s1', {
-            localId: 'failed-row',
-            createdAt: 200,
-            rawRecord: row.rawRecord,
-            text: 'parked input',
-            displayText: undefined,
-        });
+        expect(updatePendingRequestedActionSpy).toHaveBeenCalledWith(
+            's1',
+            'failed-row',
+            { v: 1, kind: 'enqueue' },
+            { resumeWhenAvailable: true },
+        );
+        expect(sendPendingMessageNowSpy).not.toHaveBeenCalled();
 
         await screen.unmount();
     });

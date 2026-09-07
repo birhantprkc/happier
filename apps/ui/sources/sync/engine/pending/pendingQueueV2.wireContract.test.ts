@@ -105,6 +105,111 @@ describe('Pending queue HTTP wire contract', () => {
         ]);
     });
 
+    it('keeps FIFO delivery while sending a separate resume authorization only on the v2 wire', async () => {
+        const sessionId = 'session-resume-when-available';
+        storage.getState().applySessions([buildSession({
+            sessionId,
+            overrides: { encryptionMode: 'plain' },
+        })]);
+        const encryption = await createPendingQueueEncryption({ sessionId });
+        const request = vi.fn(async (_path: string, init?: RequestInit) => {
+            expect(JSON.parse(String(init?.body))).toEqual(expect.objectContaining({
+                localId: 'local-resume-when-available',
+                requestedAction: { v: 1, kind: 'enqueue' },
+                resumeWhenAvailable: true,
+            }));
+            return Response.json({
+                requestedAction: { v: 1, kind: 'enqueue' },
+                pending: { localId: 'local-resume-when-available' },
+            });
+        });
+
+        await expect(enqueuePendingMessageV2({
+            sessionId,
+            localId: 'local-resume-when-available',
+            text: 'hello',
+            encryption,
+            request,
+            outboxScope,
+            wireMode: 'pending_input_v2',
+            requestedAction: { v: 1, kind: 'enqueue' },
+            resumeWhenAvailable: true,
+        })).resolves.toMatchObject({ accepted: true });
+    });
+
+    it('sends the separate resume authorization when retrying an existing row on v2', async () => {
+        const request = vi.fn(async (_path: string, init?: RequestInit) => {
+            expect(JSON.parse(String(init?.body))).toEqual({
+                requestedAction: { v: 1, kind: 'enqueue' },
+                resumeWhenAvailable: true,
+            });
+            return Response.json({ didUpdate: true });
+        });
+
+        await updatePendingRequestedActionV2({
+            sessionId: 'session-resume-action',
+            localId: 'local-resume-action',
+            requestedAction: { v: 1, kind: 'enqueue' },
+            resumeWhenAvailable: true,
+            request,
+            outboxScope,
+            wireMode: 'pending_input_v2',
+        });
+        expect(request).toHaveBeenCalledTimes(1);
+    });
+
+    it('drops the separate resume command when a durable enqueue is transported to a v1 server', async () => {
+        const sessionId = 'session-resume-v1-enqueue';
+        storage.getState().applySessions([buildSession({
+            sessionId,
+            overrides: { encryptionMode: 'plain' },
+        })]);
+        const encryption = await createPendingQueueEncryption({ sessionId });
+        const request = vi.fn(async (_path: string, init?: RequestInit) => {
+            expect(JSON.parse(String(init?.body))).toEqual(expect.objectContaining({
+                localId: 'local-resume-v1-enqueue',
+                requestedAction: { v: 1, kind: 'enqueue' },
+            }));
+            expect(JSON.parse(String(init?.body))).not.toHaveProperty('resumeWhenAvailable');
+            return Response.json({
+                requestedAction: { v: 1, kind: 'enqueue' },
+                pending: { localId: 'local-resume-v1-enqueue' },
+            });
+        });
+
+        await expect(enqueuePendingMessageV2({
+            sessionId,
+            localId: 'local-resume-v1-enqueue',
+            text: 'hello',
+            encryption,
+            request,
+            outboxScope,
+            wireMode: 'pending_input_v1',
+            requestedAction: { v: 1, kind: 'enqueue' },
+            resumeWhenAvailable: true,
+        })).resolves.toMatchObject({ accepted: true });
+    });
+
+    it('maps an explicit resume command to the released v1 send-now action', async () => {
+        const request = vi.fn(async (_path: string, init?: RequestInit) => {
+            expect(JSON.parse(String(init?.body))).toEqual({
+                requestedAction: { v: 1, kind: 'send_now' },
+            });
+            return Response.json({ didUpdate: true });
+        });
+
+        await updatePendingRequestedActionV2({
+            sessionId: 'session-resume-v1-action',
+            localId: 'local-resume-v1-action',
+            requestedAction: { v: 1, kind: 'enqueue' },
+            resumeWhenAvailable: true,
+            request,
+            outboxScope,
+            wireMode: 'pending_input_v1',
+        });
+        expect(request).toHaveBeenCalledTimes(1);
+    });
+
     it('rejects a supplied whitespace-only localId before persistence or transport', async () => {
         const sessionId = 'session-blank-local-id';
         storage.getState().applySessions([buildSession({ sessionId })]);

@@ -53,7 +53,10 @@ import {
     pendingOutboxProjectionIdentityKey,
     type PendingOutboxProjectionIdentity,
 } from './pendingOutboxProjectionIdentity';
-import type { PendingInputServerWireMode } from './pendingInputServerWireContract';
+import {
+    isCurrentPendingInputServerWireMode,
+    type PendingInputServerWireMode,
+} from './pendingInputServerWireContract';
 
 function assertServerRequestedActionAcknowledged(payload: unknown, requestedAction: PendingRequestedActionV1): void {
     const acknowledged = isPlainObject(payload)
@@ -147,7 +150,22 @@ function serializePendingEnqueueBodyForWire(params: Readonly<{
     requestedAction: PendingRequestedActionV1;
     deliveryMode?: 'external_handoff';
 }>): string {
-    if (params.wireMode === 'pending_input_v1') return params.canonicalBody;
+    if (params.wireMode === 'pending_input_v2') return params.canonicalBody;
+    if (params.wireMode === 'pending_input_v1') {
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(params.canonicalBody) as unknown;
+        } catch {
+            throw new Error('Persisted pending outbox envelope is invalid');
+        }
+        if (!isPlainObject(parsed)) {
+            throw new Error('Persisted pending outbox envelope is invalid');
+        }
+        if (!('resumeWhenAvailable' in parsed)) return params.canonicalBody;
+        const v1Body = { ...parsed };
+        delete v1Body.resumeWhenAvailable;
+        return JSON.stringify(v1Body);
+    }
     if (params.requestedAction.kind !== 'enqueue' || params.deliveryMode !== undefined) {
         throw createPendingServerUpgradeRequiredError();
     }
@@ -179,7 +197,7 @@ function assertPendingEnqueueAcknowledgedForWire(params: Readonly<{
     localId: string;
     requestedAction: PendingRequestedActionV1;
 }>): void {
-    if (params.wireMode === 'pending_input_v1') {
+    if (isCurrentPendingInputServerWireMode(params.wireMode)) {
         assertServerRequestedActionAcknowledged(params.payload, params.requestedAction);
         const payload = isPlainObject(params.payload) ? params.payload : null;
         if (payload?.terminal === true) {
@@ -1739,6 +1757,7 @@ async function enqueuePendingMessageV2Owned(params: {
     onLocalPendingProjectionCreated?: (event: Readonly<{ localId: string }>) => void;
     outboxScope: ServerAccountScope;
     requestedAction: PendingRequestedActionV1;
+    resumeWhenAvailable?: true;
     wireMode: PendingInputServerWireMode;
     onWireContractMismatch?: () => void | Promise<void>;
 }): Promise<PendingMessageEnqueueResultV2> {
@@ -1875,8 +1894,8 @@ async function enqueuePendingMessageV2Owned(params: {
                     request: {
                         v: 1,
                         body: JSON.stringify(sessionEncryptionMode === 'plain'
-                            ? { localId, content: { t: 'plain' as const, v: rawRecord! }, messageRole: 'user' as const, requestedAction, ...(deliveryMode ? { deliveryMode } : {}) }
-                            : { localId, ciphertext: await sessionEncryption!.encryptRawRecord(rawRecord!), messageRole: 'user' as const, requestedAction, ...(deliveryMode ? { deliveryMode } : {}) }),
+                            ? { localId, content: { t: 'plain' as const, v: rawRecord! }, messageRole: 'user' as const, requestedAction, ...(params.resumeWhenAvailable === true ? { resumeWhenAvailable: true as const } : {}), ...(deliveryMode ? { deliveryMode } : {}) }
+                            : { localId, ciphertext: await sessionEncryption!.encryptRawRecord(rawRecord!), messageRole: 'user' as const, requestedAction, ...(params.resumeWhenAvailable === true ? { resumeWhenAvailable: true as const } : {}), ...(deliveryMode ? { deliveryMode } : {}) }),
                     },
                 }, outboxScope));
             }
@@ -2427,11 +2446,12 @@ export async function updatePendingRequestedActionV2(params: {
     sessionId: string;
     localId: string;
     requestedAction: PendingRequestedActionV1;
+    resumeWhenAvailable?: boolean;
     request: (path: string, init?: RequestInit) => Promise<Response>;
     outboxScope: ServerAccountScope;
     wireMode: PendingInputServerWireMode;
 }): Promise<void> {
-    if (params.wireMode !== 'pending_input_v1') {
+    if (!isCurrentPendingInputServerWireMode(params.wireMode)) {
         throw createPendingServerUpgradeRequiredError();
     }
     const localId = params.localId;
@@ -2439,7 +2459,20 @@ export async function updatePendingRequestedActionV2(params: {
     const response = await params.request(`${pendingMessagePath(params.sessionId, localId)}/action`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ requestedAction: params.requestedAction }),
+        body: JSON.stringify(params.wireMode === 'pending_input_v2'
+            ? {
+                requestedAction: params.requestedAction,
+                ...(params.resumeWhenAvailable !== undefined
+                    ? { resumeWhenAvailable: params.resumeWhenAvailable }
+                    : {}),
+            }
+            : {
+                requestedAction: params.resumeWhenAvailable === true
+                    ? { v: 1 as const, kind: 'send_now' as const }
+                    : params.resumeWhenAvailable === false
+                        ? { v: 1 as const, kind: 'enqueue' as const }
+                        : params.requestedAction,
+            }),
     });
     const payload = await response.json().catch(() => null) as { error?: unknown; didUpdate?: unknown } | null;
     if (!response.ok) {
