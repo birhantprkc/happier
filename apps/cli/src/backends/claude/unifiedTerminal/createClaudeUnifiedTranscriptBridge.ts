@@ -29,17 +29,28 @@ function readHookString(data: SessionHookData, snakeKey: string, camelKey: strin
   return typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : null;
 }
 
-function readSessionStartInfo(data: SessionHookData): Readonly<{
+type ClaudeUnifiedHookTranscriptInfo = Readonly<{
   sessionId: string;
   transcriptPath: string | null;
-  source: string | null;
-}> | null {
-  if (readHookEventName(data) !== 'SessionStart') return null;
+}>;
+
+function readHookTranscriptInfo(data: SessionHookData): ClaudeUnifiedHookTranscriptInfo | null {
   const sessionId = readHookString(data, 'session_id', 'sessionId');
   if (!sessionId) return null;
   return {
     sessionId,
     transcriptPath: readHookString(data, 'transcript_path', 'transcriptPath'),
+  };
+}
+
+function readSessionStartInfo(data: SessionHookData): Readonly<ClaudeUnifiedHookTranscriptInfo & {
+  source: string | null;
+}> | null {
+  if (readHookEventName(data) !== 'SessionStart') return null;
+  const transcriptInfo = readHookTranscriptInfo(data);
+  if (!transcriptInfo) return null;
+  return {
+    ...transcriptInfo,
     source: readHookString(data, 'source', 'source'),
   };
 }
@@ -50,9 +61,11 @@ function readLaterHookTranscriptInfo(data: SessionHookData): Readonly<{
 }> | null {
   const hookEventName = readHookEventName(data);
   if (!hookEventName || hookEventName === 'SessionStart') return null;
-  const sessionId = readHookString(data, 'session_id', 'sessionId');
-  const transcriptPath = readHookString(data, 'transcript_path', 'transcriptPath');
-  return sessionId && transcriptPath ? { sessionId, transcriptPath } : null;
+  const transcriptInfo = readHookTranscriptInfo(data);
+  return transcriptInfo?.transcriptPath ? {
+    sessionId: transcriptInfo.sessionId,
+    transcriptPath: transcriptInfo.transcriptPath,
+  } : null;
 }
 
 type ClaudeUnifiedSessionStartInfo = NonNullable<ReturnType<typeof readSessionStartInfo>>;
