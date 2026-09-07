@@ -893,6 +893,52 @@ describe('sync.sendMessage optimistic thinking', () => {
         requestSpy.mockRestore();
     });
 
+    it('reconciles a server-delivering row when its committed twin arrives without pending-changed', async () => {
+        const sessionId = 's_server_pending_commit_without_receipt';
+        const localId = 'delivered-local-id';
+        storage.getState().applySessions([{
+            ...createSession({ sessionId }),
+            encryptionMode: 'plain',
+        }]);
+        storage.getState().upsertPendingMessage(sessionId, {
+            id: localId,
+            localId,
+            createdAt: 1_000,
+            updatedAt: 1_100,
+            source: 'server_pending',
+            deliveryStatus: 'accepted',
+            pendingDeliveryStatus: 'server_delivering',
+            text: 'already delivered',
+            rawRecord: {
+                role: 'user',
+                content: { type: 'text', text: 'already delivered' },
+                meta: {},
+            },
+        });
+        const requestSpy = vi.spyOn(apiSocket, 'request').mockResolvedValue(
+            Response.json({ pending: [] }),
+        );
+        const { sync } = await import('./sync');
+
+        (sync as any).applyMessages(sessionId, [{
+            id: 'committed-message-id',
+            seq: 1,
+            localId,
+            createdAt: 1_200,
+            isSidechain: false,
+            role: 'user',
+            content: { type: 'text', text: 'already delivered' },
+        }]);
+
+        await vi.waitFor(() => {
+            expect(requestSpy).toHaveBeenCalledWith(
+                `/v2/sessions/${sessionId}/pending?includeDiscarded=1`,
+                { method: 'GET' },
+            );
+            expect(storage.getState().sessionPending[sessionId]?.messages).toEqual([]);
+        });
+    });
+
     it('replays identical scoped enqueue identities independently through the real Sync scheduler', async () => {
         vi.useFakeTimers();
         try {
