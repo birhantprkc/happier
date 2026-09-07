@@ -684,6 +684,94 @@ describe('createClaudeUnifiedTranscriptBridge', () => {
     }
   });
 
+  it('follows the same main Claude session when a later trusted hook reports a moved transcript path', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'happier-claude-unified-transcript-moved-'));
+    tempDirs.push(dir);
+    const originalTranscriptPath = join(dir, 'project-a', 'sess_main.jsonl');
+    const movedTranscriptPath = join(dir, 'project-b', 'sess_main.jsonl');
+    const sidechainTranscriptPath = join(dir, 'project-b', 'sess_sidechain.jsonl');
+    await mkdir(join(dir, 'project-a'), { recursive: true });
+    await mkdir(join(dir, 'project-b'), { recursive: true });
+    await writeFile(originalTranscriptPath, '');
+    await writeFile(movedTranscriptPath, '');
+    await writeFile(sidechainTranscriptPath, '');
+
+    let subscribedHook: ((data: SessionHookData) => void) | undefined;
+    const onMessage = vi.fn();
+    const onSessionFound = vi.fn();
+    const bridge = createClaudeUnifiedTranscriptBridge({
+      sessionId: null,
+      transcriptPath: null,
+      workingDirectory: dir,
+      onMessage,
+      onSessionFound,
+      subscribeClaudeSessionHooks: (callback) => {
+        subscribedHook = callback;
+        return () => {
+          subscribedHook = undefined;
+        };
+      },
+      transcriptMissingWarningMs: 0,
+    });
+
+    try {
+      await bridge.start({ abortSignal: new AbortController().signal });
+      const hook = subscribedHook;
+      expect(hook).toBeTypeOf('function');
+      if (typeof hook !== 'function') throw new Error('Claude session hook subscription was not registered');
+
+      hook({
+        hook_event_name: 'SessionStart',
+        source: 'startup',
+        session_id: 'sess_main',
+        transcript_path: originalTranscriptPath,
+      });
+      await appendJsonl(originalTranscriptPath, {
+        type: 'assistant',
+        uuid: 'assistant_before_move',
+        sessionId: 'sess_main',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'before move' }] },
+      } as RawJSONLines);
+      await waitUntil(() => onMessage.mock.calls.some(([message]) => message?.uuid === 'assistant_before_move'));
+
+      hook({
+        hook_event_name: 'PostToolUse',
+        session_id: 'sess_main',
+        transcript_path: sidechainTranscriptPath,
+        agent_id: 'subagent-1',
+      });
+      expect(onSessionFound).toHaveBeenCalledTimes(1);
+
+      const movedHook: SessionHookData = {
+        hook_event_name: 'UserPromptSubmit',
+        session_id: 'sess_main',
+        transcript_path: movedTranscriptPath,
+      };
+      hook(movedHook);
+      expect(onSessionFound).toHaveBeenCalledTimes(2);
+      expect(onSessionFound).toHaveBeenLastCalledWith('sess_main', movedHook);
+
+      await appendJsonl(movedTranscriptPath, {
+        type: 'assistant',
+        uuid: 'assistant_after_move',
+        sessionId: 'sess_main',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'after move' }] },
+      } as RawJSONLines);
+      await waitUntil(() => onMessage.mock.calls.some(([message]) => message?.uuid === 'assistant_after_move'));
+
+      await appendJsonl(originalTranscriptPath, {
+        type: 'assistant',
+        uuid: 'stale_assistant_after_move',
+        sessionId: 'sess_main',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'stale after move' }] },
+      } as RawJSONLines);
+      await waitMs(150);
+      expect(onMessage.mock.calls.map(([message]) => message?.uuid)).not.toContain('stale_assistant_after_move');
+    } finally {
+      await bridge.dispose();
+    }
+  });
+
   it('does not pre-mark a known hook-driven resume transcript before Claude announces SessionStart', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'happier-claude-unified-transcript-known-resume-'));
     tempDirs.push(dir);
