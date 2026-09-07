@@ -6,7 +6,15 @@ metadata: {"openclaw":{"homepage":"https://github.com/happier-dev/happier"}}
 
 # Happier Release
 
-Keep release policy simple: test source once, admit the operation cheaply, build immutable candidates once, verify once per trust boundary, promote independent products in parallel where the workflow permits, and recover without rebuilding valid work.
+Keep release policy simple: test source once, admit the operation cheaply, build each immutable candidate once, verify once per trust boundary, promote independent products in parallel where the workflow permits, and recover without rebuilding valid work.
+
+When the same approved `dev` source must ship to both public channels, select
+the conductor's `preview-and-production` target. It reuses one exact-SHA CI and
+approval packet while the canonical channel workflow runs preview and
+production concurrently. Do not try to reuse preview artifact bytes for
+production: channel-specific binaries embed different feature-policy
+environments. The fast path removes duplicate orchestration and operator wait,
+not required channel-specific builds or artifact verification.
 
 ## Resolve authority first
 
@@ -52,5 +60,7 @@ Issue availability is a public release contract owned by `docs/issue-triage.md`.
 - `dev` -> `preview`: source/dev;
 - `preview` -> `main`: preview;
 - authorized direct `dev` -> `main`: source/dev.
+- coordinated `dev` -> preview + main: snapshot source/dev once and advance it
+  directly to stable only after both channel releases succeed.
 
 A reconciliation failure does not roll back published artifacts, but remains a visible release-workflow failure. Retry only the idempotent label owner or leave issues at their prior stage for the next matching release. Never compensate by closing issues or claiming availability without release evidence.
