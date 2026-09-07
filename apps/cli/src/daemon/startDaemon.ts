@@ -23,6 +23,7 @@ import {
 } from './sessions/pendingQueueWake';
 import { publishSessionPendingQueueWake } from './sessions/publishSessionPendingQueueWake';
 import { createRuntimeAuthRecoverySchedulerForDaemon } from './connectedServices/runtimeAuth/createRuntimeAuthRecoverySchedulerForDaemon';
+import { projectTemporaryThrottleRecoveryMetadata } from './connectedServices/runtimeAuth/projection/temporaryThrottleRecoveryMetadata';
 import { deriveConnectedServiceBrokerRefreshToken } from './connectedServices/broker/brokerRefreshCapabilityToken';
 import { createConnectedServiceCredentialApi } from '@/api/connectedServices/connectedServiceCredentialApi';
 import { resolveRoutedUsageLimitRecoveryResumePromptMode } from '@/session/usageLimitRecoveryControls/resolveRoutedUsageLimitRecoveryResumePromptMode';
@@ -278,7 +279,7 @@ import {
   ConnectedServiceQuotasCoordinator,
   DEFAULT_CONNECTED_SERVICE_QUOTA_FETCH_TIMEOUT_MS,
 } from './connectedServices/quotas/ConnectedServiceQuotasCoordinator';
-import { createConnectedServiceQuotaFetchers } from './connectedServices/quotas/createConnectedServiceQuotaFetchers';
+import { createConnectedServiceAccountFetchers } from './connectedServices/quotas/createConnectedServiceQuotaFetchers';
 import {
   ConnectedServiceRuntimeRegistry,
   type ConnectedServiceRuntimeBindingIdentity,
@@ -394,7 +395,7 @@ import { createSessionConnectedServiceAuthHotApply } from './connectedServices/s
 import { createSessionConnectedServiceAccountAdoptionVerifier } from './connectedServices/accountTransitions/createSessionConnectedServiceAccountAdoptionVerifier';
 import { resolveInactiveConnectedServiceSessionForAuthSwitch } from './connectedServices/sessionAuthSwitch/resolveInactiveConnectedServiceSessionForAuthSwitch';
 import { dispatchConnectedServiceCredentialHealthNotificationAsync } from './connectedServices/notifications/dispatchConnectedServiceCredentialHealthNotification';
-import { dispatchConnectedServiceQuotaLifecycleNotificationAsync } from './connectedServices/notifications/dispatchConnectedServiceQuotaLifecycleNotification';
+import { dispatchConnectedServiceAutomaticQuotaResetNotificationAsync, dispatchConnectedServiceQuotaLifecycleNotificationAsync } from './connectedServices/notifications/dispatchConnectedServiceQuotaLifecycleNotification';
 import { commitConnectedServiceQuotaLifecycleSessionEvents } from './connectedServices/quotas/commitConnectedServiceQuotaLifecycleSessionEvents';
 import { ConnectedServiceGroupHomeCleanupScheduler } from './connectedServices/homes/ConnectedServiceGroupHomeCleanupScheduler';
 import { ConnectedServiceMaterializedHomeCleanupScheduler } from './connectedServices/materialize/cleanup/ConnectedServiceMaterializedHomeCleanupScheduler';
@@ -1939,7 +1940,9 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
           { kind: 'successful_spawn', observedAtMs: Date.now() },
         );
       };
+      let connectedServicesSubscriptionEnabled = false;
       const providerAccountUsagePersistence = createProviderAccountUsagePersistenceScheduler({
+        isSubscriptionEnabled: () => connectedServicesSubscriptionEnabled,
         api,
         now: () => Date.now(),
         credentials,
@@ -3457,6 +3460,9 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
                       + DEFAULT_CONNECTED_SERVICE_QUOTA_FETCH_TIMEOUT_MS;
                     const preTurnSwitchCoordinator = createDaemonConnectedServiceAuthGroupSwitchCoordinator({
                       api,
+                      consumeAvailableRecoveryCreditForProfile: async (input) => connectedServiceQuotasCoordinator
+                        ? await connectedServiceQuotasCoordinator.consumeAvailableRecoveryCreditForProfile(input)
+                        : { ok: false, errorCode: 'connected_service_quota_recovery_credit_unavailable', error: 'Quota coordinator unavailable' },
                       prepareCandidateForSwitch: prepareAuthGroupCandidateForSwitch,
                       resolveCredentialRevision: (serviceId, profileId) => profileId
                         ? latestConnectedServiceProjectionSnapshot?.resolveCredentialRevision(serviceId, profileId) ?? null
@@ -3793,7 +3799,7 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
                 ...(tmuxTmpDir ? ['--happy-tmux-tmpdir', tmuxTmpDir] : []),
               ];
 
-                  const { commandTokens, tmuxEnv } = buildTmuxSpawnConfig({
+                  const { commandTokens, tmuxEnv } = await buildTmuxSpawnConfig({
                     agent: agentSubcommand,
                     directory: resolvedDirectory,
                     extraEnv: extraEnvForChildWithMessage,
@@ -4538,6 +4544,20 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
         };
         const temporaryThrottleRecoveryScheduler = new TemporaryThrottleRecoveryScheduler({
           nowMs: () => Date.now(),
+          onStateChange: async (sessionId, intent, previous) => {
+            try {
+            const effectiveCredentials = (await readCredentials().catch(() => null)) ?? credentials;
+            if (!effectiveCredentials) return;
+            const rawSession = await fetchSessionByIdCompat({ token: effectiveCredentials.token, sessionId });
+            if (!rawSession || rawSession.id !== sessionId) return;
+            await updateSessionMetadataWithRetry({
+              token: effectiveCredentials.token, credentials: effectiveCredentials, sessionId, rawSession,
+              updater: (metadata) => projectTemporaryThrottleRecoveryMetadata(metadata, intent, previous),
+            });
+            } catch {
+              logger.debug('[DAEMON RUN] Temporary throttle recovery presentation could not be published');
+            }
+          },
           baseBackoffMs: resolvePositiveIntEnv(
             process.env.HAPPIER_CONNECTED_SERVICES_TEMPORARY_THROTTLE_BASE_BACKOFF_MS,
             1_000,
@@ -5885,6 +5905,9 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
           });
           const switchCoordinator = createDaemonConnectedServiceAuthGroupSwitchCoordinator({
             api,
+            consumeAvailableRecoveryCreditForProfile: async (input) => connectedServiceQuotasCoordinator
+              ? await connectedServiceQuotasCoordinator.consumeAvailableRecoveryCreditForProfile(input)
+              : { ok: false, errorCode: 'connected_service_quota_recovery_credit_unavailable', error: 'Quota coordinator unavailable' },
             prepareCandidateForSwitch: prepareAuthGroupCandidateForSwitch,
             resolveCredentialRevision: (serviceId, profileId) => profileId
               ? latestConnectedServiceProjectionSnapshot?.resolveCredentialRevision(serviceId, profileId) ?? null
@@ -5900,7 +5923,7 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
             ),
             nowMs: () => Date.now(),
             probeQuotaSnapshotsForGroup: async (groupInput) => {
-              await connectedServiceQuotasCoordinator?.probeGroupQuotaSnapshots(groupInput);
+              return await connectedServiceQuotasCoordinator?.probeGroupQuotaSnapshots(groupInput);
             },
             onCommittedSwitch: async (committed) => {
               if (interruptedContinuation) {
@@ -6859,12 +6882,16 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
         }),
       runtimeAuthRecoveryScheduler: runtimeAuthRecoveryScheduler ?? undefined,
       handleConnectedServiceTurnLifecycle: async (input) => {
+        const lifecycleObservedAtMs = Date.now();
         const trackedTurnResult = await applyTrackedSessionTurnLifecycle({
           trackedSessions: getCurrentChildren(),
           sessionId: input.sessionId,
           event: input.event,
           ...(input.turnId ? { turnId: input.turnId } : {}),
         });
+        if (trackedTurnResult.status === 'recorded') {
+          await temporaryThrottleRecoveryScheduler.recordTurnLifecycle({ ...input, observedAtMs: lifecycleObservedAtMs });
+        }
         connectedServiceTurnDeferralQueue.recordTurnLifecycleEvent({
           sessionId: input.sessionId,
           event: input.event,
@@ -7360,6 +7387,12 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
         serverUrl: configuration.serverUrl,
         timeoutMs: 1500,
       });
+      connectedServicesSubscriptionEnabled = await resolveConnectedServicesQuotasDaemonEnabled({
+        env: process.env,
+        serverUrl: configuration.serverUrl,
+        timeoutMs: 1500,
+        featureId: 'connectedServices.subscription',
+      });
       const quotaGroupFreshnessMs = resolvePositiveIntEnv(
         process.env.HAPPIER_CONNECTED_SERVICES_AUTH_GROUP_QUOTA_FRESHNESS_MS,
         5 * 60_000,
@@ -7431,7 +7464,7 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
           surfaceConnectedServiceAccountSwitchOutcomeForSession({ sessionId: input.sessionId, event });
         },
       });
-      if (connectedServicesQuotasEnabled) {
+      if (connectedServicesQuotasEnabled || connectedServicesSubscriptionEnabled) {
             const quotasTickMs = resolvePositiveIntEnv(
               process.env.HAPPIER_CONNECTED_SERVICES_QUOTAS_TICK_MS,
               60_000,
@@ -7467,11 +7500,13 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
               quotaGroupFreshnessMs,
               { min: 0, max: 30 * 60_000 },
             );
-            const quotaFetchers = createConnectedServiceQuotaFetchers(process.env);
+            const accountFetchers = createConnectedServiceAccountFetchers(process.env);
+            const quotaFetchers = connectedServicesQuotasEnabled ? accountFetchers.quotaFetchers : [];
+            const subscriptionFetchers = connectedServicesSubscriptionEnabled ? accountFetchers.subscriptionFetchers : [];
 
             const quotaActivation = await activateConnectedServiceQuotaAutomationAfterProviderAccountUsageHydration({
               enabled: true,
-              quotaFetchers,
+              quotaFetchers: [...quotaFetchers, ...subscriptionFetchers],
               awaitReadiness: async () => {
                 const settingsReady = await warmActiveAccountSettingsSnapshotBestEffort({ credentials });
                 if (!settingsReady) {
@@ -7492,6 +7527,9 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
               credentials,
               runtimeRegistry: connectedServiceRuntimeRegistry,
               quotaFetchers,
+              subscriptionFetchers,
+              subscriptionEnabled: connectedServicesSubscriptionEnabled,
+              quotasEnabled: connectedServicesQuotasEnabled,
               fetchTimeoutMs,
               discoveryEnabled,
               discoveryIntervalMs,
@@ -7676,6 +7714,15 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
                   transition,
                 }).catch((error) => {
                   logger.debug('[DAEMON RUN] Connected-service quota lifecycle transcript event failed (non-fatal)', error);
+                });
+              },
+              onAutomaticQuotaResetConsumed: async (event) => {
+                const settingsSnapshot = getActiveAccountSettingsSnapshot();
+                await dispatchConnectedServiceAutomaticQuotaResetNotificationAsync({
+                  settings: settingsSnapshot?.settings ?? null,
+                  settingsSecretsReadKeys: settingsSnapshot?.settingsSecretsReadKeys ?? [],
+                  expoPushSender: api.push(),
+                  event,
                 });
               },
               authGroupSwitchCoordinator: {
@@ -8374,6 +8421,9 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
                 }),
                 retryTemporaryThrottleNow: async ({ sessionId }) =>
                   await temporaryThrottleRecoveryScheduler.retryNow({ sessionId }),
+                readTemporaryThrottleRecovery: (sessionId) => temporaryThrottleRecoveryScheduler.read(sessionId),
+                cancelTemporaryThrottleRecovery: async (input) =>
+                  await temporaryThrottleRecoveryScheduler.stopRetrying(input),
               });
 
               connectedApiMachine.onUpdate((update) => {
