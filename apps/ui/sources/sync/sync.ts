@@ -7617,6 +7617,28 @@ class Sync {
         options?: { notifyVoice?: boolean; notifyActivity?: boolean }
     ) => {
         const result = storage.getState().applyMessages(sessionId, messages);
+        const serverPendingLocalIds = new Set(
+            (storage.getState().sessionPending[sessionId]?.messages ?? [])
+                .filter((message) => message.source === 'server_pending')
+                .map((message) => message.localId)
+                .filter((localId): localId is string => typeof localId === 'string' && localId.length > 0),
+        );
+        const receivedCommittedTwinOfServerPending = result.changed.length > 0
+            && messages.some((message) => (
+                message.role === 'user'
+                && typeof message.localId === 'string'
+                && serverPendingLocalIds.has(message.localId)
+            ));
+        if (receivedCommittedTwinOfServerPending) {
+            // Settlement publishes the committed message and the pending-state receipt separately.
+            // If the receipt is lost, the committed twin cannot itself prove whether the durable row
+            // was removed or intentionally retained. Ask the canonical pending snapshot owner rather
+            // than leaving the last server-delivering projection visible until a page refresh.
+            fireAndForget(this.fetchPendingMessages(sessionId), {
+                tag: 'Sync.applyMessages.fetchPendingMessages',
+                logToConsole: false,
+            });
+        }
         const notifyVoice = options?.notifyVoice !== false;
         const notifyActivity = options?.notifyActivity ?? notifyVoice;
         if (notifyVoice || notifyActivity) {
