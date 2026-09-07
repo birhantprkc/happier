@@ -4,6 +4,12 @@ export { buildRecoveryCreditConsumeIdempotencyKey } from './connect/recoveryCred
 export { PROVIDER_ACCOUNT_SUBSCRIPTION_ACCEPT, ProviderAccountSubscriptionV1Schema, mergeProviderAccountSubscription, type ProviderAccountSubscriptionV1 } from './connect/accountSubscription.js';
 
 export {
+  buildExecutionRunCompletionInputV1,
+  ExecutionRunCompletionV1Schema,
+  type ExecutionRunCompletionV1,
+} from './structuredMessages/executionRunCompletionV1.js';
+
+export {
   MachineUpdateMetadataRequestSchema,
   MachineUpdateMetadataResponseSchema,
   type MachineUpdateMetadataRequest,

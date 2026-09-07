@@ -738,6 +738,8 @@ export class Session {
     }
 
     getOrCreatePermissionRpcRouter(): ClaudePermissionRpcRouter {
+        const sharedRouter = this.client.getOrCreatePermissionRpcRouter?.();
+        if (sharedRouter) return sharedRouter;
         if (!this.permissionRpcRouter) {
             this.permissionRpcRouter = new ClaudePermissionRpcRouter(this.client.rpcHandlerManager);
         }
