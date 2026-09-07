@@ -154,6 +154,15 @@ function comparePriority(left: ConnectedServiceAuthGroupMember, right: Connected
     || left.profileId.localeCompare(right.profileId);
 }
 
+export function resolveConnectedServiceAuthGroupPriorityPrimaryProfileId(
+  members: ReadonlyArray<ConnectedServiceAuthGroupMember>,
+): string | null {
+  return members
+    .filter((candidate) => candidate.enabled)
+    .slice()
+    .sort(comparePriority)[0]?.profileId ?? null;
+}
+
 function resolveCooldownRetryAtMs(params: Readonly<{
   policy: ConnectedServiceAuthGroupPolicyV1;
   state: ConnectedServiceAuthGroupMemberRuntimeState | null;
@@ -582,15 +591,11 @@ function resolvePrimaryRestorePreferredCandidate(params: Readonly<{
   if (!params.policy.autoRestorePrimaryWhenReset) return null;
   if (params.policy.strategy !== 'priority') return null;
   if (!params.activeProfileId) return null;
-  const primaryMember = params.members
-    .filter((candidate) => candidate.enabled)
-    .slice()
-    .sort(comparePriority)[0] ?? null;
-  if (!primaryMember) return null;
-  if (primaryMember.profileId === params.activeProfileId) return null;
-  const primaryCandidate = params.candidates.find((candidate) => candidate.profileId === primaryMember.profileId) ?? null;
+  const primaryProfileId = resolveConnectedServiceAuthGroupPriorityPrimaryProfileId(params.members);
+  if (!primaryProfileId || primaryProfileId === params.activeProfileId) return null;
+  const primaryCandidate = params.candidates.find((candidate) => candidate.profileId === primaryProfileId) ?? null;
   if (!primaryCandidate) return null;
-  const primaryState = params.memberStatesByProfileId.get(primaryMember.profileId) ?? null;
+  const primaryState = params.memberStatesByProfileId.get(primaryProfileId) ?? null;
   if (!primaryLeftForLimitAndResetLanded(primaryState, params.nowMs)) return null;
   if (primaryCandidate.leastLimitedScore === null) return null;
   const threshold = resolveSoftSwitchRemainingPercent(params.policy);

@@ -62,6 +62,7 @@ import {
   type ConnectedServiceUsageSourceRecordRef,
 } from '../accountGroups/switching/buildConnectedServiceAuthGroupSwitchStateFromAccountUsage';
 import {
+  resolveConnectedServiceAuthGroupPriorityPrimaryProfileId,
   resolveConnectedServiceAuthGroupSoftSwitchSourceEvidence,
   type ConnectedServiceAuthGroupMemberRuntimeState,
 } from '../accountGroups/selection/selectConnectedServiceAuthGroupCandidate';
@@ -1546,6 +1547,26 @@ export class ConnectedServiceQuotasCoordinator {
       };
     }
     if (sourceEvidence.status === 'above_threshold') {
+      const primaryProfileId = switchState.policy.strategy === 'priority'
+        && switchState.policy.autoRestorePrimaryWhenReset
+        ? resolveConnectedServiceAuthGroupPriorityPrimaryProfileId(switchState.members)
+        : null;
+      if (primaryProfileId && primaryProfileId !== activeProfileId) {
+        // An above-threshold backup normally needs no soft switch. Primary restoration is the
+        // explicit exception: let the canonical selector evaluate its existing reset/headroom
+        // contract instead of duplicating that decision in this quota-intake gate.
+        return {
+          status: 'eligible',
+          sourceProfileId: activeProfileId,
+          sourceRemainingPercent: sourceEvidence.remainingPercent,
+          sourceThresholdPercent: sourceEvidence.thresholdPercent,
+          sourceProjected: false,
+          decisionTrace: {
+            activeProfileId,
+            reason: 'primary_restore_evaluation',
+          },
+        };
+      }
       return {
         status: 'no_meaningfully_better_target',
         retryAfterMs: null,
