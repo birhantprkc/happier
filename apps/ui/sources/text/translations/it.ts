@@ -2806,6 +2806,26 @@ export const it: TranslationStructure = {
   },
 
   connectedServices: {
+      subscription: {
+          title: "Abbonamento",
+          currentPeriod: "Periodo attuale",
+          renewal: "Rinnovo",
+          renewalOn: "Attivo",
+          renewalOff: "Disattivo",
+          renewalUnknown: "Sconosciuto",
+          renews: ({ date }: { date: string }) => `Si rinnova il ${date}`,
+          ends: ({ date }: { date: string }) => `Termina il ${date}`,
+          periodEnds: ({ date }: { date: string }) => `Il periodo attuale termina il ${date}`,
+          period: ({ start, end }: { start: string; end: string }) => `${start} – ${end}`,
+          periodStarted: ({ date }: { date: string }) => `Iniziato il ${date}`,
+          accessUntil: ({ date }: { date: string }) => `Accesso disponibile fino al ${date}`,
+          checked: ({ time }: { time: string }) => `Verificato alle ${time}`,
+          lastKnown: ({ summary }: { summary: string }) => `Ultime informazioni: ${summary}`,
+          unavailable: "Dettagli dell’abbonamento non disponibili",
+          refreshFailed: "Impossibile aggiornare i dettagli dell’abbonamento. Vengono mostrate le ultime informazioni note.",
+          outdated: "I dettagli dell’abbonamento potrebbero non essere aggiornati.",
+          none: "Nessun abbonamento",
+      },
     fallbackName: "Servizio connesso",
     serviceNames: {
       claudeSubscription: "Abbonamento Claude",
@@ -3328,6 +3348,8 @@ export const it: TranslationStructure = {
         membersSubtitle: ({ enabled, total }: { enabled: number; total: number }) => `${enabled}/${total} abilitati`,
         optionsTitle: "Opzioni",
         autoSwitchTitle: "Fallback automatico",
+        autoQuotaResetTitle: "Usa automaticamente i reset della quota",
+        autoQuotaResetSubtitle: "Consuma un reset disponibile solo quando nessun account del pool è pronto e la quota esaurita può essere ripristinata. Disattivato per impostazione predefinita.",
         autoSwitchEnabledSubtitle: "Passa a un altro membro quando l'account attivo richiede recupero.",
         autoSwitchDisabledSubtitle: "Continua a usare il membro attivo finché non lo cambi manualmente.",
         strategyTitle: "Strategia di selezione",
@@ -3877,6 +3899,8 @@ export const it: TranslationStructure = {
       readySubtitle: "Mostra una notifica locale quando un turno termina",
       readyPreviewTitle: "Anteprime dei messaggi pronti",
       readyPreviewSubtitle: "Includi l’ultimo messaggio dell’assistente nelle notifiche di pronto su questo dispositivo",
+      requestPreviewTitle: "Anteprime delle richieste",
+      requestPreviewSubtitle: "Includi comandi da autorizzare, domande e opzioni di risposta. Potrebbero apparire sulla schermata di blocco.",
       permissionRequestsTitle: "Richieste di autorizzazione",
       permissionRequestsSubtitle: "Mostra una notifica locale quando una sessione richiede approvazione",
       userActionsTitle: "Richieste di azione",
@@ -4023,6 +4047,8 @@ export const it: TranslationStructure = {
       readySubtitle: "Invia quando un turno termina e l’agente è in attesa del tuo comando",
       readyPreviewTitle: "Anteprime dei messaggi pronti",
       readyPreviewSubtitle: "Includi il testo dell’ultimo messaggio dell’assistente nelle notifiche di pronto per questo webhook",
+      requestPreviewTitle: "Anteprime delle richieste",
+      requestPreviewSubtitle: "Includi comandi da autorizzare, domande e opzioni di risposta nei dati di questo webhook.",
       permissionRequestsTitle: "Richieste di autorizzazione",
       permissionRequestsSubtitle: "Invia quando una sessione è bloccata in attesa di approvazione",
       userActionsTitle: "Richieste di azione",
@@ -4052,6 +4078,10 @@ export const it: TranslationStructure = {
         title: "Anteprime dei messaggi pronti",
         subtitle: "Includi il testo dell’ultimo messaggio dell’assistente nelle notifiche push per i turni pronti",
       },
+      requestPreview: {
+          title: "Anteprime delle richieste",
+          subtitle: "Includi comandi da autorizzare, domande e opzioni di risposta. Potrebbero apparire sulla schermata di blocco.",
+      },
       permissionRequests: {
         title: "Richieste di autorizzazione",
         subtitle:
@@ -4075,6 +4105,15 @@ export const it: TranslationStructure = {
         readyFallbackBody: "Turno terminato. Apri la sessione per continuare.",
         permissionFallbackBody: "Approvazione richiesta.",
         userActionFallbackBody: "Questa sessione richiede il tuo input.",
+        requestLabels: {
+            command: "Comando",
+            file: "File",
+            selectOne: "Seleziona una risposta",
+            selectMultiple: "Seleziona più risposte",
+            customAnswer: "Risposta personalizzata consentita",
+            localMessages: "Messaggi locali",
+            remoteMessages: "Messaggi remoti",
+        },
       },
       channels: {
         default: 'Predefinito',
@@ -7299,6 +7338,8 @@ export const it: TranslationStructure = {
   },
 
   files: {
+            revealInFiles: "Mostra in File",
+            openChanges: "Apri modifiche",
     searchPlaceholder: "Cerca file...",
     clearSearchA11y: "Cancella ricerca",
     createFileA11y: "Crea file",
@@ -7552,6 +7593,10 @@ export const it: TranslationStructure = {
       noFilesInProject: "Nessun file nel progetto",
       repositoryFolderLoadFailed: "Impossibile caricare la cartella",
       repositoryCollapseAll: "Comprimi tutto",
+    commitCreated: "Commit creato",
+    commitRefreshFailed: ({ sha }: { sha: string }) => `Il commit ${sha} è stato creato, ma l’aggiornamento del repository non è riuscito. Riprova ad aggiornare lo stato del controllo versione.`,
+    refreshingRepository: "Aggiornamento del repository…",
+    retryRefresh: "Riprova aggiornamento",
     sourceControlOperationsLog: {
       title: "Operazioni recenti di controllo versione",
       allSessions: "Tutte le sessioni",
@@ -7567,8 +7612,11 @@ export const it: TranslationStructure = {
       reviewNoMatches: "Nessuna corrispondenza",
       reviewLargeDiffOneAtATime: "Diff grande rilevato; i diff verranno caricati mentre scorri.",
       reviewDiffRequestFailed: "Impossibile caricare il diff",
+      reviewPreviousHunk: "Blocco precedente",
+      reviewNextHunk: "Blocco successivo",
       reviewUnableToLoadDiff: "Impossibile caricare il diff",
       tryDifferentTerm: "Prova un termine di ricerca diverso",
+      previousSearchResults: "Risultati della ricerca precedente",
       searchResults: ({ count }: { count: number }) =>
         `Risultati ricerca (${count})`,
     projectRoot: "Radice progetto",
@@ -7591,7 +7639,9 @@ export const it: TranslationStructure = {
         "Questo file è cambiato su disco mentre lo modificavi. La bozza è rimasta invariata; controlla il file più recente prima di salvare.",
       selectionFailed: "Impossibile aggiornare la selezione",
       openReviewCommentsFailed: "Impossibile aprire i commenti di revisione",
-          reviewComments: {
+          reviewPreviousFile: "File precedente",
+                  reviewNextFile: "File successivo",
+                  reviewComments: {
           title: ({ count }: { count: number }) =>
             `Commenti di revisione (${count})`,
             placeholder: "Aggiungi un commento di revisione…",
@@ -7602,6 +7652,7 @@ export const it: TranslationStructure = {
           modalSubtitle: "Rivedi quali commenti verranno inviati con il prossimo messaggio.",
           modalSummary: ({ included, count }: { included: number; count: number }) =>
             `${included} di ${count} selezionati per il prossimo prompt`,
+          goToComposer: 'Vai al messaggio',
           detachOrDiscardTitle: "Rimuovere i commenti di revisione?",
           detachOrDiscardBody:
             "Scollega li mantiene salvati ma li esclude dal prossimo prompt. Scarta li elimina.",
@@ -7670,6 +7721,8 @@ export const it: TranslationStructure = {
       combined: "Combinato",
     },
     fileActions: {
+      selectEntireFileForCommit: 'Seleziona tutto il file per il commit',
+      selectLines: 'Seleziona righe',
       selectForCommit: "Seleziona per il commit",
       selectFilesToCommit: "Seleziona file per il commit",
       stageFile: "Metti in stage il file",
@@ -7687,6 +7740,9 @@ export const it: TranslationStructure = {
     },
     toolbar: {
       changedFiles: "File modificati",
+      projectFiles: "Progetto",
+      allFiles: "Tutti i file",
+      projectFilesUnavailable: "Il filtro del progetto non è disponibile qui. Sono mostrati tutti i file.",
       hiddenFiles: "Mostra file nascosti",
       details: "Dettagli",
       upload: "Carica",
