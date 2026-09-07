@@ -287,6 +287,19 @@ test.describe('ui e2e: markdown rich editor (feat.files.markdownRichEditor)', ()
       await page.getByTestId('dropdown-option-rich').click();
       await expect(firstVisibleDetailsByTestId(page, 'file-details-rich-editor')).toBeVisible({ timeout: 60_000 });
 
+      await expect(richEditor.locator('.ProseMirror')).toContainText('Appended by e2e.');
+      await richEditor.locator('.ProseMirror').click();
+      await page.keyboard.press('Control+End');
+      await page.keyboard.press('Enter');
+      await page.keyboard.type('Rich draft survives lazy remount.');
+      await firstVisibleDetailsByTestId(page, 'markdown-edit-mode-menu').click({ force: true });
+      await page.getByTestId('dropdown-option-raw').click();
+      await expect(rawEditor).toBeVisible({ timeout: 60_000 });
+      await firstVisibleDetailsByTestId(page, 'markdown-edit-mode-menu').click({ force: true });
+      await page.getByTestId('dropdown-option-rich').click();
+      await expect(richEditor.locator('.ProseMirror')).toContainText('Rich draft survives lazy remount.');
+      await expect(richEditor.locator('.ProseMirror')).toContainText('Appended by e2e.');
+
       // Save and assert the on-disk content contains the original eligible
       // markdown plus the appended line (no clobber / no lost edit).
       await firstVisibleDetailsByTestId(page, 'file-details-save').click({ force: true });
@@ -294,6 +307,9 @@ test.describe('ui e2e: markdown rich editor (feat.files.markdownRichEditor)', ()
       await expect
         .poll(async () => await readFile(resolve(join(repoDir, eligiblePath)), 'utf8'), { timeout: 120_000 })
         .toContain('Appended by e2e.');
+      await expect
+        .poll(async () => await readFile(resolve(join(repoDir, eligiblePath)), 'utf8'), { timeout: 60_000 })
+        .toContain('Rich draft survives lazy remount.');
       await expect
         .poll(async () => await readFile(resolve(join(repoDir, eligiblePath)), 'utf8'), { timeout: 60_000 })
         .toContain('Hello');
