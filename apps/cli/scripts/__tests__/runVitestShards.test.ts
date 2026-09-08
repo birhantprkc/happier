@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -66,18 +68,17 @@ describe('runVitestShards', () => {
   it('runs reset-heavy suites in bounded fresh processes', () => {
     const plan = resolveVitestIsolationPlan('vitest.config.ts');
     const resetHeavyFiles = [
-      'src/daemon/startSyncOwnership.test.ts',
-      'src/commands/auth.nonInteractiveBoth.test.ts',
       'src/api/session/sessionClient.durableMutationOutbox.test.ts',
-      'src/agent/executionRuns/runEphemeralExecutionRunTextPrompt.test.ts',
     ];
 
     expect(plan.shardExcludes).toEqual(expect.arrayContaining(resetHeavyFiles));
     expect(new Set(plan.shardExcludes).size).toBe(plan.shardExcludes.length);
     expect(new Set(plan.runs.map((run) => run.file))).toEqual(new Set(plan.shardExcludes));
+    expect(plan.shardExcludes.filter((file) => !existsSync(new URL(`../../${file}`, import.meta.url)))).toEqual([]);
     for (const file of resetHeavyFiles) {
       expect(plan.runs).toContainEqual({ file, testNamePattern: '.*' });
     }
+    expect(plan.shardExcludes).not.toContain('src/agent/executionRuns/runEphemeralExecutionRunTextPrompt.test.ts');
 
     // These exceptionally large suites intentionally remain split into several
     // fresh processes rather than one whole-file process.

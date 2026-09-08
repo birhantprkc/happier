@@ -362,11 +362,11 @@ jobs:
   ui-e2e:
     if: ${{ (inputs.select_jobs_explicitly && inputs.run_ui_e2e) || (!inputs.select_jobs_explicitly && needs.ci_plan.outputs.run_ui_e2e == 'true') }}
     needs: [ci_plan, trusted_ref_guard]
-    name: UI E2E (Playwright) / shard ${{ matrix.shard }}/18
+    name: UI E2E (Playwright) / shard ${{ matrix.shard }}/12
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJSON(inputs.ui_e2e_specs != '' && '[1]' || '[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18]') }}
+        shard: ${{ fromJSON(inputs.ui_e2e_specs != '' && '[1]' || '[1,2,3,4,5,6,7,8,9,10,11,12]') }}
     runs-on: ${{ needs.trusted_ref_guard.outputs.ubuntu_2204 }}
     timeout-minutes: 120
     env:
@@ -423,7 +423,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$UI_E2E_SPECS" ]; then
-            yarn -s test:e2e:ui -- --shard=${{ matrix.shard }}/18
+            yarn -s test:e2e:ui -- --shard=${{ matrix.shard }}/12
             exit 0
           fi
 
@@ -452,7 +452,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ui-e2e-playwright-artifacts-shard-${{ matrix.shard }}-of-18
+          name: ui-e2e-playwright-artifacts-shard-${{ matrix.shard }}-of-12
           compression-level: 0
           path: |
             packages/tests/.project/logs/e2e/ui-playwright
@@ -1019,7 +1019,12 @@ jobs:
       - name: Run unit tests and import-cycle guard
         id: unit-tests
         continue-on-error: true
-        run: yarn workspace @happier-dev/cli test:unit
+        run: |
+          if [ "${{ matrix.part }}" = "1" ]; then
+            yarn workspace @happier-dev/cli test:unit
+          else
+            yarn workspace @happier-dev/cli test:unit:vitest
+          fi
 
       - name: Test root CLI common dist admission owner
         id: cli-common-dist
@@ -1029,7 +1034,7 @@ jobs:
 
       - name: Run integration tests
         id: integration-tests
-        if: ${{ !cancelled() }}
+        if: ${{ matrix.part == 1 && !cancelled() }}
         continue-on-error: true
         run: yarn workspace @happier-dev/cli test:integration
 
@@ -1041,7 +1046,7 @@ jobs:
           CLI_COMMON_DIST_OUTCOME: ${{ steps.cli-common-dist.outcome }}
           INTEGRATION_TESTS_OUTCOME: ${{ steps.integration-tests.outcome }}
         run: |
-          if [ "$UNIT_TESTS_OUTCOME" != "success" ] || [ "$INTEGRATION_TESTS_OUTCOME" != "success" ] || { [ "$CLI_PART" = "1" ] && [ "$CLI_COMMON_DIST_OUTCOME" != "success" ]; }; then
+          if [ "$UNIT_TESTS_OUTCOME" != "success" ] || { [ "$CLI_PART" = "1" ] && { [ "$CLI_COMMON_DIST_OUTCOME" != "success" ] || [ "$INTEGRATION_TESTS_OUTCOME" != "success" ]; }; }; then
             echo "One or more cli test lanes failed: unit=$UNIT_TESTS_OUTCOME common_dist=$CLI_COMMON_DIST_OUTCOME integration=$INTEGRATION_TESTS_OUTCOME" >&2
             exit 1
           fi

@@ -15,14 +15,14 @@ Successful sibling candidates are reusable evidence, not disposable intermediate
 For 0.2 nightly, the public workflow input is defined by `.github/workflows/nightly-dev.yml`. A typical authorized dispatch is:
 
 ```bash
-gh workflow run nightly-dev.yml \
+yarn ghops workflow run nightly-dev.yml \
   --repo happier-dev/happier \
   --ref dev \
   -f source_ref=dev \
   -f resume_run_id=<completed-origin-run-id>
 ```
 
-Do not dispatch merely because this command is documented. Confirm current repository instructions, release authority, exact control SHA, origin run, and source identity first.
+Do not dispatch merely because this command is documented. Confirm current repository instructions, release authority, exact control SHA, origin run, and source identity first. GitHub mutations use the isolated `happier-bot` transport; never substitute a personal `gh` login when `ghops` authentication is unavailable. If the private release conductor owns the requested operation, use that conductor instead of dispatching the public workflow directly.
 
 ## Resume invariants
 

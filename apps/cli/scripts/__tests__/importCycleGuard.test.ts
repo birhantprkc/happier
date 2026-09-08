@@ -142,6 +142,7 @@ describe('importCycleGuard analyzer', () => {
 
     expect(cliPackageJson.scripts?.['test:unit']).toContain('test:import-cycles');
     expect(rootPackageJson.scripts?.['test:unit']).toContain('yarn workspace @happier-dev/cli test:unit');
-    expect(workflowText).toContain('yarn workspace @happier-dev/cli test:unit');
+    expect(workflowText).toContain('if [ "${{ matrix.part }}" = "1" ]; then');
+    expect(workflowText).toContain('yarn workspace @happier-dev/cli test:unit:vitest');
   });
 });

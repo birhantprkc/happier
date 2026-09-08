@@ -59,10 +59,7 @@ export function resolveVitestIsolationPlan(configPath) {
   const claudeSignalCleanupFile = 'src/backends/claude/sdk/query.signalCleanup.test.ts';
   const codexAppServerClientFile = 'src/backends/codex/appServer/client/createCodexAppServerClient.test.ts';
   const processRunStateFile = 'src/daemon/processRunState.test.ts';
-  const daemonStartSyncOwnershipFile = 'src/daemon/startSyncOwnership.test.ts';
-  const nonInteractiveAuthFile = 'src/commands/auth.nonInteractiveBoth.test.ts';
   const durableMutationOutboxFile = 'src/api/session/sessionClient.durableMutationOutbox.test.ts';
-  const ephemeralExecutionRunPromptFile = 'src/agent/executionRuns/runEphemeralExecutionRunTextPrompt.test.ts';
   return {
     shardExcludes: [
       daemonServiceFile,
@@ -79,10 +76,7 @@ export function resolveVitestIsolationPlan(configPath) {
       claudeSignalCleanupFile,
       codexAppServerClientFile,
       processRunStateFile,
-      daemonStartSyncOwnershipFile,
-      nonInteractiveAuthFile,
       durableMutationOutboxFile,
-      ephemeralExecutionRunPromptFile,
     ],
     runs: [
       { file: daemonServiceFile, testNamePattern: 'runDaemonServiceCliCommand (?:allows|expands|prefers|resolves|restarts|restores|sets|treats)\\b' },
@@ -104,10 +98,7 @@ export function resolveVitestIsolationPlan(configPath) {
       { file: claudeSignalCleanupFile, testNamePattern: '.*' },
       { file: codexAppServerClientFile, testNamePattern: '.*' },
       { file: processRunStateFile, testNamePattern: '.*' },
-      { file: daemonStartSyncOwnershipFile, testNamePattern: '.*' },
-      { file: nonInteractiveAuthFile, testNamePattern: '.*' },
       { file: durableMutationOutboxFile, testNamePattern: '.*' },
-      { file: ephemeralExecutionRunPromptFile, testNamePattern: '.*' },
     ],
   };
 }

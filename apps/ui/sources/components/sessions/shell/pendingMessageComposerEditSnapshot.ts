@@ -54,5 +54,8 @@ export function isEmptyPendingMessageComposerSemanticDraftSnapshot(
 ): boolean {
     return typeof snapshot.recipient === 'undefined'
         && typeof snapshot.executionRunDelivery === 'undefined'
-        && typeof snapshot.structuredInputMentions === 'undefined';
+        && (
+            typeof snapshot.structuredInputMentions === 'undefined'
+            || snapshot.structuredInputMentions.length === 0
+        );
 }

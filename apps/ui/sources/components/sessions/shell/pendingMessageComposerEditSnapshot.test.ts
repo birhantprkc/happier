@@ -2,11 +2,22 @@ import { describe, expect, it } from 'vitest';
 
 import type { SessionDraftDocumentV1 } from '@happier-dev/protocol';
 
-import { readPendingMessageComposerSemanticDraftSnapshot } from './pendingMessageComposerEditSnapshot';
+import {
+    isEmptyPendingMessageComposerSemanticDraftSnapshot,
+    readPendingMessageComposerSemanticDraftSnapshot,
+} from './pendingMessageComposerEditSnapshot';
 
 const field = <T,>(mutationId: string, value: T) => ({ mutationId, value });
 
 describe('readPendingMessageComposerSemanticDraftSnapshot', () => {
+    it('treats the repository canonical empty mentions array as an empty semantic draft', () => {
+        expect(isEmptyPendingMessageComposerSemanticDraftSnapshot({
+            recipient: undefined,
+            executionRunDelivery: undefined,
+            structuredInputMentions: [],
+        })).toBe(true);
+    });
+
     it('projects only recognized canonical semantic values', () => {
         const document: SessionDraftDocumentV1 = {
             v: 1,
