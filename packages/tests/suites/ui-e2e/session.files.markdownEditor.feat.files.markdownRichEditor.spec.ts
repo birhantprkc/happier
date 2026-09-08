@@ -18,6 +18,7 @@ import { clickScopedButtonByTestIdOrRole } from '../../src/testkit/uiE2e/clickSc
 import { spawnSessionFromDaemon } from '../../src/testkit/uiE2e/spawnSessionFromDaemon';
 import { toTestIdSafeValue } from '../../src/testkit/uiE2e/testIdSafeValue';
 import { waitForInitialAppUi } from '../../src/testkit/uiE2e/waitForInitialAppUi';
+import { appendBrowserDiagnostics, collectBrowserDiagnostics } from '../../src/testkit/uiE2e/browserDiagnostics';
 
 const run = createRunDirs({ runLabel: 'ui-e2e' });
 
@@ -28,31 +29,6 @@ const FORMATTING_MARKDOWN = 'Hello formatting seed.\n';
 // blocks rich editing with reason `reference-links`, so the file edits as raw.
 const INELIGIBLE_MARKDOWN = 'See [the docs][ref].\n\n[ref]: https://example.com\n';
 const MARKDOWN_EDITOR_E2E_TIMEOUT_MS = 900_000;
-
-function collectBrowserDiagnostics(params: Readonly<{ page: Page }>): () => string {
-  const pageConsole: string[] = [];
-  const pageErrors: string[] = [];
-  const requestFailures: string[] = [];
-  const responseErrors: string[] = [];
-
-  params.page.on('console', (msg) => pageConsole.push(`[${msg.type()}] ${msg.text()}`));
-  params.page.on('pageerror', (err) => pageErrors.push(String(err)));
-  params.page.on('requestfailed', (request) => {
-    const failure = request.failure();
-    requestFailures.push(`${request.method()} ${request.url()} ${failure ? `-> ${failure.errorText}` : ''}`.trim());
-  });
-  params.page.on('response', (response) => {
-    const status = response.status();
-    if (status >= 400) responseErrors.push(`${status} ${response.request().method()} ${response.url()}`);
-  });
-
-  return () =>
-    `# Browser diagnostics\n\n` +
-    `## Console\n\n${pageConsole.length ? pageConsole.join('\n') : '(none)'}\n\n` +
-    `## Page errors\n\n${pageErrors.length ? pageErrors.join('\n') : '(none)'}\n\n` +
-    `## Request failures\n\n${requestFailures.length ? requestFailures.join('\n') : '(none)'}\n\n` +
-    `## Response errors\n\n${responseErrors.length ? responseErrors.join('\n') : '(none)'}\n`;
-}
 
 function rightPaneLocator(page: Page): Locator {
   return page.getByTestId('multi-pane-right-docked').or(page.getByTestId('multi-pane-right-overlay'));
@@ -341,7 +317,7 @@ test.describe('ui e2e: markdown rich editor (feat.files.markdownRichEditor)', ()
       await firstVisibleDetailsByTestId(page, 'markdown-edit-mode-menu').click({ force: true });
       await expect(page.getByTestId('dropdown-option-rich')).toBeDisabled({ timeout: 60_000 });
     } catch (error) {
-      throw new Error(`${String(error)}\n\n${browserDiagnostics()}`);
+      throw appendBrowserDiagnostics(error, browserDiagnostics());
     }
   });
 
@@ -466,7 +442,7 @@ test.describe('ui e2e: markdown rich editor (feat.files.markdownRichEditor)', ()
       // After save, the file details surface remains available.
       await expect(firstVisibleDetailsByTestId(page, 'file-details-edit')).toBeVisible({ timeout: 120_000 });
     } catch (error) {
-      throw new Error(`${String(error)}\n\n${browserDiagnostics()}`);
+      throw appendBrowserDiagnostics(error, browserDiagnostics());
     }
   });
 });

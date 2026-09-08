@@ -3832,6 +3832,9 @@ describe('handleConnectedServiceRuntimeAuthFailureForSession', () => {
 
     expect(enable).toHaveBeenCalledWith({
       sessionId: 'sess_1',
+      serviceId: 'openai-codex',
+      profileId: 'primary',
+      groupId: 'main',
       issueFingerprint: 'temporary-throttle:openai-codex:main:primary',
       retryAfterMs: 45_000,
       resetAtMs: 90_000,

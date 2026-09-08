@@ -1099,7 +1099,11 @@ export class ApiSessionClient extends EventEmitter {
             transcriptWriter,
             runtimeActivityContributionHandle: runtimeActivity?.executionRunContributionHandle ?? null,
             enqueueParentSessionInput: async (input) => {
-                await this.enqueueSessionUserMessage({ ...input, inputOrigin: 'session_generated' });
+                await this.enqueueSessionUserMessage({
+                    ...input,
+                    requestedAction: { v: 1, kind: 'steer_if_active' },
+                    inputOrigin: 'session_generated',
+                });
             },
             budgetRegistry: executionBudgetRegistry,
             onExecutionRunPublicStateUpdated: (run) => {

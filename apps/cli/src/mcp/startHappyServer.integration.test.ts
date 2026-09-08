@@ -304,6 +304,7 @@ describe('startHappyServer (MCP integration)', () => {
       rpcHandlerManager,
       sendClaudeSessionMessage: () => {},
       updateMetadata: () => {},
+      getPermissionMode: () => 'default',
     };
 
     const server = await startHappyServer(fakeClient);
@@ -473,6 +474,7 @@ describe('startHappyServer (MCP integration)', () => {
       } as any,
       sendClaudeSessionMessage: () => {},
       updateMetadata: () => {},
+      getPermissionMode: () => 'default',
     };
 
     const server = await startHappyServer(fakeClient);

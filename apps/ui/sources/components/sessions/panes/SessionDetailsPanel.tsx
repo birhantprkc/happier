@@ -756,7 +756,14 @@ const DetailsTabSurface = React.memo((props: Readonly<{ isActive: boolean; child
                 // `minHeight: 0` is critical for nested flex+scroll layouts on web; without it,
                 // some browsers can treat the absolute-fill container as having an "auto" min-size
                 // and prevent inner scroll views (FlashList/ScrollView) from scrolling.
-                { minHeight: 0, minWidth: 0, opacity: props.isActive ? 1 : 0 },
+                {
+                    minHeight: 0,
+                    minWidth: 0,
+                    opacity: props.isActive ? 1 : 0,
+                    // Keep inactive contents mounted, but do not leave their controls visible to
+                    // the web accessibility tree or locator/user interaction surfaces.
+                    display: Platform.OS === 'web' ? (props.isActive ? 'flex' : 'none') : 'flex',
+                },
             ]}
             {...(a11yHiddenProps ?? {})}
         >

@@ -182,7 +182,7 @@ export function useConnectedServiceQuotaSnapshot(params: Readonly<{
         recoveryCreditSummary,
         recoveryCreditMachineId,
         canConsumeRecoveryCredit,
-        canRefresh: credentialHealthUsable,
+        canRefresh: key !== null && loadContext !== null,
         isRefreshing: entry.refreshing,
         refresh,
         consumeRecoveryCredit,

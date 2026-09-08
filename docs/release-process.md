@@ -85,6 +85,16 @@ separate approval input must remain false. That go-ahead must name the selected 
 candidate whose evidence was reviewed. Do not substitute a branch name or a
 moving channel pointer for the exact SHA.
 
+Run private release authority on the configured macOS host, where Keychain and
+native release prerequisites live. An agent already operating on that host may
+invoke the provisioned `hmaint` executable directly even when the repository
+path is a mounted VM workspace. An agent operating inside the managed Linux VM
+must keep source work in the VM and use the configured Stack `mac-host`
+execution/broker path; credentials must never be copied into the VM. Confirm
+the transport with `yarn ghops auth status` and confirm repository identity with
+real paths and exact Git SHAs—similarly named host and VM checkouts are not
+interchangeable.
+
 Before changelog/version materialization, the release agent runs
 `node scripts/pipeline/run.mjs release-analyze ...` over the actual source
 range and completes the semantic compatibility review while inspecting that

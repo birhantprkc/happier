@@ -146,7 +146,11 @@ describe('ApiSessionClient execution-run backend wiring', () => {
 
     await sessionSocketStubState.executionRunHandlerContext.enqueueParentSessionInput(input);
 
-    expect(enqueue).toHaveBeenCalledWith({ ...input, inputOrigin: 'session_generated' });
+    expect(enqueue).toHaveBeenCalledWith({
+      ...input,
+      requestedAction: { v: 1, kind: 'steer_if_active' },
+      inputOrigin: 'session_generated',
+    });
     await client.close();
   });
 

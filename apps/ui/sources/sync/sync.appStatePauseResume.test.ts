@@ -123,14 +123,21 @@ describe('sync AppState pause/resume', () => {
         const replayBarrier = new Promise<void>((resolve) => {
             releaseReplay = resolve;
         });
+        let markBothReplaysStarted!: () => void;
+        const bothReplaysStarted = new Promise<void>((resolve) => {
+            markBothReplaysStarted = resolve;
+        });
         const fetchPendingMessages = vi.spyOn(sync, 'fetchPendingMessages')
-            .mockImplementation(async () => replayBarrier);
+            .mockImplementation(async () => {
+                if (fetchPendingMessages.mock.calls.length === 2) markBothReplaysStarted();
+                await replayBarrier;
+            });
 
         const first = (sync as any).rearmPendingOutboxForActiveScope() as Promise<void>;
         const second = (sync as any).rearmPendingOutboxForActiveScope() as Promise<void>;
-        await Promise.resolve();
 
         expect(second).toBe(first);
+        await bothReplaysStarted;
         expect(fetchPendingMessages.mock.calls).toEqual([
             ['session-a', activeScope],
             ['session-b', activeScope],

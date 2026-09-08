@@ -159,8 +159,11 @@ function pendingOutboxFixture(params: Readonly<{
 }
 
 async function flushPendingOutboxRetryMicrotasks(): Promise<void> {
-    for (let index = 0; index < 20; index += 1) {
+    for (let index = 0; index < 100; index += 1) {
         await Promise.resolve();
+        // fake-indexeddb commits transactions on the host's immediate queue, not the Promise
+        // queue. Alternate both queues so the retry can read, mutate, and commit durably.
+        await new Promise<void>((resolve) => setImmediate(resolve));
     }
 }
 
@@ -177,6 +180,14 @@ function createFallbackSafeSessionRpcErrors(): Error[] {
         new Error('read ECONNRESET'),
         new Error('connect ECONNREFUSED 127.0.0.1:3005'),
     ];
+}
+
+function usePendingSchedulerFakeTimers(): void {
+    // Fake only the retry scheduler's clock. IndexedDB's test implementation commits through
+    // setImmediate; faking that system-boundary queue can strand an open transaction forever.
+    vi.useFakeTimers({
+        toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+    });
 }
 
 function createAuthFailedEndpointSupervisor(): ManagedEndpointSupervisor {
@@ -276,7 +287,7 @@ function createReadyEndpointSupervisor(): ManagedEndpointSupervisor {
 
 describe('sync.sendMessage optimistic thinking', () => {
     it('releases the pending retry slot when the storage boundary stays unavailable', async () => {
-        vi.useFakeTimers();
+        usePendingSchedulerFakeTimers();
         try {
             const sessionId = 'pending-storage-failure';
             const localId = 'pending-storage-failure-local';
@@ -940,7 +951,7 @@ describe('sync.sendMessage optimistic thinking', () => {
     });
 
     it('replays identical scoped enqueue identities independently through the real Sync scheduler', async () => {
-        vi.useFakeTimers();
+        usePendingSchedulerFakeTimers();
         try {
             const sessionId = 'same-session';
             const localId = 'same-local';
@@ -1007,7 +1018,7 @@ describe('sync.sendMessage optimistic thinking', () => {
     });
 
     it('replays identical scoped cancellations independently through the real Sync scheduler', async () => {
-        vi.useFakeTimers();
+        usePendingSchedulerFakeTimers();
         try {
             const sessionId = 'same-cancel-session';
             const localId = 'same-cancel-local';
@@ -1374,7 +1385,7 @@ describe('sync.sendMessage optimistic thinking', () => {
     });
 
     it('forces endpoint auth convergence before a pending retry keeps backing off on timeout', async () => {
-        vi.useFakeTimers();
+        usePendingSchedulerFakeTimers();
         try {
             const sessionId = 's_pending_retry_probe_auth';
             storage.getState().applySessions([createSession({ sessionId })]);
@@ -1465,7 +1476,7 @@ describe('sync.sendMessage optimistic thinking', () => {
     });
 
     it('retries pending message commits with plaintext envelopes for plaintext sessions', async () => {
-        vi.useFakeTimers();
+        usePendingSchedulerFakeTimers();
         try {
             const sessionId = 's_plain_pending_retry';
             storage.getState().applySessions([{ ...createSession({ sessionId }), encryptionMode: 'plain' }]);

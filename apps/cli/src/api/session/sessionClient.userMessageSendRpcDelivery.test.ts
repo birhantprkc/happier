@@ -735,8 +735,6 @@ describe('ApiSessionClient session.userMessage.send delivery', () => {
     const client = new ApiSessionClient('tok', createPlainSessionFixture({ id: 's1' }));
     const checkUsageLimitRecoveryNow = vi.fn(async () => ({ ok: true, status: 'waiting' }));
     (client as any).sessionRuntimeControls.checkUsageLimitRecoveryNow = checkUsageLimitRecoveryNow;
-    const received: any[] = [];
-    client.onUserMessage((message) => received.push(message));
 
     await expect((client as any).enqueueSessionUserMessage({
       text: 'execution run finished',
@@ -746,7 +744,10 @@ describe('ApiSessionClient session.userMessage.send delivery', () => {
     })).resolves.toBeUndefined();
 
     expect(checkUsageLimitRecoveryNow).not.toHaveBeenCalled();
-    expect(received).toHaveLength(1);
+    expect(enqueuePendingQueueV2MessageViaHttpMock).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 's1',
+      body: expect.objectContaining({ localId: 'generated-run-completion', messageRole: 'user' }),
+    }));
   });
 
   it('bounds a stalled recovery decision and never delivers when that stale decision resolves late', async () => {

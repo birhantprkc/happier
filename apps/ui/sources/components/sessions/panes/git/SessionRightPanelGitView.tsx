@@ -322,9 +322,11 @@ export const SessionRightPanelGitView = React.memo((props: SessionRightPanelGitV
         return await generateCommitMessageSuggestionRef.current();
     }, []);
 
+    const openSessionTargetRef = React.useRef(openSessionTarget);
+    openSessionTargetRef.current = openSessionTarget;
     const onOpenFilesSidebar = React.useCallback((revealPath?: string) => {
-        openSessionTarget({ kind: 'fileBrowser', revealPath });
-    }, [openSessionTarget]);
+        openSessionTargetRef.current({ kind: 'fileBrowser', revealPath });
+    }, []);
 
     const defaultOpenReviewAllChanges = React.useCallback(() => {
         pane.openDetailsTab(createSessionScmReviewDetailsTab(), { intent: 'pinned' });

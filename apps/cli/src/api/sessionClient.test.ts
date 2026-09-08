@@ -10,6 +10,7 @@ import {
     bindApiSessionSocketPairMock,
     createApiSessionSocketStub,
     flushApiSessionClientMessageCommitQueue,
+    resolveApiSessionSocketDefaultAck,
 } from '@/testkit/backends/apiSessionSocketHarness';
 import { createMockSession, createSessionRecordFixture } from '@/testkit/backends/sessionFixtures';
 import { createEnvKeyScope } from '@/testkit/env/envScope';
@@ -2723,9 +2724,6 @@ describe('ApiSessionClient connection handling', () => {
     });
 
     it('updateMetadata syncs a snapshot first when metadataVersion is unknown', async () => {
-                const sessionSocket = createConfiguredSocket({ connected: true });
-                const userSocket = createConfiguredSocket({ connected: false });
-
                 const serverMetadata = {
                     ...mockSession.metadata,
                     tools: ['tool-1'],
@@ -2735,12 +2733,17 @@ describe('ApiSessionClient connection handling', () => {
                     serverMetadata,
                 );
 
-                const emitWithAck = vi.fn().mockResolvedValueOnce({
-                    result: 'success',
-                    version: 6,
-                    metadata: encryptedServerMetadata,
+                const sessionSocket = createConfiguredSocket({
+                    connected: true,
+                    emitWithAck: (event, payload) => event === 'update-metadata'
+                        ? {
+                            result: 'success',
+                            version: 6,
+                            metadata: encryptedServerMetadata,
+                        }
+                        : resolveApiSessionSocketDefaultAck(event, payload),
                 });
-                sessionSocket.emitWithAck = emitWithAck;
+                const userSocket = createConfiguredSocket({ connected: false });
 
                 replaceSocketPair({ sessionSocket, userSocket });
 
@@ -2767,7 +2770,7 @@ describe('ApiSessionClient connection handling', () => {
                     return metadata;
                 });
 
-                expect(emitWithAck).toHaveBeenCalledWith(
+                expect(sessionSocket.emitWithAck).toHaveBeenCalledWith(
                     'update-metadata',
                     expect.objectContaining({ expectedVersion: 5 }),
                 );
