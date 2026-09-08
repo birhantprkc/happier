@@ -119,6 +119,7 @@ export {
   relocateServerRuntimeArtifactClosure,
   resolveManagedServerRuntimePaths,
   resolveServerRuntimeExecutableNames,
+  resolveServerRuntimePrismaEngineFileName,
   resolveServerRuntimePayloadRootFromBinaryPath,
 } from './serverRuntimeArtifactLayout.js';
 

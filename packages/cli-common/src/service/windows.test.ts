@@ -5,6 +5,7 @@ import {
   buildReadWindowsScheduledTaskStatusPowerShellCommand,
   buildStopWindowsScheduledTaskIfRunningPowerShellCommand,
   parseWindowsScheduledTaskStatusPowerShellJson,
+  renderWindowsScheduledTaskWrapperPs1,
 } from './windows';
 
 describe('Windows scheduled task PowerShell status helper', () => {
@@ -47,6 +48,21 @@ describe('Windows scheduled task PowerShell status helper', () => {
 });
 
 describe('Windows scheduled task lifecycle PowerShell helpers', () => {
+  it('records wrapper startup errors and preserves the managed process exit code', () => {
+    const wrapper = renderWindowsScheduledTaskWrapperPs1({
+      workingDirectory: 'C:\\Happier',
+      programArgs: ['C:\\Happier\\happier-server.exe'],
+      stderrPath: 'C:\\Happier\\logs\\server.err.log',
+    });
+
+    expect(wrapper).toContain('try {');
+    expect(wrapper).toContain('$exitCode = $LASTEXITCODE');
+    expect(wrapper).toContain('Add-Content -LiteralPath');
+    expect(wrapper).toContain('exit $exitCode');
+    expect(wrapper).toContain('exit 1');
+    expect(wrapper).not.toContain('1>> ""');
+  });
+
   it('stops only an existing running task through typed scheduler state', () => {
     const command = buildStopWindowsScheduledTaskIfRunningPowerShellCommand({
       qualifiedTaskName: 'Happier\\happier-daemon.default',

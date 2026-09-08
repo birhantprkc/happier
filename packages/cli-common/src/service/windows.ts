@@ -180,16 +180,31 @@ export function renderWindowsScheduledTaskWrapperPs1(params: Readonly<{
     .join('\n');
 
   const cmd = args.length ? `& ${args.map(psQuoted).join(' ')}` : '';
-  const redirect = out || err ? ` 1>> ${psQuoted(out)} 2>> ${psQuoted(err)}` : '';
+  const redirect = [
+    out ? `1>> ${psQuoted(out)}` : '',
+    err ? `2>> ${psQuoted(err)}` : '',
+  ].filter(Boolean).join(' ');
+  const body = [
+    wd ? `Set-Location -LiteralPath ${psQuoted(wd)}` : '',
+    envLines,
+    cmd ? `${cmd}${redirect ? ` ${redirect}` : ''}` : '',
+    cmd ? '$exitCode = $LASTEXITCODE' : '',
+    cmd ? 'exit $exitCode' : '',
+  ].filter(Boolean);
+  const diagnosticPath = err || out;
 
   return [
     '$ErrorActionPreference = "Stop"',
-    wd ? `Set-Location -LiteralPath ${psQuoted(wd)}` : '',
-    envLines,
-    cmd ? `${cmd}${redirect}` : '',
+    'try {',
+    ...body.map((line) => line.split('\n').map((part) => `  ${part}`).join('\n')),
+    '} catch {',
+    diagnosticPath
+      ? `  ($_ | Out-String) | Add-Content -LiteralPath ${psQuoted(diagnosticPath)}`
+      : '  Write-Error ($_ | Out-String)',
+    '  exit 1',
+    '}',
     '',
   ]
-    .filter(Boolean)
     .join('\n');
 }
 
