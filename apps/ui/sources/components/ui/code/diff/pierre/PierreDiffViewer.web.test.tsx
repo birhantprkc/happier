@@ -73,7 +73,11 @@ vi.mock('@pierre/diffs/react', async () => {
         },
         FileDiff: (props: any) => {
             fileDiffSpy(props);
-            return React.createElement('FileDiff', props);
+            // Pierre's virtualized renderer captures its initial file metadata and
+            // requires a remount when the patch identity changes. Model that public
+            // boundary here while still exposing every current prop to the spy.
+            const [renderedFileDiff] = React.useState(props.fileDiff);
+            return React.createElement('FileDiff', { ...props, renderedFileDiff });
         },
     };
 });
@@ -368,11 +372,13 @@ describe('PierreDiffViewer (web)', () => {
         const patch = 'diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-foo\n+bar\n';
         const view = (unifiedDiff: string) => <PierreDiffViewer mode="unified" filePath="a.ts" unifiedDiff={unifiedDiff} virtualized />;
         const { tree } = await renderScreen(view(patch));
+        const firstRenderedKey = tree.findByType('FileDiff').props.renderedFileDiff.cacheKey;
         await renderer.act(async () => {
             tree.findByType('Virtualizer').props.onScroll(600);
         });
         await renderer.act(async () => { tree.update(view(patch.replace('+bar', '+updated'))); });
         expect(tree.findByType('Virtualizer').props.scrollTop).toBe(600);
+        expect(tree.findByType('FileDiff').props.renderedFileDiff.cacheKey).not.toBe(firstRenderedKey);
     });
 
     it('does not reapply a consumed jump target on a patch refresh', async () => {

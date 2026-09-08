@@ -839,7 +839,10 @@ export const PierreDiffViewer = React.memo<DiffViewerProps>((props) => {
         <Virtualizer
             style={{ maxHeight: 'inherit', overflowY: 'auto' }}
         >
+            {/* Pierre's virtualized instance retains its initial fileDiff; remount
+                only that inner renderer when the content hash changes. */}
             <FileDiff
+                key={fileDiff.cacheKey}
                 fileDiff={fileDiff}
                 options={(interactiveOptions ?? options) as any}
                 lineAnnotations={lineAnnotations as any}
