@@ -18,26 +18,12 @@ import { ensureAccountReadyForConnect } from '../../src/testkit/uiE2e/ensureAcco
 import { selectNewSessionAgent } from '../../src/testkit/uiE2e/selectNewSessionAgent';
 import { selectSessionForkStrategy } from '../../src/testkit/uiE2e/selectSessionForkStrategy';
 import { authenticateAndStartDaemon } from '../../src/testkit/uiE2e/authenticateAndStartDaemon';
+import { waitForDaemonMachineIdFromCliSettings } from '../../src/testkit/uiE2e/daemonMachineId';
 
 const run = createRunDirs({ runLabel: 'ui-e2e' });
 
 function resolveServerLightSqliteDbPath(params: { suiteDir: string }): string {
     return resolve(join(params.suiteDir, 'server-light-data', 'happier-server-light.sqlite'));
-}
-
-function readLatestMachineIdFromServerLightDb(params: { suiteDir: string }): string {
-    const dbPath = resolveServerLightSqliteDbPath({ suiteDir: params.suiteDir });
-    try {
-        const raw = execFileSync('sqlite3', ['-json', dbPath, 'select id from Machine order by createdAt desc limit 1;'], {
-            encoding: 'utf8',
-        });
-        const parsed = JSON.parse(raw) as Array<{ id?: unknown }>;
-        const id = parsed?.[0]?.id;
-        if (typeof id === 'string' && id.trim()) return id.trim();
-    } catch {
-        // ignore - pollers can retry
-    }
-    throw new Error(`Failed to read machine id from server light sqlite db: ${dbPath}`);
 }
 
 function readLatestChildSessionIdFromServerLightDb(params: { suiteDir: string; parentSessionId: string }): string {
@@ -55,19 +41,6 @@ function readLatestChildSessionIdFromServerLightDb(params: { suiteDir: string; p
         // ignore - pollers can retry
     }
     throw new Error(`Failed to read child session id from server light sqlite db: ${dbPath}`);
-}
-
-async function waitForLatestMachineId(params: { suiteDir: string; timeoutMs?: number }): Promise<string> {
-    const timeoutMs = params.timeoutMs ?? 60_000;
-    const startedAt = Date.now();
-    while (Date.now() - startedAt < timeoutMs) {
-        try {
-            return readLatestMachineIdFromServerLightDb({ suiteDir: params.suiteDir });
-        } catch {
-            await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
-        }
-    }
-    return readLatestMachineIdFromServerLightDb({ suiteDir: params.suiteDir });
 }
 
 async function waitForForkedChildSessionId(params: {
@@ -291,7 +264,7 @@ test.describe('ui e2e: Codex app-server fork from session info', () => {
 
         await setCodexBackendModeToAppServer(page, uiBaseUrl);
 
-        const machineId = await waitForLatestMachineId({ suiteDir, timeoutMs: 120_000 });
+        const machineId = await waitForDaemonMachineIdFromCliSettings({ cliHomeDir, timeoutMs: 120_000 });
         const parentSessionId = await createCodexSessionFromComposer({
             page,
             uiBaseUrl,

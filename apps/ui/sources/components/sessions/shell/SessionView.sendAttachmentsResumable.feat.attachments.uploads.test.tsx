@@ -86,6 +86,13 @@ const draftHookState = vi.hoisted(() => ({
 }));
 const chatListPropsSpy = vi.hoisted(() => vi.fn());
 
+function readLatestChatListPropsWithPendingEdit() {
+    return [...chatListPropsSpy.mock.calls]
+        .reverse()
+        .map((call) => call[0])
+        .find((props) => typeof props?.onEditPendingMessage === 'function');
+}
+
 const pendingFireAndForget: Promise<unknown>[] = [];
 
 const resolveSessionComposerSendMock = vi.fn((..._args: any[]) => ({ kind: 'send', text: 'hello' }));
@@ -886,9 +893,7 @@ describe('SessionView (attachments.uploads resumable send)', () => {
             expect(renderedTree).toBeDefined();
             if (!renderedTree) throw new Error('SessionView test renderer did not mount');
 
-            const latestChatListProps = chatListPropsSpy.mock.calls
-                .map((call) => call[0])
-                .find((props) => typeof props?.onEditPendingMessage === 'function');
+            const latestChatListProps = readLatestChatListPropsWithPendingEdit();
             expect(latestChatListProps?.onEditPendingMessage).toEqual(expect.any(Function));
 
             await act(async () => {
@@ -943,9 +948,7 @@ describe('SessionView (attachments.uploads resumable send)', () => {
                 invokeTestInstanceHandler(agentInput, 'onChangeText', 'unrelated draft', 'AgentInput');
             });
 
-            const latestChatListProps = chatListPropsSpy.mock.calls
-                .map((call) => call[0])
-                .find((props) => typeof props?.onEditPendingMessage === 'function');
+            const latestChatListProps = readLatestChatListPropsWithPendingEdit();
             expect(latestChatListProps?.onEditPendingMessage).toEqual(expect.any(Function));
 
             await act(async () => {
@@ -1014,9 +1017,7 @@ describe('SessionView (attachments.uploads resumable send)', () => {
                 invokeTestInstanceHandler(agentInput, 'onChangeText', 'draft before edit', 'AgentInput');
             });
 
-            const latestChatListProps = chatListPropsSpy.mock.calls
-                .map((call) => call[0])
-                .find((props) => typeof props?.onEditPendingMessage === 'function');
+            const latestChatListProps = readLatestChatListPropsWithPendingEdit();
             expect(latestChatListProps?.onEditPendingMessage).toEqual(expect.any(Function));
 
             await act(async () => {
@@ -1088,9 +1089,7 @@ describe('SessionView (attachments.uploads resumable send)', () => {
                 expect.objectContaining({ label: 'draft-note.txt', status: 'pending' }),
             ]);
 
-            const latestChatListProps = chatListPropsSpy.mock.calls
-                .map((call) => call[0])
-                .find((props) => typeof props?.onEditPendingMessage === 'function');
+            const latestChatListProps = readLatestChatListPropsWithPendingEdit();
             expect(latestChatListProps?.onEditPendingMessage).toEqual(expect.any(Function));
 
             await act(async () => {
@@ -1157,9 +1156,7 @@ describe('SessionView (attachments.uploads resumable send)', () => {
             expect(renderedTree).toBeDefined();
             if (!renderedTree) throw new Error('SessionView test renderer did not mount');
 
-            const latestChatListProps = chatListPropsSpy.mock.calls
-                .map((call) => call[0])
-                .find((props) => typeof props?.onEditPendingMessage === 'function');
+            const latestChatListProps = readLatestChatListPropsWithPendingEdit();
             expect(latestChatListProps?.onEditPendingMessage).toEqual(expect.any(Function));
 
             await act(async () => {
@@ -1225,9 +1222,7 @@ describe('SessionView (attachments.uploads resumable send)', () => {
                 invokeTestInstanceHandler(agentInput, 'onChangeText', 'draft before edit', 'AgentInput');
             });
 
-            const latestChatListProps = chatListPropsSpy.mock.calls
-                .map((call) => call[0])
-                .find((props) => typeof props?.onEditPendingMessage === 'function');
+            const latestChatListProps = readLatestChatListPropsWithPendingEdit();
             expect(latestChatListProps?.onEditPendingMessage).toEqual(expect.any(Function));
 
             await act(async () => {
@@ -1284,9 +1279,7 @@ describe('SessionView (attachments.uploads resumable send)', () => {
                 invokeTestInstanceHandler(agentInput, 'onChangeText', 'draft before edit', 'AgentInput');
             });
 
-            const latestChatListProps = chatListPropsSpy.mock.calls
-                .map((call) => call[0])
-                .find((props) => typeof props?.onEditPendingMessage === 'function');
+            const latestChatListProps = readLatestChatListPropsWithPendingEdit();
             expect(latestChatListProps?.onEditPendingMessage).toEqual(expect.any(Function));
 
             await act(async () => {
@@ -1365,9 +1358,7 @@ describe('SessionView (attachments.uploads resumable send)', () => {
                 expect.objectContaining({ label: 'draft-note.txt', status: 'pending' }),
             ]);
 
-            const latestChatListProps = chatListPropsSpy.mock.calls
-                .map((call) => call[0])
-                .find((props) => typeof props?.onEditPendingMessage === 'function');
+            const latestChatListProps = readLatestChatListPropsWithPendingEdit();
             expect(latestChatListProps?.onEditPendingMessage).toEqual(expect.any(Function));
 
             await act(async () => {

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Metadata } from '@/api/types';
+import packageJson from '../../package.json';
 import type {
   ConnectedServiceAuthGroupApi,
   ConnectedServiceCredentialApi,
@@ -20,6 +21,19 @@ type VerifyClaudeSharedGroupGenerationApplication = NonNullable<
 type ApplyClaudeSharedGroupGenerationApplication = NonNullable<
   ConnectedServiceCredentialLifecycleDescriptor['applySharedGenerationApplication']
 >;
+
+const { spawnChildProcess } = vi.hoisted(() => ({
+  spawnChildProcess: vi.fn(() => ({
+    pid: 4343,
+    unref: vi.fn(),
+    on: vi.fn(),
+  })),
+}));
+
+vi.mock('node:child_process', async (importOriginal) => ({
+  ...await importOriginal<typeof import('node:child_process')>(),
+  spawn: spawnChildProcess,
+}));
 
 const automationCredentials = {
   token: 'token-automation',
@@ -383,7 +397,7 @@ vi.mock('@/configuration', () => ({
   configuration: {
     privateKeyFile: '/tmp/key',
     happyHomeDir: '/tmp/home',
-    currentCliVersion: '0.0.0-test',
+    currentCliVersion: packageJson.version,
     publicReleaseRing: 'stable',
     activeServerId: 'default',
     serverUrl: 'https://api.happier.dev',
@@ -406,7 +420,11 @@ vi.mock('@/ui/doctor', () => ({
 
 vi.mock('@/utils/spawnHappyCLI', () => ({
   buildHappyCliSubprocessInvocation: vi.fn(),
-  buildHappyCliSubprocessLaunchSpec: vi.fn<BuildHappyCliSubprocessLaunchSpec>(),
+  buildHappyCliSubprocessLaunchSpec: vi.fn<BuildHappyCliSubprocessLaunchSpec>((args) => ({
+    runtime: 'node',
+    filePath: process.execPath,
+    args: [...args],
+  })),
   pruneHappyCliRunnerSnapshots: vi.fn(),
   resolveHappyCliSubprocessRuntimeDecision: vi.fn(() => null),
   spawnHappyCLI: vi.fn(() => ({
@@ -1166,7 +1184,7 @@ describe('startDaemon automation wiring (integration)', () => {
         resume: 'claude-reachable-resume',
         backendTarget: { kind: 'builtInAgent', agentId: 'claude' },
       }));
-      expect(spawnHappyCLI).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(spawnHappyCLI).mock.calls.length + spawnChildProcess.mock.calls.length).toBe(1);
 
       harness.requestShutdown('happier-cli');
       await run;
@@ -1550,7 +1568,7 @@ describe('startDaemon automation wiring (integration)', () => {
       expect(writeDaemonState).toHaveBeenCalledTimes(1);
       expect(ensureMachineRegistered).toHaveBeenCalledWith(expect.objectContaining({
         daemonState: expect.objectContaining({
-          startedWithCliVersion: '0.2.11',
+          startedWithCliVersion: packageJson.version,
         }),
       }));
 

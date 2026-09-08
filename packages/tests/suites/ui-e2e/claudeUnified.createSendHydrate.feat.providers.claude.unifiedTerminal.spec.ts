@@ -1,6 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { execFileSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 
 import { createRunDirs } from '../../src/testkit/runDir';
@@ -16,40 +15,9 @@ import { authenticateAndStartDaemon } from '../../src/testkit/uiE2e/authenticate
 import { createSessionFromNewSessionComposer } from '../../src/testkit/uiE2e/createSessionFromNewSessionComposer';
 import { enableClaudeUnifiedTerminal } from '../../src/testkit/uiE2e/enableClaudeUnifiedTerminal';
 import { gotoDomContentLoadedWithRetries, normalizeLoopbackBaseUrl } from '../../src/testkit/uiE2e/pageNavigation';
+import { waitForDaemonMachineIdFromCliSettings } from '../../src/testkit/uiE2e/daemonMachineId';
 
 const run = createRunDirs({ runLabel: 'ui-e2e' });
-
-function resolveServerLightSqliteDbPath(params: { suiteDir: string }): string {
-  return resolve(join(params.suiteDir, 'server-light-data', 'happier-server-light.sqlite'));
-}
-
-function readLatestMachineIdFromServerLightDb(params: { suiteDir: string }): string {
-  const dbPath = resolveServerLightSqliteDbPath({ suiteDir: params.suiteDir });
-  try {
-    const raw = execFileSync('sqlite3', ['-json', dbPath, 'select id from Machine order by createdAt desc limit 1;'], {
-      encoding: 'utf8',
-    });
-    const parsed = JSON.parse(raw) as Array<{ id?: unknown }>;
-    const id = parsed?.[0]?.id;
-    if (typeof id === 'string' && id.trim()) return id.trim();
-  } catch {
-    // Pollers retry while daemon registration reaches the server-light db.
-  }
-  throw new Error(`Failed to read machine id from server light sqlite db: ${dbPath}`);
-}
-
-async function waitForLatestMachineId(params: { suiteDir: string; timeoutMs?: number }): Promise<string> {
-  const timeoutMs = params.timeoutMs ?? 60_000;
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < timeoutMs) {
-    try {
-      return readLatestMachineIdFromServerLightDb({ suiteDir: params.suiteDir });
-    } catch {
-      await new Promise((r) => setTimeout(r, 250));
-    }
-  }
-  return readLatestMachineIdFromServerLightDb({ suiteDir: params.suiteDir });
-}
 
 async function countVisibleCommittedTranscriptMessagesWithText(page: Page, text: string): Promise<number> {
   return page.locator('[data-testid^="transcript-message-"]').evaluateAll((nodes, expectedText) => {
@@ -171,7 +139,7 @@ test.describe('ui e2e: Claude unified create/send/hydrate', () => {
 
     await enableClaudeUnifiedTerminal({ page, uiBaseUrl });
 
-    const machineId = await waitForLatestMachineId({ suiteDir, timeoutMs: 120_000 });
+    const machineId = await waitForDaemonMachineIdFromCliSettings({ cliHomeDir, timeoutMs: 120_000 });
     const firstPrompt = `claude unified first prompt ${run.runId}`;
     const { sessionId } = await createSessionFromNewSessionComposer({ page, uiBaseUrl, machineId, prompt: firstPrompt });
 

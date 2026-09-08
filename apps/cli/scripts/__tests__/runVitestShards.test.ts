@@ -64,72 +64,25 @@ describe('runVitestShards', () => {
   });
 
   it('runs reset-heavy suites in bounded fresh processes', () => {
-    expect(resolveVitestIsolationPlan('vitest.config.ts')).toEqual({
-      shardExcludes: [
-        'src/daemon/service/cli.test.ts',
-        'src/api/machine/rpcHandlers.sessionHandoff.test.ts',
-        'src/backends/claude/unifiedTerminal/createClaudeUnifiedTranscriptBridge.test.ts',
-        'src/backends/claude/utils/sessionScanner.test.ts',
-        'src/backends/codex/appServer/runtime.test.ts',
-        'src/api/session/sessionClient.ephemeralSendOutcome.test.ts',
-        'src/agent/runtime/process/killProcessTree.test.ts',
-        'src/agent/acp/__tests__/AcpBackend.dispose.killsProcessTree.test.ts',
-        'src/capabilities/probes/acpProbe.processTreeCleanup.test.ts',
-        'src/backends/pi/rpc/PiRpcBackend.brokerPreflight.test.ts',
-        'src/backends/pi/rpc/PiRpcBackend.pendingTurnLifecycle.test.ts',
-        'src/backends/claude/sdk/query.signalCleanup.test.ts',
-        'src/backends/codex/appServer/client/createCodexAppServerClient.test.ts',
-        'src/daemon/processRunState.test.ts',
-      ],
-      runs: [
-        {
-          file: 'src/daemon/service/cli.test.ts',
-          testNamePattern: 'runDaemonServiceCliCommand (?:allows|expands|prefers|resolves|restarts|restores|sets|treats)\\b',
-        },
-        {
-          file: 'src/daemon/service/cli.test.ts',
-          testNamePattern: 'runDaemonServiceCliCommand (?:defaults|fails|plans|refreshes|reports|stops|supports|uses)\\b',
-        },
-        {
-          file: 'src/daemon/service/cli.test.ts',
-          testNamePattern: 'runDaemonServiceCliCommand (?:builds|includes|keeps|passes|rejects|respects|scopes|uninstalls)\\b',
-        },
-        {
-          file: 'src/api/machine/rpcHandlers.sessionHandoff.test.ts',
-          testNamePattern: '^rpcHandlers \\(session handoff\\) (?:aborts|acknowledges|applies|claims|classifies|delegates|does|durably)\\b',
-        },
-        {
-          file: 'src/api/machine/rpcHandlers.sessionHandoff.test.ts',
-          testNamePattern: '^rpcHandlers \\(session handoff\\) (?:fails|keeps)\\b',
-        },
-        {
-          file: 'src/api/machine/rpcHandlers.sessionHandoff.test.ts',
-          testNamePattern: '^rpcHandlers \\(session handoff\\) (?:maps|normalizes|omits|passes|persists|prefers|propagates|publishes|recovers|registers|rejects|retries)\\b',
-        },
-        {
-          file: 'src/api/machine/rpcHandlers.sessionHandoff.test.ts',
-          testNamePattern: '^rpcHandlers \\(session handoff\\) (?:returns|reuses|serves|starts|stops|surfaces|tracks|uses|waits)\\b',
-        },
-        {
-          file: 'src/backends/claude/unifiedTerminal/createClaudeUnifiedTranscriptBridge.test.ts',
-          testNamePattern: '.*',
-        },
-        {
-          file: 'src/backends/claude/utils/sessionScanner.test.ts',
-          testNamePattern: '.*',
-        },
-        { file: 'src/backends/codex/appServer/runtime.test.ts', testNamePattern: '.*' },
-        { file: 'src/api/session/sessionClient.ephemeralSendOutcome.test.ts', testNamePattern: '.*' },
-        { file: 'src/agent/runtime/process/killProcessTree.test.ts', testNamePattern: '.*' },
-        { file: 'src/agent/acp/__tests__/AcpBackend.dispose.killsProcessTree.test.ts', testNamePattern: '.*' },
-        { file: 'src/capabilities/probes/acpProbe.processTreeCleanup.test.ts', testNamePattern: '.*' },
-        { file: 'src/backends/pi/rpc/PiRpcBackend.brokerPreflight.test.ts', testNamePattern: '.*' },
-        { file: 'src/backends/pi/rpc/PiRpcBackend.pendingTurnLifecycle.test.ts', testNamePattern: '.*' },
-        { file: 'src/backends/claude/sdk/query.signalCleanup.test.ts', testNamePattern: '.*' },
-        { file: 'src/backends/codex/appServer/client/createCodexAppServerClient.test.ts', testNamePattern: '.*' },
-        { file: 'src/daemon/processRunState.test.ts', testNamePattern: '.*' },
-      ],
-    });
+    const plan = resolveVitestIsolationPlan('vitest.config.ts');
+    const resetHeavyFiles = [
+      'src/daemon/startSyncOwnership.test.ts',
+      'src/commands/auth.nonInteractiveBoth.test.ts',
+      'src/api/session/sessionClient.durableMutationOutbox.test.ts',
+      'src/agent/executionRuns/runEphemeralExecutionRunTextPrompt.test.ts',
+    ];
+
+    expect(plan.shardExcludes).toEqual(expect.arrayContaining(resetHeavyFiles));
+    expect(new Set(plan.shardExcludes).size).toBe(plan.shardExcludes.length);
+    expect(new Set(plan.runs.map((run) => run.file))).toEqual(new Set(plan.shardExcludes));
+    for (const file of resetHeavyFiles) {
+      expect(plan.runs).toContainEqual({ file, testNamePattern: '.*' });
+    }
+
+    // These exceptionally large suites intentionally remain split into several
+    // fresh processes rather than one whole-file process.
+    expect(plan.runs.filter((run) => run.file === 'src/daemon/service/cli.test.ts')).toHaveLength(3);
+    expect(plan.runs.filter((run) => run.file === 'src/api/machine/rpcHandlers.sessionHandoff.test.ts')).toHaveLength(4);
     expect(resolveVitestIsolationPlan('vitest.integration.config.ts')).toEqual({
       shardExcludes: [],
       runs: [],

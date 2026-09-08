@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '..', '..');
+const cliBaseVersion = String(JSON.parse(readFileSync(resolve(repoRoot, 'apps/cli/package.json'), 'utf8')).version);
+const cliPreviewVersion = `${cliBaseVersion}-preview.2`;
 
 test('pipeline CLI npm-release supports --mode pack (no publish) in dry-run', async () => {
   const out = execFileSync(
@@ -54,7 +56,7 @@ test('trusted npm release control can pack an explicit candidate repository root
       '--publish-cli',
       'true',
       '--cli-version',
-      '0.2.11-preview.2',
+      cliPreviewVersion,
       '--run-tests',
       'false',
       '--mode',
@@ -67,7 +69,7 @@ test('trusted npm release control can pack an explicit candidate repository root
         ...process.env,
         HAPPIER_RELEASE_PUBLISHED_VERSIONS_JSON: JSON.stringify({
           github: {},
-          npm: { '@happier-dev/cli': ['0.2.11-preview.2'] },
+          npm: { '@happier-dev/cli': [cliPreviewVersion] },
         }),
       },
       encoding: 'utf8',
@@ -77,7 +79,7 @@ test('trusted npm release control can pack an explicit candidate repository root
   );
 
   assert.match(out, /apps\/cli/);
-  assert.match(out, /0\.2\.11-preview\.2/);
+  assert.match(out, new RegExp(cliPreviewVersion.replaceAll('.', '\\.')));
 });
 
 test('pack mode explicitly admits reconstruction of an already-published exact version', () => {
