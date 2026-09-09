@@ -349,6 +349,15 @@ jobs:
           SERVER_RUNNER_DIR: ${{ steps.server_runner.outputs.dir }}
         run: yarn --cwd "${SERVER_RUNNER_DIR}" test
 
+      - name: Checkout trusted npm release control
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: trusted-control
+          fetch-depth: 1
+          persist-credentials: false
+
       - name: Release metadata
         id: meta
         env:
@@ -395,7 +404,8 @@ jobs:
 
           versions_json="{}"
           if [ "${INPUT_CHANNEL}" = "preview" ]; then
-            versions_json="$(node scripts/pipeline/run.mjs npm-set-preview-versions \
+            versions_json="$(node "$GITHUB_WORKSPACE/trusted-control/scripts/pipeline/run.mjs" npm-set-preview-versions \
+              --repo-root "$GITHUB_WORKSPACE" \
               --publish-cli "${INPUT_PUBLISH_CLI}" \
               --publish-stack "${INPUT_PUBLISH_STACK}" \
               --publish-server "${INPUT_PUBLISH_SERVER}" \
@@ -438,15 +448,6 @@ jobs:
             fi
             write_version_output server_version server "$server_version"
           fi
-
-      - name: Checkout trusted npm release control
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          path: trusted-control
-          fetch-depth: 1
-          persist-credentials: false
 
       - name: npm pack (pipeline)
         if: inputs.publish_cli || inputs.publish_stack || inputs.publish_server

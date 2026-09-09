@@ -49,6 +49,14 @@ test('npm candidate packing is permission-minimized and secret-free', async () =
   assert.equal(controlCheckout?.with?.path, 'trusted-control');
   assert.equal(controlCheckout?.with?.['persist-credentials'], false);
   assert.match(JSON.stringify(candidate), /trusted-control\/scripts\/pipeline\/npm\/release-packages\.mjs/);
+
+  const controlCheckoutIndex = candidate.steps.indexOf(controlCheckout);
+  const metadataIndex = candidate.steps.findIndex((step) => step.name === 'Release metadata');
+  assert.ok(controlCheckoutIndex < metadataIndex, 'retry/version policy must be available before metadata is resolved');
+  const metadataRun = String(candidate.steps[metadataIndex]?.run ?? '');
+  assert.match(metadataRun, /trusted-control\/scripts\/pipeline\/run\.mjs" npm-set-preview-versions/);
+  assert.match(metadataRun, /--repo-root "\$GITHUB_WORKSPACE"/);
+  assert.doesNotMatch(metadataRun, /(?:^|\s)node scripts\/pipeline\/run\.mjs npm-set-preview-versions/);
 });
 
 test('an authorized npm candidate is checked out by exact SHA and rechecked against its canonical branch before packing', async () => {
