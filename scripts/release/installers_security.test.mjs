@@ -39,6 +39,10 @@ test('release-owned windows installer enforces minisign verification defaults', 
   assert.match(installPs1, /&\s+\$exe\.FullName\s+-v\s+\*>\s+\$null/);
   assert.doesNotMatch(installPs1, /\$exe\.FullName\s+--version/);
   assert.match(installPs1, /\$LASTEXITCODE\s+-ne\s+0/);
+  assert.match(installPs1, /RuntimeInformation\]::OSArchitecture/);
+  assert.match(installPs1, /"X64"\s*\{\s*"x86_64"\s*\}/);
+  assert.match(installPs1, /"Arm64"\s*\{\s*"aarch64"\s*\}/);
+  assert.doesNotMatch(installPs1, /Get-ChildItem\s+-Path\s+\$extractDir\s+-Filter\s+"minisign\.exe"\s+-Recurse\s*\|\s*Select-Object\s+-First\s+1/);
   assert.match(
     installPs1,
     /winget\s+install\s+--id\s+jedisct1\.minisign\s+--source\s+winget\s+--accept-source-agreements\s+--accept-package-agreements/i,
@@ -58,6 +62,10 @@ test('release-owned windows installer enforces minisign verification defaults', 
   assert.match(installPs1, /\$wingetInstallResult/i);
   assert.match(installPs1, /\$wingetInstallResult\.ExitCode\s+-ne\s+0/i);
   assert.doesNotMatch(installPs1, /\$wingetInstallResult\.Ok/i);
+  const wingetInstall = installPs1.indexOf('winget install --id jedisct1.minisign');
+  const resolveInstalled = installPs1.indexOf('$installedMinisign = Resolve-MinisignExecutablePath', wingetInstall);
+  const rejectWingetExit = installPs1.indexOf('$wingetInstallResult.ExitCode -ne 0', wingetInstall);
+  assert.ok(wingetInstall >= 0 && resolveInstalled > wingetInstall && rejectWingetExit > resolveInstalled);
   assert.match(installPs1, /Unable to install minisign via winget/i);
   assert.match(installPs1, /Payload promotion is unsupported by this CLI build, falling back to legacy direct binary copy\./);
   assert.match(installPs1, /Payload promotion failed without a safe fallback\./);
