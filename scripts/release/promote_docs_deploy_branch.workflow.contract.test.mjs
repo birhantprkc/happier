@@ -29,8 +29,8 @@ test('promote-docs records the deploy branch and publishes the validated artifac
   const deploy = workflow.jobs.deploy_cloudflare;
   const download = deploy.steps.find((step) => step.name === 'Download the exact built site');
   const publish = deploy.steps.find((step) => step.name === 'Publish to Cloudflare');
-  assert.equal(upload.with.name, 'docs-out-${{ needs.resolve_source.outputs.candidate_sha }}');
-  assert.equal(download.with.name, 'docs-out-${{ needs.resolve_source.outputs.candidate_sha }}');
+  assert.equal(upload.with.name, 'docs-out-${{ inputs.environment }}-${{ needs.resolve_source.outputs.candidate_sha }}');
+  assert.equal(download.with.name, 'docs-out-${{ inputs.environment }}-${{ needs.resolve_source.outputs.candidate_sha }}');
   assert.deepEqual(deploy.needs, ['release_actor_guard', 'resolve_source', 'validate_candidate', 'promote']);
   assert.equal(publish.env.RELEASE_SHA, '${{ needs.resolve_source.outputs.candidate_sha }}');
   assert.doesNotMatch(String(upload.with.name) + String(download.with.name) + String(publish.run), /github\.sha/);
