@@ -63,6 +63,21 @@ describe('Windows scheduled task lifecycle PowerShell helpers', () => {
     expect(wrapper).not.toContain('1>> ""');
   });
 
+  it('captures native stderr without PowerShell converting its first line into a terminating error', () => {
+    const wrapper = renderWindowsScheduledTaskWrapperPs1({
+      programArgs: ['C:\\Happier\\happier-server.exe'],
+      stdoutPath: 'C:\\Happier\\logs\\server.out.log',
+      stderrPath: 'C:\\Happier\\logs\\server.err.log',
+    });
+
+    const nativeInvocation = wrapper.indexOf('& "C:\\Happier\\happier-server.exe"');
+    const nativeErrorPolicy = wrapper.indexOf('$ErrorActionPreference = "Continue"');
+    expect(nativeErrorPolicy).toBeGreaterThan(-1);
+    expect(nativeErrorPolicy).toBeLessThan(nativeInvocation);
+    expect(wrapper).toContain('$LASTEXITCODE = 1');
+    expect(wrapper).toContain('2>> "C:\\Happier\\logs\\server.err.log"');
+  });
+
   it('stops only an existing running task through typed scheduler state', () => {
     const command = buildStopWindowsScheduledTaskIfRunningPowerShellCommand({
       qualifiedTaskName: 'Happier\\happier-daemon.default',
