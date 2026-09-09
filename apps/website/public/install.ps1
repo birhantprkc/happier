@@ -2349,13 +2349,17 @@ function Ensure-Minisign {
   }
 
   try {
-    & $exe.FullName --version *> $null
+    $LASTEXITCODE = 1
+    & $exe.FullName -v *> $null
+    if ($LASTEXITCODE -ne 0) {
+      throw "Downloaded minisign executable failed its version probe (exit $LASTEXITCODE)."
+    }
   }
   catch {
     Write-Warning "Downloaded minisign binary is not compatible with this system."
     Write-Host "Installing minisign with winget..."
     $wingetInstallResult = Invoke-NativeCommandCapturingOutput {
-      winget install --id jedisct1.minisign --accept-source-agreements --accept-package-agreements
+      winget install --id jedisct1.minisign --source winget --accept-source-agreements --accept-package-agreements
     }
     if ($wingetInstallResult.ExitCode -ne 0) {
       throw "Unable to install minisign via winget. $($wingetInstallResult.Output)"

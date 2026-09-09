@@ -36,10 +36,12 @@ test('release-owned windows installer enforces minisign verification defaults', 
   assert.match(installPs1, /https:\/\/happier\.dev\/happier-release\.pub/);
   assert.match(installPs1, /Signature verified\./);
   assert.doesNotMatch(installPs1, /skip.*signature/i);
-  assert.match(installPs1, /&\s+\$exe\.FullName\s+--version\s+\*>\s+\$null/);
+  assert.match(installPs1, /&\s+\$exe\.FullName\s+-v\s+\*>\s+\$null/);
+  assert.doesNotMatch(installPs1, /\$exe\.FullName\s+--version/);
+  assert.match(installPs1, /\$LASTEXITCODE\s+-ne\s+0/);
   assert.match(
     installPs1,
-    /winget\s+install\s+--id\s+jedisct1\.minisign\s+--accept-source-agreements\s+--accept-package-agreements/i,
+    /winget\s+install\s+--id\s+jedisct1\.minisign\s+--source\s+winget\s+--accept-source-agreements\s+--accept-package-agreements/i,
     'expected install.ps1 to install the minisign verification prerequisite through winget when the self-contained fallback is incompatible',
   );
   assert.match(installPs1, /Downloaded minisign binary is not compatible with this system/);
