@@ -48,7 +48,7 @@ export function buildStopWindowsScheduledTaskIfRunningPowerShellCommand(params: 
     '  $wrapperProcessIds = @($allProcesses | Where-Object { ([string]$_.CommandLine).IndexOf($wrapperActionToken, [StringComparison]::OrdinalIgnoreCase) -ge 0 } | ForEach-Object { [int]$_.ProcessId })',
     '  $serviceProcessIds = @($allProcesses | Where-Object { $wrapperProcessIds -contains [int]$_.ParentProcessId } | ForEach-Object { [int]$_.ProcessId })',
     '  foreach ($serviceProcessId in $serviceProcessIds) {',
-    '    & taskkill.exe /PID $serviceProcessId /T /F | Out-Null',
+    '    & taskkill.exe /PID $serviceProcessId /T /F *> $null',
     '    if ($LASTEXITCODE -ne 0 -and $null -ne (Get-Process -Id $serviceProcessId -ErrorAction SilentlyContinue)) {',
     '      throw "Failed to stop scheduled task child process $serviceProcessId (taskkill exit $LASTEXITCODE)"',
     '    }',

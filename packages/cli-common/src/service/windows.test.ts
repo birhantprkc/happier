@@ -89,6 +89,8 @@ describe('Windows scheduled task lifecycle PowerShell helpers', () => {
     expect(command).toContain('Get-CimInstance Win32_Process');
     expect(command).toContain('-File `"C:\\Users\\test\\.happier\\services\\happier-daemon.default.ps1`"');
     expect(command).toContain('taskkill.exe /PID $serviceProcessId /T /F');
+    expect(command).toContain('taskkill.exe /PID $serviceProcessId /T /F *> $null');
+    expect(command).not.toContain('taskkill.exe /PID $serviceProcessId /T /F | Out-Null');
     expect(command).toContain('Wait-Process -Id $serviceProcessId -Timeout 10');
     expect(command).toContain('Failed to wait for scheduled task child process');
     expect(command.indexOf('taskkill.exe')).toBeLessThan(command.indexOf('Wait-Process'));
