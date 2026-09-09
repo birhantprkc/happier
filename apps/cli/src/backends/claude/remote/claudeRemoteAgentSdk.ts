@@ -102,11 +102,9 @@ import {
 import type { StreamedTranscriptFlushSummary, StreamedTranscriptWriter } from '@/api/session/streamedTranscriptWriter';
 import type { SessionWorkStateV1 } from '@/session/workState/sessionWorkStateMetadata';
 import {
-    confirmClaudeRemoteProviderPromptAccepted,
-    reportClaudeRemoteProviderPromptTransportFailure,
+    createClaudeRemotePromptSettlementTracker,
     type ClaudeRemoteProviderAcceptedPrompt,
     type ClaudeRemoteProviderPromptAcceptedHandler,
-    type ClaudeRemoteProviderPromptTransportFailure,
     type ClaudeRemoteProviderPromptTransportFailureHandler,
 } from './providerPromptAcceptance';
 import type { ClaudeSubscriptionAuthTokensRefreshSelection } from '../connectedServices/claudeSubscriptionAuthTokensRefreshBridgeContract';
@@ -331,10 +329,19 @@ export async function claudeRemoteAgentSdk(opts: {
     const initial = await opts.nextMessage();
     if (!initial) return;
 
+    const promptSettlements = createClaudeRemotePromptSettlementTracker({
+        onAccepted: opts.onPromptAcceptedByProvider,
+        onTransportFailure: opts.onPromptTransportFailure,
+    });
+    promptSettlements.track(initial);
+
+    try {
+
     const specialCommand = parseSpecialCommand(initial.message);
     if (specialCommand.type === 'clear') {
         opts.onCompletionEvent?.('Context was reset');
         opts.onSessionReset?.();
+        promptSettlements.accept(initial);
         return;
     }
 
@@ -837,30 +844,7 @@ export async function claudeRemoteAgentSdk(opts: {
 
     const shapeLogger = createEventShapeLoggerForLog({ logger, scope: 'claude-agent-sdk' });
 
-    // Agent SDK expects objects (SDKUserMessage). It JSON-stringifies them before writing to stdin.
-    type ProviderInputEnvelope = Readonly<{
-        message: SDKUserMessage;
-        acceptedPrompt?: ClaudeRemoteProviderAcceptedPrompt;
-    }>;
-    type ArmedProviderInput = Readonly<{
-        serializedMessage: string;
-        acceptedPrompt: ClaudeRemoteProviderAcceptedPrompt;
-    }>;
-    const messages = new PushableAsyncIterable<ProviderInputEnvelope>();
-    let armedProviderInput: ArmedProviderInput | null = null;
-    const providerMessages: AsyncIterable<SDKUserMessage> = {
-        async *[Symbol.asyncIterator]() {
-            for await (const envelope of messages) {
-                if (envelope.acceptedPrompt) {
-                    armedProviderInput = {
-                        serializedMessage: `${JSON.stringify(envelope.message)}\n`,
-                        acceptedPrompt: envelope.acceptedPrompt,
-                    };
-                }
-                yield envelope.message;
-            }
-        },
-    };
+    const messages = new PushableAsyncIterable<SDKUserMessage>();
 
     const defaultSpawnClaudeCodeProcess = (spawnOptions: AgentSdkSpawnOptions): AgentSdkSpawnedProcess => {
         const invocation = resolveWindowsCommandInvocation({
@@ -902,90 +886,7 @@ export async function claudeRemoteAgentSdk(opts: {
     };
 
     const spawnBaseProcess = opts.spawnClaudeCodeProcess ?? defaultSpawnClaudeCodeProcess;
-    queryOptions.spawnClaudeCodeProcess = (spawnOptions: AgentSdkSpawnOptions): AgentSdkSpawnedProcess => {
-        const spawnedProcess = spawnBaseProcess(spawnOptions);
-        const originalWrite = spawnedProcess.stdin.write.bind(spawnedProcess.stdin) as (
-            ...args: unknown[]
-        ) => boolean;
-        const pendingWrites = new Set<(kind: ClaudeRemoteProviderPromptTransportFailure['kind']) => void>();
-
-        const settlePendingAsAmbiguous = () => {
-            for (const settle of [...pendingWrites]) {
-                settle('effect_may_have_occurred');
-            }
-        };
-        spawnedProcess.stdin.on('error', settlePendingAsAmbiguous);
-        spawnedProcess.on('error', settlePendingAsAmbiguous);
-        spawnedProcess.on('exit', settlePendingAsAmbiguous);
-
-        spawnedProcess.stdin.write = ((...writeArgs: unknown[]): boolean => {
-            const chunk = writeArgs[0];
-            const serializedChunk = typeof chunk === 'string'
-                ? chunk
-                : Buffer.isBuffer(chunk)
-                    ? chunk.toString()
-                    : null;
-            const armed = armedProviderInput;
-            if (!armed || serializedChunk !== armed.serializedMessage) {
-                return originalWrite(...writeArgs);
-            }
-            armedProviderInput = null;
-
-            let settled = false;
-            const settle = (
-                outcome: 'accepted' | ClaudeRemoteProviderPromptTransportFailure['kind'],
-            ): void => {
-                if (settled) return;
-                settled = true;
-                pendingWrites.delete(settleFailure);
-                if (outcome === 'accepted') {
-                    confirmClaudeRemoteProviderPromptAccepted(
-                        opts.onPromptAcceptedByProvider,
-                        armed.acceptedPrompt,
-                    );
-                    return;
-                }
-                reportClaudeRemoteProviderPromptTransportFailure(
-                    opts.onPromptTransportFailure,
-                    armed.acceptedPrompt,
-                    outcome,
-                );
-            };
-            const settleFailure = (kind: ClaudeRemoteProviderPromptTransportFailure['kind']) => {
-                settle(kind);
-            };
-            pendingWrites.add(settleFailure);
-
-            const existingCallbackIndex = typeof writeArgs.at(-1) === 'function'
-                ? writeArgs.length - 1
-                : -1;
-            const existingCallback = existingCallbackIndex >= 0
-                ? writeArgs[existingCallbackIndex] as (error?: Error | null) => void
-                : null;
-            const onWriteComplete = (error?: Error | null) => {
-                settle(error ? 'effect_may_have_occurred' : 'accepted');
-                try {
-                    existingCallback?.(error);
-                } catch {
-                    // Preserve the transport result even if an optional caller callback throws.
-                }
-            };
-            if (existingCallbackIndex >= 0) {
-                writeArgs[existingCallbackIndex] = onWriteComplete;
-            } else {
-                writeArgs.push(onWriteComplete);
-            }
-
-            try {
-                return originalWrite(...writeArgs);
-            } catch (error) {
-                settle('rejected_before_effect');
-                throw error;
-            }
-        }) as typeof spawnedProcess.stdin.write;
-
-        return spawnedProcess;
-    };
+    queryOptions.spawnClaudeCodeProcess = spawnBaseProcess;
     let nextMessagePump: Promise<void> | null = null;
     let deferredUntilForegroundTurnEnds: ClaudeRemoteProviderAcceptedPrompt<EnhancedMode> | null = null;
     const swallowOptionalPromise = async (promise: Promise<void> | null): Promise<void> => {
@@ -1092,26 +993,24 @@ export async function claudeRemoteAgentSdk(opts: {
         } as SDKMessage;
     };
 
-    try {
+	    try {
 	        response = createQuery({
-	            prompt: providerMessages,
+	            prompt: messages,
 	            options: queryOptions,
         });
         opts.onWorkflowActivityObserverReady?.();
         await opts.runtimeActivityAdapter?.activateObservation('claude-agent-sdk-provider-observer-installed');
-        opts.setUserMessageSender?.((message: SDKUserMessage) => messages.push({ message }));
+        opts.setUserMessageSender?.((message: SDKUserMessage) => messages.push(message));
         messages.push({
+            type: 'user',
+            session_id: '',
+            parent_tool_use_id: null,
             message: {
-                type: 'user',
-                session_id: '',
-                parent_tool_use_id: null,
-                message: {
-                    role: 'user',
-                    content: [{ type: 'text', text: initial.message }],
-                },
+                role: 'user',
+                content: [{ type: 'text', text: initial.message }],
             },
-            acceptedPrompt: initial,
         });
+        promptSettlements.accept(initial);
 
         let foregroundTaskInterruptId: string | null = null;
         let detachedTaskInterruptId: string | null = null;
@@ -1531,6 +1430,7 @@ export async function claudeRemoteAgentSdk(opts: {
                             }
                             return;
                         }
+                        promptSettlements.track(next);
 
                         // The active pump exists only to consume an explicit provider action.
                         // Preserve an ordinary queued row for the normal post-result turn rather
@@ -1544,11 +1444,13 @@ export async function claudeRemoteAgentSdk(opts: {
                         if (checkpointsCommand) {
                             if (!enableFileCheckpointing) {
                                 opts.onCompletionEvent?.('No checkpoints are available unless file checkpointing is enabled.');
+                                promptSettlements.accept(next);
                                 continue;
                             }
 
                             if (checkpointIds.length === 0) {
                                 opts.onCompletionEvent?.('No checkpoints have been captured yet.');
+                                promptSettlements.accept(next);
                                 continue;
                             }
 
@@ -1564,6 +1466,7 @@ export async function claudeRemoteAgentSdk(opts: {
                                     'To rewind: /rewind <checkpoint-id> --confirm',
                                 ].join('\n'),
                             );
+                            promptSettlements.accept(next);
                             continue;
                         }
 
@@ -1571,12 +1474,14 @@ export async function claudeRemoteAgentSdk(opts: {
                         if (rewindCommand) {
                             if (!enableFileCheckpointing) {
                                 opts.onCompletionEvent?.('Rewind is not available unless file checkpointing is enabled.');
+                                promptSettlements.accept(next);
                                 continue;
                             }
 
                             const checkpointId = rewindCommand.checkpointId ?? lastCheckpointId;
                             if (!checkpointId) {
                                 opts.onCompletionEvent?.('No checkpoint id is available yet. Send a normal message first, then try /rewind again.');
+                                promptSettlements.accept(next);
                                 continue;
                             }
 
@@ -1591,9 +1496,11 @@ export async function claudeRemoteAgentSdk(opts: {
                                         `To confirm, re-run: /rewind ${checkpointId} --confirm`,
                                     ].join('\n'),
                                 );
+                                promptSettlements.accept(next);
                                 continue;
                             }
 
+                            promptSettlements.accept(next);
                             const result = await (response as any).rewindFiles?.(checkpointId, undefined);
                             if (result && typeof result === 'object' && (result as any).canRewind === false) {
                                 const error = typeof (result as any).error === 'string' ? (result as any).error : 'Rewind failed';
@@ -1616,6 +1523,7 @@ export async function claudeRemoteAgentSdk(opts: {
                         if (nextSpecial.type === 'clear') {
                             opts.onCompletionEvent?.('Context was reset');
                             opts.onSessionReset?.();
+                            promptSettlements.accept(next);
                             messages.end();
                             try {
                                 response?.close?.();
@@ -1644,11 +1552,7 @@ export async function claudeRemoteAgentSdk(opts: {
                         if (pendingProviderAction === 'interrupt_and_send') {
                             const interrupt = (response as any)?.interrupt;
                             if (typeof interrupt !== 'function') {
-                                reportClaudeRemoteProviderPromptTransportFailure(
-                                    opts.onPromptTransportFailure,
-                                    next,
-                                    'rejected_before_effect',
-                                );
+                                promptSettlements.rejectBeforeEffect(next);
                                 continue;
                             }
                             opts.onInFlightSteerAvailabilityChange?.(false);
@@ -1661,11 +1565,7 @@ export async function claudeRemoteAgentSdk(opts: {
                                 await flushStreamedTranscriptWriter('abort', 'pending-interrupt-and-send');
                             } catch {
                                 awaitingRequestedTurnInterruptResult = false;
-                                reportClaudeRemoteProviderPromptTransportFailure(
-                                    opts.onPromptTransportFailure,
-                                    next,
-                                    'rejected_before_effect',
-                                );
+                                promptSettlements.rejectBeforeEffect(next);
                                 opts.onInFlightSteerAvailabilityChange?.(true);
                                 continue;
                             }
@@ -1682,17 +1582,15 @@ export async function claudeRemoteAgentSdk(opts: {
                         }
                         foregroundTurnInterruptActive = true;
                         messages.push({
+                            type: 'user',
+                            session_id: '',
+                            parent_tool_use_id: null,
                             message: {
-                                type: 'user',
-                                session_id: '',
-                                parent_tool_use_id: null,
-                                message: {
-                                    role: 'user',
-                                    content: [{ type: 'text', text: next.message }],
-                                },
+                                role: 'user',
+                                content: [{ type: 'text', text: next.message }],
                             },
-                            acceptedPrompt: next,
                         });
+                        promptSettlements.accept(next);
 
                         updateThinking(true);
                         opts.onInFlightSteerAvailabilityChange?.(true);
@@ -2422,5 +2320,8 @@ export async function claudeRemoteAgentSdk(opts: {
 
         await repairTranscriptAfterAbort();
         await stderrAppender?.close().catch(() => {});
+    }
+    } finally {
+        promptSettlements.settleUnresolved();
     }
 }

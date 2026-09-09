@@ -51,10 +51,6 @@ vi.mock('./utils/resolveClaudeCliPath', () => ({
 type RemoteOptions = Parameters<(typeof import('./claudeRemote'))['claudeRemote']>[0];
 type QueryCall = Readonly<{
   prompt?: AsyncIterable<SDKUserMessage>;
-  onPromptTransportOutcome?: (
-    message: SDKUserMessage,
-    outcome: 'accepted' | 'rejected_before_effect' | 'effect_may_have_occurred',
-  ) => void;
   options?: Readonly<{
     resume?: string;
     continue?: boolean;
@@ -247,14 +243,12 @@ describe('claudeRemote', () => {
     expect((call?.options as any)?.canCallTool).toBeUndefined();
   });
 
-  it('confirms provider acceptance after the legacy SDK reports successful prompt transport', async () => {
+  it('confirms provider acceptance when the legacy query input takes custody', async () => {
     const onPromptAcceptedByProvider = vi.fn();
     mockQuery.mockImplementation((config: QueryCall & { prompt: AsyncIterable<SDKUserMessage> }) => ({
       async *[Symbol.asyncIterator]() {
         const consumed = await config.prompt[Symbol.asyncIterator]().next();
-        if (!consumed.done) {
-          config.onPromptTransportOutcome?.(consumed.value, 'accepted');
-        }
+        if (consumed.done) throw new Error('expected prompt input');
         yield resultMessage();
       },
     }));

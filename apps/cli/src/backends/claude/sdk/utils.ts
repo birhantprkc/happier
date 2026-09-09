@@ -396,19 +396,10 @@ export function logDebug(message: string): void {
 /**
  * Stream async messages to stdin
  */
-export type ClaudeStdinRecordTransportOutcome =
-    | 'accepted'
-    | 'rejected_before_effect'
-    | 'effect_may_have_occurred'
-
 export async function streamToStdin(
     stream: AsyncIterable<unknown>,
     stdin: NodeJS.WritableStream,
     abort?: AbortSignal,
-    onRecordTransportOutcome?: (
-        record: unknown,
-        outcome: ClaudeStdinRecordTransportOutcome,
-    ) => void,
 ): Promise<void> {
     let pendingError: Error | null = null
     let rejectActiveWrite: ((error: Error) => void) | null = null
@@ -422,35 +413,21 @@ export async function streamToStdin(
 
     try {
         for await (const message of stream) {
-            const reportOutcome = (outcome: ClaudeStdinRecordTransportOutcome): void => {
-                try {
-                    onRecordTransportOutcome?.(message, outcome)
-                } catch {
-                    // Outcome observation must not change the transport result.
-                }
-            }
             if (abort?.aborted) {
-                reportOutcome('rejected_before_effect')
                 break
             }
             if (pendingError) {
-                reportOutcome('rejected_before_effect')
                 throw pendingError
             }
             await new Promise<void>((resolve, reject) => {
                 let settled = false
-                let writeCallReturned = false
-                const settleReject = (
-                    error: Error,
-                    outcome: Exclude<ClaudeStdinRecordTransportOutcome, 'accepted'>,
-                ) => {
+                const settleReject = (error: Error) => {
                     if (settled) return
                     settled = true
-                    reportOutcome(outcome)
                     reject(error)
                 }
                 rejectActiveWrite = (error) => {
-                    settleReject(error, 'effect_may_have_occurred')
+                    settleReject(error)
                 }
                 try {
                     const write = stdin.write as unknown as (
@@ -462,19 +439,13 @@ export async function streamToStdin(
                         settled = true
                         rejectActiveWrite = null
                         if (error) {
-                            reportOutcome('effect_may_have_occurred')
                             reject(error)
                             return
                         }
-                        reportOutcome('accepted')
                         resolve()
                     })
-                    writeCallReturned = true
                 } catch (error) {
-                    settleReject(
-                        error instanceof Error ? error : new Error(String(error)),
-                        writeCallReturned ? 'effect_may_have_occurred' : 'rejected_before_effect',
-                    )
+                    settleReject(error instanceof Error ? error : new Error(String(error)))
                 }
             })
             rejectActiveWrite = null
