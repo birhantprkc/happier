@@ -78,7 +78,7 @@ describe('Windows scheduled task lifecycle PowerShell helpers', () => {
     expect(wrapper).toContain('2>> "C:\\Happier\\logs\\server.err.log"');
   });
 
-  it('stops only an existing running task through typed scheduler state', () => {
+  it('waits for an existing task child process to exit before reporting the task stopped', () => {
     const command = buildStopWindowsScheduledTaskIfRunningPowerShellCommand({
       qualifiedTaskName: 'Happier\\happier-daemon.default',
       definitionPath: 'C:\\Users\\test\\.happier\\services\\happier-daemon.default.ps1',
@@ -89,7 +89,10 @@ describe('Windows scheduled task lifecycle PowerShell helpers', () => {
     expect(command).toContain('Get-CimInstance Win32_Process');
     expect(command).toContain('-File `"C:\\Users\\test\\.happier\\services\\happier-daemon.default.ps1`"');
     expect(command).toContain('taskkill.exe /PID $serviceProcessId /T /F');
-    expect(command.indexOf('taskkill.exe')).toBeLessThan(command.indexOf('Stop-ScheduledTask'));
+    expect(command).toContain('Wait-Process -Id $serviceProcessId -Timeout 10');
+    expect(command).toContain('Failed to wait for scheduled task child process');
+    expect(command.indexOf('taskkill.exe')).toBeLessThan(command.indexOf('Wait-Process'));
+    expect(command.indexOf('Wait-Process')).toBeLessThan(command.indexOf('Stop-ScheduledTask'));
     expect(command).toContain('Stop-ScheduledTask');
     expect(command).toContain('-ErrorAction Stop');
     expect(command.trim()).toMatch(/exit 0$/);
