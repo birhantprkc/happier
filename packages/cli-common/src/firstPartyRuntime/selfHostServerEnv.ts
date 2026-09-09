@@ -1,6 +1,5 @@
 import { existsSync } from 'node:fs';
 import { dirname, join, win32 as win32Path } from 'node:path';
-import { pathToFileURL } from 'node:url';
 
 import { resolveServerRuntimePrismaEngineFileName } from './serverRuntimeArtifactLayout.js';
 
@@ -189,18 +188,11 @@ export type PrismaSqliteDatabaseUrlOptions = Readonly<{
 
 function renderPrismaCompatibleSqliteFileUrl(params: Readonly<{
     dbPath: string;
-    platform: string;
 }>): string {
-    if (params.platform !== 'win32') {
-        return pathToFileURL(params.dbPath).href;
+    if (/[?#]/.test(params.dbPath)) {
+        throw new Error("SQLite database path cannot contain '?' or '#' because Prisma reserves them for connection parameters");
     }
-
-    const fileUrl = pathToFileURL(params.dbPath, { windows: true });
-    if (fileUrl.hostname) {
-        return `file://${fileUrl.hostname}${fileUrl.pathname}`;
-    }
-
-    return `file:${fileUrl.pathname.replace(/^\/(?=[A-Za-z]:\/)/, '')}`;
+    return `file:${params.dbPath}`;
 }
 
 function resolvePrismaSqliteSocketTimeoutSeconds(busyTimeoutMs: number): number | null {
@@ -327,7 +319,6 @@ export function renderPrismaCompatibleSqliteDatabaseUrl(params: Readonly<{
 }>): string {
     const fileUrl = renderPrismaCompatibleSqliteFileUrl({
         dbPath: params.dbPath,
-        platform: params.platform,
     });
     return appendPrismaSqliteConnectionParams({
         databaseUrl: fileUrl,

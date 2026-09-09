@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -63,8 +63,10 @@ describe("storage/prisma sqlite pragmas", () => {
         }).journalSizeLimitBytes).toBe(0);
     });
 
-    it("observes consistent synchronous mode when sqlite connection_limit is explicit", async () => {
-        const baseDir = await mkdtemp(join(tmpdir(), "happier-sqlite-pragmas-single-connection-"));
+    it("opens sqlite databases whose filesystem path contains spaces", async () => {
+        const parentDir = await mkdtemp(join(tmpdir(), "happier-sqlite-pragmas-"));
+        const baseDir = join(parentDir, "single connection");
+        await mkdir(baseDir);
         const originalDatabaseUrl = process.env.DATABASE_URL;
         const databaseUrl = renderPrismaCompatibleSqliteDatabaseUrl({
             dbPath: join(baseDir, "test.sqlite"),
@@ -91,7 +93,7 @@ describe("storage/prisma sqlite pragmas", () => {
             } else {
                 delete process.env.DATABASE_URL;
             }
-            await rm(baseDir, { recursive: true, force: true });
+            await rm(parentDir, { recursive: true, force: true });
         }
     });
 
