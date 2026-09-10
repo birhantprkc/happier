@@ -469,7 +469,7 @@ async function auditDownloadedAssetDirectory({
   const signedDestination = await mkdtemp(join(tmpdir(), 'happier-visible-release-signed-audit-'));
   try {
     for (const { name, sourceName } of assetPlan) {
-      if (name === sourceName) await copyFile(join(directory, name), join(signedDestination, name));
+      await copyFile(join(directory, name), join(signedDestination, sourceName));
     }
     await inspectAndVerifyCandidate({
       directory: signedDestination,
