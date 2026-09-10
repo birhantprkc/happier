@@ -78,8 +78,8 @@ test('normal release orchestration does not present the two exact regressions as
   const releaseWorkflow = workflow('release.yml');
   const candidateVerification = releaseWorkflow.jobs.verify_release_candidates;
 
-  assert.ok(releaseWorkflow.jobs.ci.needs.includes('release_preflight'));
-  assert.doesNotMatch(JSON.stringify(releaseWorkflow.jobs.ci), /run_e2e_core_slow/);
+  assert.ok(releaseWorkflow.jobs.source_validation.needs.includes('release_preflight'));
+  assert.doesNotMatch(JSON.stringify(releaseWorkflow.jobs.source_validation), /run_e2e_core_slow/);
   assert.equal(releaseWorkflow.jobs.supported_old_relay_compatibility, undefined);
   assert.ok(!candidateVerification.needs.includes('supported_old_relay_compatibility'));
 });

@@ -1,72 +1,15 @@
 name: RELEASE — npm publish (cli/stack/server)
 
 on:
-  workflow_dispatch:
-    inputs:
-      channel:
-        description: "Target — Release channel"
-        required: true
-        type: choice
-        options:
-          - production
-          - preview
-      source_ref:
-        description: "Promotion — Source ref to release from (auto: preview→preview, production→main)"
-        required: true
-        default: auto
-        type: string
-      authorized_sha:
-        description: "Caller-bound exact source SHA; optional for direct manual release"
-        required: false
-        default: ""
-        type: string
-      run_tests:
-        description: "Checks — Run publish checks/tests before publishing"
-        required: true
-        default: true
-        type: boolean
-      publish_cli:
-        description: "Publish (CLI) — Publish CLI to npm"
-        required: true
-        default: true
-        type: boolean
-      npm_tag:
-        description: "Publish (CLI) — npm dist-tag (production: latest, preview: next)"
-        required: true
-        default: latest
-        type: choice
-        options:
-          - latest
-          - next
-      publish_stack:
-        description: "Compatibility (Stack) — Publish hstack dev-helper package to npm (not release signoff)"
-        required: true
-        default: false
-        type: boolean
-      publish_server:
-        description: "Publish (Server) — Publish server runner (@happier-dev/relay-server) to npm"
-        required: true
-        default: false
-        type: boolean
-      release_message:
-        description: "Release message — Optional note to include at the top of GitHub rolling release notes"
-        required: false
-        default: ""
-        type: string
   workflow_call:
     inputs:
       channel:
         description: "Target — Release channel"
         required: true
         type: string
-      source_ref:
-        description: "Promotion — Source ref to release from (auto: preview→preview, production→main)"
-        required: false
-        default: auto
-        type: string
       authorized_sha:
-        required: false
-        default: ""
+        description: "Caller-bound exact source SHA"
+        required: true
         type: string
       run_tests:
         description: "Checks — Run publish checks/tests before publishing"
@@ -204,8 +147,8 @@ jobs:
             echo "npm_tag must be '${expected_tag}' for channel='${INPUT_CHANNEL}' (got '${INPUT_NPM_TAG}')." >&2
             exit 1
           fi
-          if [ -n "$INPUT_AUTHORIZED_SHA" ] && ! [[ "$INPUT_AUTHORIZED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "authorized_sha must be a full lowercase 40-character commit SHA when supplied." >&2
+          if ! [[ "$INPUT_AUTHORIZED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "authorized_sha must be a full lowercase 40-character commit SHA." >&2
             exit 1
           fi
 
@@ -213,50 +156,21 @@ jobs:
         id: resolve_source
         env:
           INPUT_CHANNEL: ${{ inputs.channel }}
-          INPUT_SOURCE_REF: ${{ inputs.source_ref }}
           INPUT_AUTHORIZED_SHA: ${{ inputs.authorized_sha }}
         run: |
           set -euo pipefail
           channel="${INPUT_CHANNEL}"
-          src="${INPUT_SOURCE_REF}"
-          if [ "$src" = "auto" ]; then
-            if [ "$channel" = "preview" ]; then
-              src="preview"
-            else
-              src="main"
-            fi
-          fi
+          src="$INPUT_AUTHORIZED_SHA"
 
           canonical_ref="preview"
           if [ "$channel" = "production" ]; then
             canonical_ref="main"
           fi
 
-          if [ -n "$INPUT_AUTHORIZED_SHA" ]; then
-            src="$INPUT_AUTHORIZED_SHA"
-          elif [ "$src" != "$canonical_ref" ]; then
-            echo "${channel} releases must run from $canonical_ref unless authorized_sha binds an exact source (got source_ref='$src')." >&2
-            exit 1
-          fi
-
           {
             echo "ref=$src"
             echo "canonical_ref=$canonical_ref"
           } >> "$GITHUB_OUTPUT"
-
-      - name: Enforce trusted refs for manual dispatch
-        run: |
-          set -euo pipefail
-          if [ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" ]; then
-            exit 0
-          fi
-          case "${GITHUB_REF_NAME}" in
-            dev|preview|main) ;;
-            *)
-              echo "Refusing workflow_dispatch from untrusted ref '${GITHUB_REF_NAME}'. Use dev, preview, or main." >&2
-              exit 1
-              ;;
-          esac
 
       - name: Checkout source ref
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -271,9 +185,6 @@ jobs:
           CANONICAL_REF: ${{ steps.resolve_source.outputs.canonical_ref }}
         run: |
           set -euo pipefail
-          if [ -z "$AUTHORIZED_SHA" ]; then
-            exit 0
-          fi
           if [ "$(git rev-parse HEAD)" != "$AUTHORIZED_SHA" ]; then
             echo "Checked out source does not match authorized_sha." >&2
             exit 1

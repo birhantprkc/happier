@@ -10,8 +10,10 @@ Keep release policy simple: test source once, admit the operation cheaply, build
 
 When the same approved `dev` source must ship to both public channels, select
 the conductor's `preview-and-production` target. It reuses one exact-SHA CI and
-approval packet while the canonical channel workflow runs preview and
-production concurrently. Do not try to reuse preview artifact bytes for
+approval packet, and it executes the union of source-only MySQL, platform, and
+trust-root checks once before the canonical channel workflow runs preview and
+production concurrently. Each channel still performs its own admission against
+that shared exact-source evidence. Do not try to reuse preview artifact bytes for
 production: channel-specific binaries embed different feature-policy
 environments. The fast path removes duplicate orchestration and operator wait,
 not required channel-specific builds or artifact verification.
@@ -79,6 +81,15 @@ workflow. The supported `release-shared` configurations therefore include both
 package. An `ENEEDAUTH` cluster across otherwise-authorized publisher jobs is a
 configuration failure to verify at that boundary, not a reason to add a
 long-lived npm token.
+
+TestFlight is a best-effort asynchronous projection. The native workflow owns
+building/submitting the exact candidate; it then hands the exact EAS build id or
+local IPA build identity to the existing `retry_testflight_distribution` action,
+which runs from the current trusted control checkout. Do not keep the parent
+release waiting for App Store processing, start a second iOS build to retry group
+attachment, or run a new control flag from an older candidate checkout. Inspect
+and rerun only the reconciliation action when Apple processing or group
+attachment fails.
 
 ## Preserve issue availability evidence
 

@@ -10,13 +10,14 @@ const repoRoot = resolve(here, '..', '..');
 
 test('release workflow verifies immutable candidates before promoting preview or production channels', async () => {
   const raw = await readFile(join(repoRoot, '.github', 'workflows', 'release.yml'), 'utf8');
+  const sourceValidationRaw = await readFile(join(repoRoot, '.github', 'workflows', 'release-source-validation.yml'), 'utf8');
 
   const workflow = YAML.parse(raw);
   assert.equal(workflow.on.workflow_dispatch.inputs.ci_run_id.type, 'string');
   assert.equal(workflow.on.workflow_dispatch.inputs.ci_run_id.default, '');
-  assert.match(raw, /CI_RUN_ID:\s*\$\{\{ inputs\.ci_run_id \}\}/, 'release CI handoff must use an environment variable');
-  assert.match(raw, /args\+=\(--run-id "\$CI_RUN_ID"\)/, 'release CI run id must be shell-quoted');
-  assert.doesNotMatch(raw, /format\(\x27--run-id \{0\}\x27/, 'release CI run id must not be interpolated into an unquoted shell fragment');
+  assert.match(sourceValidationRaw, /CI_RUN_ID:\s*\$\{\{ inputs\.ci_run_id \}\}/, 'release CI handoff must use an environment variable');
+  assert.match(sourceValidationRaw, /--run-id "\$CI_RUN_ID"/, 'release CI run id must be shell-quoted');
+  assert.doesNotMatch(sourceValidationRaw, /format\(\x27--run-id \{0\}\x27/, 'release CI run id must not be interpolated into an unquoted shell fragment');
 
   assert.match(
     raw,
@@ -220,23 +221,23 @@ test('release workflow derives validation, notes, and terminal status from the e
 });
 
 test('server releases admit the focused MySQL contract and stable platform evidence before branch mutation', async () => {
-  const [releaseRaw, extendedDbRaw] = await Promise.all([
+  const [releaseRaw, sourceValidationRaw, extendedDbRaw] = await Promise.all([
     readFile(join(repoRoot, '.github', 'workflows', 'release.yml'), 'utf8'),
+    readFile(join(repoRoot, '.github', 'workflows', 'release-source-validation.yml'), 'utf8'),
     readFile(join(repoRoot, '.github', 'workflows', 'extended-db-tests.yml'), 'utf8'),
   ]);
   const release = YAML.parse(releaseRaw);
+  const sourceValidation = YAML.parse(sourceValidationRaw);
   const extendedDb = YAML.parse(extendedDbRaw);
-  const mysqlGate = release.jobs.mysql_db_contract;
-  const platformGate = release.jobs.platform_service_validation;
+  const mysqlGate = sourceValidation.jobs.mysql;
+  const platformGate = sourceValidation.jobs.platform;
   const admission = release.jobs.release_admission;
 
   assert.equal(mysqlGate.uses, './.github/workflows/extended-db-tests.yml');
-  assert.match(mysqlGate.if, /needs\.plan\.outputs\.publish_server_runtime_needed == 'true'/);
-  assert.match(mysqlGate.if, /needs\.plan\.outputs\.risk_mysql_contract == 'true'/);
+  assert.match(mysqlGate.if, /needs\.source_plan\.outputs\.run_mysql == 'true'/);
   assert.match(mysqlGate.if, /inputs\.waive_ci != true/);
-  assert.doesNotMatch(mysqlGate.if, /checks_profile/);
   assert.deepEqual(mysqlGate.with, {
-    checkout_sha: '${{ needs.plan.outputs.source_sha }}',
+    checkout_sha: '${{ needs.source_plan.outputs.source_sha }}',
     select_jobs_explicitly: true,
     run_e2e_postgres: false,
     run_e2e_mysql: false,
@@ -245,17 +246,16 @@ test('server releases admit the focused MySQL contract and stable platform evide
   });
 
   assert.equal(platformGate.uses, './.github/workflows/tests.yml');
-  assert.match(platformGate.if, /needs\.plan\.outputs\.risk_platform_services == 'true'/);
+  assert.match(platformGate.if, /needs\.source_plan\.outputs\.run_platform == 'true'/);
   assert.match(platformGate.if, /inputs\.waive_ci != true/);
-  assert.match(platformGate.if, /needs\.plan\.outputs\.publish_stack == 'true'/);
-  assert.equal(platformGate.with.checkout_sha, '${{ needs.plan.outputs.source_sha }}');
+  assert.equal(platformGate.with.checkout_sha, '${{ needs.source_plan.outputs.source_sha }}');
   assert.equal(platformGate.with.select_jobs_explicitly, true);
   assert.equal(platformGate.with.run_self_host_systemd, true);
   assert.equal(platformGate.with.run_self_host_launchd, true);
   assert.equal(platformGate.with.run_self_host_schtasks, true);
   assert.equal(platformGate.with.run_self_host_daemon, true);
 
-  assert.deepEqual(admission.needs, ['plan', 'ci', 'admit_release_notes', 'mysql_db_contract', 'platform_service_validation', 'trust_root_validation']);
+  assert.deepEqual(admission.needs, ['plan', 'source_validation', 'admit_release_notes']);
   const admissionScript = admission.steps.map((step) => step.run ?? '').join('\n');
   assert.match(admissionScript, /admit-release\.mjs/);
   const admissionStep = admission.steps.find((step) => String(step.name).includes('risk-selected publication admission'));
@@ -264,6 +264,8 @@ test('server releases admit the focused MySQL contract and stable platform evide
   assert.equal(admissionStep.env.RISK_TRUST_ROOTS, '${{ needs.plan.outputs.risk_trust_roots }}');
   assert.equal(admissionStep.env.PUBLISH_STACK, '${{ needs.plan.outputs.publish_stack }}');
   assert.equal(admissionStep.env.WAIVE_SOURCE_CHECKS, '${{ inputs.waive_ci }}');
+  assert.match(admissionStep.env.VALIDATED_SOURCE_SHA, /shared_source_validation_sha/);
+  assert.match(admissionStep.env.CI_GATE_RESULT, /shared_ci_result/);
 
   for (const jobName of ['promote_preview', 'promote_main']) {
     assert.ok(release.jobs[jobName].needs.includes('release_admission'));
@@ -286,7 +288,12 @@ test('server releases admit the focused MySQL contract and stable platform evide
 });
 
 test('remote release uses one publication decision for publishers and their admission gates', async () => {
-  const workflow = YAML.parse(await readFile(join(repoRoot, '.github', 'workflows', 'release.yml'), 'utf8'));
+  const [workflowRaw, sourceValidationRaw] = await Promise.all([
+    readFile(join(repoRoot, '.github', 'workflows', 'release.yml'), 'utf8'),
+    readFile(join(repoRoot, '.github', 'workflows', 'release-source-validation.yml'), 'utf8'),
+  ]);
+  const workflow = YAML.parse(workflowRaw);
+  const sourceValidation = YAML.parse(sourceValidationRaw);
   const outputs = workflow.jobs.plan.outputs;
 
   assert.match(outputs.publish_server_runtime_needed, /inputs\.force_deploy == true/);
@@ -295,6 +302,8 @@ test('remote release uses one publication decision for publishers and their admi
   assert.match(outputs.publish_cli_binaries_needed, /steps\.plan\.outputs\.changed_cli == 'true'/);
   assert.match(workflow.jobs.publish_server_runtime.if, /needs\.plan\.outputs\.publish_server_runtime_needed == 'true'/);
   assert.match(workflow.jobs.publish_cli_binaries.if, /needs\.plan\.outputs\.publish_cli_binaries_needed == 'true'/);
-  assert.doesNotMatch(JSON.stringify(workflow.jobs.mysql_db_contract), /deploy_targets/);
-  assert.doesNotMatch(JSON.stringify(workflow.jobs.platform_service_validation), /deploy_targets/);
+  const selection = sourceValidation.jobs.source_plan.steps.find((step) => step.id === 'selection');
+  assert.match(selection.run, /resolve-source-validation-plan\.mjs/);
+  assert.equal(sourceValidation.jobs.mysql.if.includes("needs.source_plan.outputs.run_mysql == 'true'"), true);
+  assert.equal(sourceValidation.jobs.platform.if.includes("needs.source_plan.outputs.run_platform == 'true'"), true);
 });

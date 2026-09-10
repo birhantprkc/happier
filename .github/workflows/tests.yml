@@ -423,25 +423,25 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$UI_E2E_SPECS" ]; then
-            yarn -s test:e2e:ui -- --shard=${{ matrix.shard }}/12
-            exit 0
+            selected_specs="$(node scripts/ci/select-ui-e2e-shard.mjs --shard "${{ matrix.shard }}/12")"
+            mapfile -t specs <<< "$selected_specs"
+          else
+            IFS=',' read -r -a requested_specs <<< "$UI_E2E_SPECS"
+            specs=()
+            for raw_spec in "${requested_specs[@]}"; do
+              spec="${raw_spec#"${raw_spec%%[![:space:]]*}"}"
+              spec="${spec%"${spec##*[![:space:]]}"}"
+              case "$spec" in
+                packages/tests/suites/ui-e2e/*.spec.ts) ;;
+                *) echo "::error::Invalid UI E2E spec path: $spec" >&2; exit 1 ;;
+              esac
+              if [ ! -f "$spec" ]; then
+                echo "::error::UI E2E spec does not exist: $spec" >&2
+                exit 1
+              fi
+              specs+=("$spec")
+            done
           fi
-
-          IFS=',' read -r -a requested_specs <<< "$UI_E2E_SPECS"
-          specs=()
-          for raw_spec in "${requested_specs[@]}"; do
-            spec="${raw_spec#"${raw_spec%%[![:space:]]*}"}"
-            spec="${spec%"${spec##*[![:space:]]}"}"
-            case "$spec" in
-              packages/tests/suites/ui-e2e/*.spec.ts) ;;
-              *) echo "::error::Invalid UI E2E spec path: $spec" >&2; exit 1 ;;
-            esac
-            if [ ! -f "$spec" ]; then
-              echo "::error::UI E2E spec does not exist: $spec" >&2
-              exit 1
-            fi
-            specs+=("$spec")
-          done
           if [ "${#specs[@]}" -eq 0 ]; then
             echo "::error::ui_e2e_specs did not contain any spec paths" >&2
             exit 1

@@ -7,12 +7,19 @@ import { pathToFileURL } from 'node:url';
 const enabled = (value) => value === true || value === 'true';
 
 /**
- * @param {{ checksProfile: string; environment: string; publishServerRuntimeNeeded: boolean;
+ * @param {{ checksProfile: string; environment: string; plannedSourceSha: string;
+ * validatedSourceSha: string; ciResult: string; publishServerRuntimeNeeded: boolean;
  * publishCliBinariesNeeded: boolean; publishStack: boolean; sourceChecksWaived: boolean;
  * risks: { mysqlContract: boolean; platformServices: boolean; trustRoots: boolean };
  * gates: { mysql: string; platform: string; trustRoots: string } }} input
  */
 export function admitRelease(input) {
+  if (!input.plannedSourceSha || input.validatedSourceSha !== input.plannedSourceSha) {
+    throw new Error('validated source SHA must exactly match the planned source SHA');
+  }
+  if (!input.sourceChecksWaived && input.ciResult !== 'success') {
+    throw new Error('release publication requires successful exact-SHA CI evidence');
+  }
   if (input.environment === 'production' && input.checksProfile !== 'full') {
     throw new Error('production releases require checks_profile=full');
   }
@@ -33,6 +40,9 @@ export function admitReleaseFromEnvironment(env) {
   return admitRelease({
     checksProfile: String(env.CHECKS_PROFILE ?? ''),
     environment: String(env.DEPLOY_ENVIRONMENT ?? ''),
+    plannedSourceSha: String(env.PLANNED_SOURCE_SHA ?? ''),
+    validatedSourceSha: String(env.VALIDATED_SOURCE_SHA ?? ''),
+    ciResult: String(env.CI_GATE_RESULT ?? ''),
     publishServerRuntimeNeeded: enabled(env.PUBLISH_SERVER_RUNTIME_NEEDED),
     publishCliBinariesNeeded: enabled(env.PUBLISH_CLI_BINARIES_NEEDED),
     publishStack: enabled(env.PUBLISH_STACK),

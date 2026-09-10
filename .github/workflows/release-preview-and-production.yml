@@ -154,11 +154,31 @@ jobs:
             echo 'eligible=true'
           } >> "$GITHUB_OUTPUT"
 
-  release_preview:
-    name: Publish preview channel
-    needs: snapshot_release_issues
+  source_validation:
+    name: Validate exact source once for both channels
     permissions:
       actions: read
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/release-source-validation.yml
+    with:
+      source_sha: ${{ inputs.authorized_promotion_source_sha }}
+      source_branch: dev
+      base_refs: preview,main
+      ci_run_id: ${{ inputs.ci_run_id }}
+      dry_run: ${{ inputs.dry_run }}
+      waive_ci: ${{ inputs.waive_ci }}
+      deploy_targets: ${{ inputs.deploy_targets }}
+      force_deploy: ${{ inputs.force_deploy }}
+      resume_cli_requested: ${{ inputs.resume_run_id != '' }}
+      resume_stack_requested: ${{ inputs.resume_run_id != '' }}
+      resume_server_requested: ${{ inputs.resume_run_id != '' }}
+
+  release_preview:
+    name: Publish preview channel
+    needs: [snapshot_release_issues, source_validation]
+    permissions:
+      actions: write
       contents: write
       id-token: write
       issues: write
@@ -188,12 +208,18 @@ jobs:
       qualified_v4_activation_approval: ${{ inputs.qualified_v4_activation_approval }}
       confirm: release dev to preview
       combined_preview_production: true
+      shared_source_validation: true
+      shared_source_validation_sha: ${{ needs.source_validation.outputs.source_sha }}
+      shared_ci_result: ${{ needs.source_validation.outputs.ci_result }}
+      shared_mysql_result: ${{ needs.source_validation.outputs.mysql_result }}
+      shared_platform_result: ${{ needs.source_validation.outputs.platform_result }}
+      shared_trust_roots_result: ${{ needs.source_validation.outputs.trust_roots_result }}
 
   release_production:
     name: Publish production channel
-    needs: snapshot_release_issues
+    needs: [snapshot_release_issues, source_validation]
     permissions:
-      actions: read
+      actions: write
       contents: write
       id-token: write
       issues: write
@@ -223,6 +249,12 @@ jobs:
       qualified_v4_activation_approval: ${{ inputs.qualified_v4_activation_approval }}
       confirm: release dev to main
       combined_preview_production: true
+      shared_source_validation: true
+      shared_source_validation_sha: ${{ needs.source_validation.outputs.source_sha }}
+      shared_ci_result: ${{ needs.source_validation.outputs.ci_result }}
+      shared_mysql_result: ${{ needs.source_validation.outputs.mysql_result }}
+      shared_platform_result: ${{ needs.source_validation.outputs.platform_result }}
+      shared_trust_roots_result: ${{ needs.source_validation.outputs.trust_roots_result }}
 
   advance_release_issues:
     name: Advance jointly released issues to stable

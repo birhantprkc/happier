@@ -52,8 +52,9 @@ test('release workflow uses compact grouped inputs', async () => {
   }
 });
 
-test('release workflow resolves the public profile internally before CI and planning', async () => {
+test('release workflow resolves the public profile internally before source validation and planning', async () => {
   const { raw, parsed } = await loadWorkflow();
+  const sourceValidationRaw = await readFile(join(repoRoot, '.github', 'workflows', 'release-source-validation.yml'), 'utf8');
   const resolver = parsed.jobs.release_preflight;
   const resolverStep = resolver?.steps?.find((step) => step?.id === 'profile');
 
@@ -65,12 +66,12 @@ test('release workflow resolves the public profile internally before CI and plan
   assert.match(resolverStep?.run ?? '', /release-validation\/resolve-profile\.mjs/);
   assert.doesNotMatch(resolverStep?.run ?? '', /CHECKS_PROFILE/);
 
-  assert.deepEqual(parsed.jobs.ci.needs, ['release_preflight', 'release_actor_guard']);
-  assert.match(parsed.jobs.ci.if, /needs\.release_preflight\.result == 'success'/);
-  assert.equal(parsed.jobs.ci.permissions.actions, 'read');
+  assert.deepEqual(parsed.jobs.source_validation.needs, ['release_preflight', 'release_actor_guard']);
+  assert.match(parsed.jobs.source_validation.if, /needs\.release_preflight\.result == 'success'/);
+  assert.equal(parsed.jobs.source_validation.permissions.actions, 'read');
   assert.match(raw, /node scripts\/pipeline\/release\/validate-release-dispatch\.mjs/);
-  assert.match(raw, /node scripts\/pipeline\/release\/verify-existing-ci\.mjs/);
-  assert.equal(parsed.jobs.ci.with, undefined, 'release admission must reuse exact-SHA push CI instead of rerunning a second suite');
+  assert.match(sourceValidationRaw, /node scripts\/pipeline\/release\/verify-existing-ci\.mjs/);
+  assert.equal(parsed.jobs.source_validation.uses, './.github/workflows/release-source-validation.yml');
   assert.equal(parsed.jobs.supported_old_relay_compatibility, undefined);
   assert.ok(parsed.jobs.plan.needs.includes('release_preflight'));
   assert.equal(parsed.jobs.plan.outputs.validation_profile, '${{ needs.release_preflight.outputs.validation_profile }}');

@@ -17,7 +17,7 @@ test('manual tests dispatch can run an exact bounded UI E2E spec selection', asy
   assert.match(reusable, /packages\/tests\/suites\/ui-e2e\/\*\.spec\.ts/, 'targeted specs should be restricted to the canonical UI E2E directory');
   assert.match(reusable, /yarn -s test:e2e:ui -- "\$\{specs\[@\]\}"/, 'validated specs should be passed as a quoted argument array');
   assert.match(reusable, /\[1,2,3,4,5,6,7,8,9,10,11,12\]/, 'an empty selection should preserve the complete twelve-shard gate');
-  assert.match(reusable, /--shard=\$\{\{ matrix\.shard \}\}\/12/, 'the Playwright divisor should match the matrix size');
+  assert.match(reusable, /select-ui-e2e-shard\.mjs --shard "\$\{\{ matrix\.shard \}\}\/12"/, 'the weighted selector divisor should match the matrix size');
   assert.match(reusable, /ui-e2e-playwright-artifacts-shard-\$\{\{ matrix\.shard \}\}-of-12/, 'failure artifact identity should match the matrix size');
   assert.match(reusable, /name:\s*ui-e2e-playwright-artifacts[\s\S]*?compression-level:\s*0/, 'failure artifacts should skip recompressing browser media');
 });

@@ -24,6 +24,17 @@ yarn ghops workflow run nightly-dev.yml \
 
 Do not dispatch merely because this command is documented. Confirm current repository instructions, release authority, exact control SHA, origin run, and source identity first. GitHub mutations use the isolated `happier-bot` transport; never substitute a personal `gh` login when `ghops` authentication is unavailable. If the private release conductor owns the requested operation, use that conductor instead of dispatching the public workflow directly.
 
+When the user has explicitly authorized the machine's authenticated GitHub CLI
+for the current operation, the equivalent native recovery command is:
+
+```bash
+gh run rerun <run-id> --repo happier-dev/happier --failed
+```
+
+This same-SHA rerun cannot validate a correction on a newer SHA. For newer
+control/test bytes with unchanged candidate bytes, wait for the origin to become
+terminal and use the conductor's resume command instead.
+
 ## Resume invariants
 
 The resolver must prove the origin workflow/channel, terminal `happier-release-status` artifact, candidate source SHA, candidate version, and individual verification evidence. A resumed run still performs actor/source trust gates and exact artifact verification. Skipped build/sign jobs are expected evidence of reuse, not missing coverage.

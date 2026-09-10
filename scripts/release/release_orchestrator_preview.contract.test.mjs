@@ -51,7 +51,7 @@ test('release workflow only promotes and publishes the exact prepared candidate 
   );
 
   assert.match(raw, /source_ref:\s*\$\{\{ needs\.prepare_release_candidate\.outputs\.source_sha \}\}/);
-  assert.match(raw, /publish_npm:[\s\S]*?source_ref:\s*\$\{\{ needs\.prepare_release_candidate\.outputs\.source_sha \}\}/);
+  assert.match(raw, /publish_npm:[\s\S]*?authorized_sha:\s*\$\{\{ needs\.prepare_release_candidate\.outputs\.source_sha \}\}/);
   assert.match(raw, /deploy_ui:[\s\S]*?bump:\s*none/);
   assert.match(
     raw,
@@ -233,13 +233,10 @@ test('release workflows do not embed invalid JS escaping in node -p/-e snippets'
   }
 });
 
-test('release-npm resolves source ref from channel and checks out resolved source', async () => {
+test('release-npm checks out the exact caller-authorized source for the selected channel', async () => {
   const raw = await loadWorkflow('release-npm.yml');
 
-  assert.match(raw, /workflow_dispatch:[\s\S]*?inputs:[\s\S]*?source_ref:/);
-  assert.match(raw, /workflow_call:[\s\S]*?inputs:[\s\S]*?source_ref:/);
-
-  assert.match(raw, /if \[ "\$src" = "auto" \]; then[\s\S]*?if \[ "\$channel" = "preview" \]; then[\s\S]*?src="preview"[\s\S]*?src="main"/);
+  assert.match(raw, /src="\$INPUT_AUTHORIZED_SHA"/);
   assert.match(raw, /ref:\s*\$\{\{ steps\.resolve_source\.outputs\.ref \}\}/);
 });
 

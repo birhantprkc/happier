@@ -28,6 +28,8 @@ function assertTrustedControlCheckout(job, label) {
 
 test('npm candidate packing is permission-minimized and secret-free', async () => {
   const workflow = await loadWorkflow();
+  assert.equal(workflow.on?.workflow_dispatch, undefined, 'npm publishing must only be reachable through an admitted release caller');
+  assert.ok(workflow.on?.workflow_call, 'the canonical release workflow must retain the reusable npm publisher');
   const candidate = workflow.jobs?.release;
   assert.ok(candidate);
   assert.equal(workflow.permissions?.contents, 'read');
@@ -62,7 +64,9 @@ test('npm candidate packing is permission-minimized and secret-free', async () =
 test('an authorized npm candidate is checked out by exact SHA and rechecked against its canonical branch before packing', async () => {
   const workflow = await loadWorkflow();
   const candidate = workflow.jobs?.release;
-  assert.equal(workflow.on?.workflow_call?.inputs?.authorized_sha?.default, '');
+  assert.equal(workflow.on?.workflow_call?.inputs?.authorized_sha?.required, true);
+  assert.equal(workflow.on?.workflow_call?.inputs?.authorized_sha?.default, undefined);
+  assert.equal(workflow.on?.workflow_call?.inputs?.source_ref, undefined, 'the exact authorized SHA is the only npm candidate selector');
   const steps = candidate.steps ?? [];
   const checkoutIndex = steps.findIndex((step) => step.name === 'Checkout source ref');
   const verificationIndex = steps.findIndex((step) => step.name === 'Verify authorized source remains canonical');
