@@ -83,6 +83,7 @@ function fixture({ missingRolling = false } = {}) {
   const release77Tag = join(root, 'release-77-tag');
   const rollingReadFailureMarker = join(root, 'rolling-read-failure-marker');
   const sourceAssetReadCounter = join(root, 'source-asset-read-counter');
+  const assetDownloadFailureMarker = join(root, 'asset-download-failure-marker');
   const deleteConfirmFailureMarker = join(root, 'delete-confirm-failure-marker');
   writeFileSync(log, '');
   writeFileSync(uploadCounter, '0');
@@ -273,6 +274,12 @@ if [ "$1" = "api" ]; then
       ;;
     *"repos/test/test/releases/assets/"*)
       asset="\${2##*/}"
+      if [ "\${HAPPIER_TEST_RESET_FIRST_ASSET_DOWNLOAD:-0}" = "1" ] && [ ! -f ${JSON.stringify(assetDownloadFailureMarker)} ]; then
+        : > ${JSON.stringify(assetDownloadFailureMarker)}
+        printf 'partial-bytes'
+        echo 'read: connection reset by peer' >&2
+        exit 1
+      fi
       case "$asset" in
         55-*) cat ${JSON.stringify(source)}/"\${asset#55-}" ;;
         77-*) cat ${JSON.stringify(staging)}/"\${asset#77-}" ;;
@@ -523,6 +530,27 @@ test('rolling promotion audits release assets without buffering their bytes in t
       readFileSync(join(testFixture.staging, 'large-release-metadata.json')),
       largeMetadata,
     );
+  } finally {
+    rmSync(testFixture.root, { recursive: true, force: true });
+  }
+});
+
+test('rolling promotion retries a read-only asset audit without retaining partial bytes', () => {
+  const testFixture = fixture();
+  try {
+    const result = spawnSync(process.execPath, args(), {
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        PATH: `${testFixture.bin}:${process.env.PATH ?? ''}`,
+        HAPPIER_TEST_RESET_FIRST_ASSET_DOWNLOAD: '1',
+        HAPPIER_PIPELINE_GH_ASSET_READ_RETRY_DELAY_MS: '0',
+      },
+      encoding: 'utf8',
+    });
+
+    assert.equal(result.status, 0, String(result.stderr));
+    assert.match(String(result.stderr), /retrying GitHub release asset read/i);
   } finally {
     rmSync(testFixture.root, { recursive: true, force: true });
   }
