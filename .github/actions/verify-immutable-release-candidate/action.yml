@@ -35,6 +35,31 @@ runs:
       run: |
         set -euo pipefail
         control_dir="$GITHUB_WORKSPACE/.release-control"
+        github_read_retry() {
+          local output_path="$1"
+          shift
+          local max_attempts=4
+          local delay_seconds="${HAPPIER_GITHUB_READ_RETRY_DELAY_SECONDS:-2}"
+          if [[ ! "$delay_seconds" =~ ^[0-9]+$ ]]; then
+            echo "HAPPIER_GITHUB_READ_RETRY_DELAY_SECONDS must be a non-negative integer." >&2
+            return 2
+          fi
+          local attempt attempt_path
+          attempt_path="${output_path}.attempt"
+          for ((attempt = 1; attempt <= max_attempts; attempt += 1)); do
+            rm -f "$attempt_path"
+            if gh api "$@" > "$attempt_path"; then
+              mv -f "$attempt_path" "$output_path"
+              return 0
+            fi
+            rm -f "$attempt_path"
+            if [ "$attempt" -eq "$max_attempts" ]; then
+              return 1
+            fi
+            echo "Retrying transient GitHub release read (attempt=$((attempt + 1))/${max_attempts})." >&2
+            sleep "$((delay_seconds * (2 ** (attempt - 1))))"
+          done
+        }
         identity_output="$(mktemp "$RUNNER_TEMP/happier-candidate-identity-XXXXXX")"
         node "$control_dir/scripts/pipeline/release/lib/immutable-release-candidate.mjs" \
           --describe \
@@ -43,8 +68,10 @@ runs:
           --github-output "$identity_output"
         candidate_tag="$(sed -n 's/^candidate_tag=//p' "$identity_output")"
         test -n "$candidate_tag"
-        release_snapshot="$(gh api "repos/${REPOSITORY}/releases/tags/${candidate_tag}" \
-          --jq '[.id, .tag_name, .draft], (.assets[] | [.id, .name]) | @tsv')"
+        release_snapshot_path="$(mktemp "$RUNNER_TEMP/happier-release-snapshot-XXXXXX")"
+        github_read_retry "$release_snapshot_path" "repos/${REPOSITORY}/releases/tags/${candidate_tag}" \
+          --jq '[.id, .tag_name, .draft], (.assets[] | [.id, .name]) | @tsv'
+        release_snapshot="$(cat "$release_snapshot_path")"
         mapfile -t release_rows <<< "$release_snapshot"
         if [ "${#release_rows[@]}" -lt 2 ]; then
           echo "Immutable release ${candidate_tag} has no downloadable assets." >&2
@@ -81,11 +108,13 @@ runs:
             exit 1
           fi
           observed_asset_names["$asset_name"]=1
-          gh api "repos/${REPOSITORY}/releases/assets/${asset_id}" \
-            -H 'Accept: application/octet-stream' > "$candidate_dir/$asset_name"
+          github_read_retry "$candidate_dir/$asset_name" "repos/${REPOSITORY}/releases/assets/${asset_id}" \
+            -H 'Accept: application/octet-stream'
         done
-        current_snapshot="$(gh api "repos/${REPOSITORY}/releases/${release_id}" \
-          --jq '[.id, .tag_name, .draft], (.assets[] | [.id, .name]) | @tsv')"
+        current_snapshot_path="$(mktemp "$RUNNER_TEMP/happier-current-release-snapshot-XXXXXX")"
+        github_read_retry "$current_snapshot_path" "repos/${REPOSITORY}/releases/${release_id}" \
+          --jq '[.id, .tag_name, .draft], (.assets[] | [.id, .name]) | @tsv'
+        current_snapshot="$(cat "$current_snapshot_path")"
         if [ "$current_snapshot" != "$release_snapshot" ]; then
           echo "Immutable release ${candidate_tag} changed while its assets were being downloaded." >&2
           exit 1

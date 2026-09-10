@@ -157,9 +157,11 @@ test('immutable candidate verification rejects a tag retargeted while assets are
   assert.equal(identityObservationOffsets.length, 2, 'the immutable tag must be checked exactly twice');
 
   const assetDownloadOffset = actionSource.indexOf(
-    'gh api "repos/${REPOSITORY}/releases/assets/${asset_id}"',
+    'github_read_retry "$candidate_dir/$asset_name" "repos/${REPOSITORY}/releases/assets/${asset_id}"',
   );
-  const currentSnapshotOffset = actionSource.indexOf('current_snapshot="$(gh api');
+  const currentSnapshotOffset = actionSource.indexOf(
+    'github_read_retry "$current_snapshot_path" "repos/${REPOSITORY}/releases/${release_id}"',
+  );
   const snapshotEqualityOffset = actionSource.indexOf(
     'if [ "$current_snapshot" != "$release_snapshot" ]; then',
   );
