@@ -92,8 +92,16 @@ export async function runHeartbeatWrappedCommand(params) {
     signalCleanupGraceMs: 0,
     exitCleanupGraceMs: 1_000,
     parentWatchdogPollMs: Number.parseInt(process.env.HAPPIER_TEST_PARENT_WATCHDOG_MS ?? '1000', 10),
-    onProcessSignal: () => {
+    onProcessSignal: async (signal) => {
       clearHeartbeat();
+      if (params.diagnosticPath) {
+        await appendHeartbeatDiagnostic(params.diagnosticPath, {
+          event: 'process-signal',
+          signal,
+          pid: process.pid,
+          parentPid: process.ppid,
+        });
+      }
     },
     onParentDeath: async () => {
       clearHeartbeat();
