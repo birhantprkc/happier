@@ -119,6 +119,55 @@ async function ascRequest(input) {
   return body;
 }
 
+function isTransientAscReadError(error) {
+  if (error instanceof AscApiError) {
+    return [408, 425, 429].includes(error.status) || error.status >= 500;
+  }
+  const transientCodes = new Set([
+    'EAI_AGAIN',
+    'ECONNREFUSED',
+    'ECONNRESET',
+    'ENETUNREACH',
+    'ENOTFOUND',
+    'ETIMEDOUT',
+    'UND_ERR_BODY_TIMEOUT',
+    'UND_ERR_CONNECT_TIMEOUT',
+    'UND_ERR_HEADERS_TIMEOUT',
+    'UND_ERR_SOCKET',
+  ]);
+  let current = error;
+  while (current && typeof current === 'object') {
+    if (transientCodes.has(String(current.code ?? '').trim())) return true;
+    current = current.cause;
+  }
+  return false;
+}
+
+async function ascRequestWithReadRetry({ request, input }) {
+  const method = String(input.method ?? 'GET').toUpperCase();
+  if (method !== 'GET') return request(input);
+
+  const maxAttempts = 4;
+  const baseDelayMs = readNonNegativeInteger(
+    process.env.HAPPIER_TESTFLIGHT_READ_RETRY_DELAY_MS,
+    2_000,
+  );
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await request(input);
+    } catch (error) {
+      if (!isTransientAscReadError(error) || attempt === maxAttempts) throw error;
+      const delayMs = baseDelayMs * (2 ** (attempt - 1));
+      console.log(
+        `[pipeline] retrying transient App Store Connect read ` +
+        `(attempt=${attempt + 1}/${maxAttempts}, delay_ms=${delayMs})`,
+      );
+      await sleep(delayMs);
+    }
+  }
+  throw new Error('Unreachable App Store Connect read retry state.');
+}
+
 /**
  * @param {{ request: (input: { method?: string; url: string; body?: unknown }) => Promise<any>; url: string }} input
  * @returns {Promise<any[]>}
@@ -519,10 +568,11 @@ async function main() {
     keyId: ascApiKeyId,
     privateKeyPem: normalizeAscPrivateKeyPem(privateKeyRaw),
   };
-  const request = (input) => ascRequest({
+  const rawRequest = (input) => ascRequest({
     ...input,
     token: createJwt(ascCredentials),
   });
+  const request = (input) => ascRequestWithReadRetry({ request: rawRequest, input });
   const groups = await resolveExternalGroups({ request, ascAppId, externalGroupNames: externalGroups });
   for (const group of groups) {
     const groupId = String(group?.id ?? '').trim();

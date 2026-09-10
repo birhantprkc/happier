@@ -154,9 +154,11 @@ jobs:
         env:
           SOURCE_REF: ${{ inputs.source_ref }}
           RELEASE_ENVIRONMENT: ${{ inputs.environment }}
+          PUBLISH_RELEASE: ${{ inputs.publish_release }}
           RETRY_VERSION: ${{ inputs.retry_version }}
           RELEASE_MESSAGE: ${{ inputs.release_message }}
           RELEASE_NOTES_ID: ${{ inputs.release_notes_id }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           source_sha="$(git rev-parse HEAD)"
@@ -179,6 +181,27 @@ jobs:
             if [[ ! "${retry_version}" =~ ${canonical_semver_re} ]]; then
               echo "retry_version must be a canonical semantic version" >&2
               exit 1
+            fi
+          fi
+          if [ -z "${retry_version}" ] && [ "${RELEASE_ENVIRONMENT}" = production ] && [ "${PUBLISH_RELEASE}" = true ]; then
+            tag="ui-desktop-v${ui_version}"
+            remote_ref="$(git ls-remote origin "refs/tags/$tag")"
+            if [ -n "$remote_ref" ]; then
+              if [[ "$remote_ref" == *$'\n'* ]]; then
+                echo "Immutable desktop tag resolved more than once: $tag" >&2
+                exit 1
+              fi
+              read -r tag_sha tag_ref extra <<< "$remote_ref"
+              if [[ ! "$tag_sha" =~ ^[a-f0-9]{40}$ ]] || [ "$tag_ref" != "refs/tags/$tag" ] || [ -n "${extra:-}" ]; then
+                echo "Immutable desktop tag returned an invalid ref: $tag" >&2
+                exit 1
+              fi
+              if [ "$tag_sha" != "$source_sha" ]; then
+                echo "Immutable desktop tag $tag belongs to $tag_sha, not authorized source $source_sha." >&2
+                exit 1
+              fi
+              gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json tagName --jq '.tagName' >/dev/null
+              retry_version="$ui_version"
             fi
           fi
           if [ -z "$RELEASE_MESSAGE" ]; then
