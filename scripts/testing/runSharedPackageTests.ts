@@ -1,9 +1,8 @@
-import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { resolveYarnCommandInvocation } from '../workspaces/execYarnCommand.mjs';
 import { runCommandSuite, type CommandSuiteEntry } from './lib/runCommandSuite.ts';
+import { runYarnCommand } from './lib/runYarnCommand.ts';
 import { SHARED_PACKAGE_TEST_COMMANDS } from './lib/sharedPackageTestCommands.ts';
 
 export { SHARED_PACKAGE_TEST_COMMANDS } from './lib/sharedPackageTestCommands.ts';
@@ -13,23 +12,6 @@ export interface RunSharedPackageTestsOptions {
   commands?: readonly CommandSuiteEntry[];
   maxConcurrent?: number;
   runCommand?: (command: CommandSuiteEntry) => Promise<void>;
-}
-
-async function runYarnCommand(command: CommandSuiteEntry, rootDir: string): Promise<void> {
-  const yarn = resolveYarnCommandInvocation([...command.args], { npmExecPath: process.env.npm_execpath });
-  await new Promise<void>((resolveRun, rejectRun) => {
-    const child = spawn(yarn.command, [...yarn.args], {
-      cwd: rootDir,
-      stdio: 'inherit',
-      ...(yarn.windowsVerbatimArguments === true ? { windowsVerbatimArguments: true } : {}),
-    });
-    child.once('error', rejectRun);
-    child.once('exit', (code, signal) => {
-      if (signal) rejectRun(new Error(`terminated with signal ${signal}`));
-      else if (code !== 0) rejectRun(new Error(`exited with status ${code ?? 1}`));
-      else resolveRun();
-    });
-  });
 }
 
 export async function runSharedPackageTests(
