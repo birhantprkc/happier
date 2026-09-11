@@ -57,6 +57,7 @@ test('reusable tests calls make their run flags authoritative regardless of the 
     ['ui-e2e', 'run_ui_e2e'],
     ['ui-unit', 'run_ui'],
     ['ui-integration', 'run_ui'],
+    ['shared-packages-unit', 'run_shared_packages'],
     ['server', 'run_server'],
     ['server-db-contract', 'run_server_db_contract'],
     ['cli', 'run_cli'],
@@ -66,6 +67,7 @@ test('reusable tests calls make their run flags authoritative regardless of the 
     ['installers-smoke-linux', 'run_installers_smoke'],
     ['installers-smoke-windows', 'run_installers_smoke'],
     ['binary-smoke', 'run_binary_smoke'],
+    ['build-smoke', 'run_build_smoke'],
     ['typecheck', 'run_typecheck'],
     ['cli-daemon-e2e', 'run_cli_daemon_e2e'],
     ['e2e-core', 'run_e2e_core'],
@@ -78,12 +80,6 @@ test('reusable tests calls make their run flags authoritative regardless of the 
       `${jobName} must honor an explicit false input even when a scheduled caller invokes tests.yml`,
     );
   }
-
-  assert.equal(
-    testsWorkflow.jobs['shared-packages-unit'].if,
-    "${{ (inputs.select_jobs_explicitly && inputs.run_ui) || (!inputs.select_jobs_explicitly && needs.ci_plan.outputs.run_shared_packages == 'true') }}",
-    'ordinary source CI selects shared package tests independently while explicit profiles keep the existing run_ui contract',
-  );
 
   assert.equal(
     testsWorkflow.jobs.ui.if,
@@ -139,6 +135,21 @@ test('reusable tests calls make their run flags authoritative regardless of the 
       assert.equal(job.with?.select_jobs_explicitly, true, `${workflowName}:${jobName} must opt into explicit selection`);
     }
   }
+
+  for (const workflowName of [
+    'self-host-e2e.yml',
+    'stress-tests.yml',
+    'release-verify.yml',
+    'release-source-validation.yml',
+    'providers-contracts.yml',
+  ]) {
+    const workflow = YAML.parse(await readFile(join(repoRoot, '.github', 'workflows', workflowName), 'utf8'));
+    const reusableCalls = Object.entries(workflow.jobs ?? {}).filter(([, job]) => job?.uses === './.github/workflows/tests.yml');
+    for (const [jobName, job] of reusableCalls) {
+      assert.equal(job.with?.run_shared_packages, false, `${workflowName}:${jobName} must select shared packages explicitly`);
+      assert.equal(job.with?.run_build_smoke, false, `${workflowName}:${jobName} must select build smoke explicitly`);
+    }
+  }
 });
 
 test('the CI collector rejects a requested lane that GitHub skipped', async () => {
@@ -152,6 +163,22 @@ test('the CI collector rejects a requested lane that GitHub skipped', async () =
   });
   assert.equal(result.status, 1, `collector accepted a requested skip:\n${result.stdout}\n${result.stderr}`);
   assert.match(result.stderr, /release-assets-docker.*requested.*skipped/i);
+});
+
+test('the CI collector owns explicit build-smoke and shared-package selections', async () => {
+  const result = await runInlineCollector({
+    NEEDS_JSON: JSON.stringify({
+      ci_plan: { result: 'success', outputs: {} },
+      'build-smoke': { result: 'skipped', outputs: {} },
+      'shared-packages-unit': { result: 'skipped', outputs: {} },
+    }),
+    SELECT_JOBS_EXPLICITLY: 'true',
+    REQUEST_RUN_BUILD_SMOKE: 'true',
+    REQUEST_RUN_SHARED_PACKAGES: 'true',
+  });
+  assert.equal(result.status, 1, `collector accepted requested skips:\n${result.stdout}\n${result.stderr}`);
+  assert.match(result.stderr, /build-smoke.*requested.*skipped/i);
+  assert.match(result.stderr, /shared-packages-unit.*requested.*skipped/i);
 });
 
 test('the CI collector rejects a skipped always-on admission lane', async () => {
@@ -215,35 +242,10 @@ test('the source-CI classifier fail-closes shared tooling and reaches direct roo
   assert.match(workflow.jobs.ci_plan.outputs.run_cli, /steps\.unmatched\.outputs\.cli == 'true'/);
   assert.match(workflow.jobs.ci_plan.outputs.run_stack, /steps\.unmatched\.outputs\.stack == 'true'/);
   assert.equal(workflow.jobs.ci_plan.outputs.run_shared_packages, "${{ github.event_name == 'push' || steps.unmatched.outputs.all == 'true' || steps.changes.outputs.all == 'true' || steps.unmatched.outputs.shared_packages == 'true' }}");
+  assert.equal(workflow.jobs.ci_plan.outputs.run_build_smoke, "${{ github.event_name == 'push' || steps.unmatched.outputs.all == 'true' || steps.changes.outputs.changed == 'true' }}");
   assert.match(workflow.jobs['shared-packages-unit'].if, /needs\.ci_plan\.outputs\.run_shared_packages == 'true'/);
 
-  const sharedSteps = workflow.jobs['shared-packages-unit'].steps;
-  const requiredSharedChecks = new Map([
-    ['privacy_kit', 'yarn workspace privacy-kit test'],
-    ['privacy_kit_bun', 'yarn workspace privacy-kit test:runtime:bun'],
-    ['transfers', 'yarn workspace @happier-dev/transfers test'],
-    ['agents', 'yarn workspace @happier-dev/agents test'],
-    ['cli_common', 'yarn workspace @happier-dev/cli-common test'],
-    ['connection_supervisor', 'yarn workspace @happier-dev/connection-supervisor test'],
-    ['bootstrap', 'yarn workspace @happier-dev/bootstrap test'],
-    ['relay_server', 'yarn --cwd packages/relay-server test'],
-    ['built_in_prompts', 'node --test scripts/generateBuiltInPrompts.test.mjs'],
-  ]);
-  for (const [id, command] of requiredSharedChecks) {
-    const step = sharedSteps.find((candidate) => candidate.id === id);
-    assert.ok(step, `shared package check '${id}' must have its own result owner`);
-    assert.equal(step['continue-on-error'], true, `shared package check '${id}' must not hide later independent failures`);
-    assert.equal(String(step.run ?? '').trim(), command);
-  }
-
-  const sharedCollector = sharedSteps.find((step) => step.id === 'require-shared-package-checks');
-  assert.ok(sharedCollector, 'shared package checks need one final required-result owner');
-  assert.equal(sharedCollector.if, '${{ always() }}');
-  for (const id of requiredSharedChecks.keys()) {
-    const envName = `${id.toUpperCase()}_OUTCOME`;
-    assert.equal(sharedCollector.env?.[envName], `\${{ steps.${id}.outcome }}`);
-    assert.match(sharedCollector.run, new RegExp(`\\$${envName}\\b`));
-  }
+  assert.match(workflow.jobs['shared-packages-unit'].steps.map((step) => step.run ?? '').join('\n'), /yarn -s test:shared-packages:local/u);
   const cliRun = workflow.jobs.cli.steps.map((step) => step.run ?? '').join('\n');
   assert.match(cliRun, /ensureCliCommonDistModule\.test\.mjs/);
 

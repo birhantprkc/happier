@@ -215,6 +215,7 @@ jobs:
       run_mobile_e2e_android: false
       run_mobile_e2e_ios: false
       run_ui: false
+      run_shared_packages: false
       run_server: false
       run_server_db_contract: false
       run_cli: false
@@ -228,6 +229,7 @@ jobs:
       run_release_contracts: false
       run_installers_smoke: false
       run_binary_smoke: false
+      run_build_smoke: false
       run_cli_update_continuity: false
       run_daemon_continuity: false
       run_session_continuity: false

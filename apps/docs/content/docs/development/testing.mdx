@@ -204,7 +204,7 @@ Notes:
 ### 7b) Package-local-only lanes
 
 These lanes are intentionally not exposed as canonical root scripts:
-- CLI slow lane: `yarn --cwd apps/cli test:slow`
+- CLI slow lane: `yarn test:cli:slow`
 - Website tests: package-local only under `apps/website`
 - Release runtime tests: `yarn --cwd packages/release-runtime test`
 - Stack unit/integration/native real-integration lanes: `yarn --cwd apps/stack test:unit`, `yarn --cwd apps/stack test:integration`, and the guarded real-integration files in `apps/stack`
@@ -260,7 +260,7 @@ yarn test:db-contract:docker
 ### CLI (`apps/cli`)
 - Unit: `yarn --cwd apps/cli test:unit`
 - Integration: `yarn --cwd apps/cli test:integration`
-- Slow-only lane: `yarn --cwd apps/cli test:slow`
+- Slow-only lane: `yarn test:cli:slow`
 
 ### Server (`apps/server`)
 - Unit: `yarn --cwd apps/server test:unit`

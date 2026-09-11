@@ -9,6 +9,8 @@ Canonical lanes:
 - `yarn test` — fast unit lane across apps.
 - `yarn test:import-cycles` — CLI runtime import-cycle guard, also enforced by the CLI unit lane.
 - `yarn test:integration` — orchestration-heavy app integration lane.
+- `yarn test:shared-packages:local` — all-settled package-level checks without a dedicated CI job.
+- `yarn test:cli:slow` — CLI slow tests, also enforced by CLI CI part 1.
 - `yarn test:e2e:core:fast` — default local core e2e loop.
 - `yarn test:e2e:core:slow` — long orchestration core e2e.
 - `yarn test:e2e:ui` — Playwright UI/browser e2e exercising real UI + server + CLI/daemon flows.
