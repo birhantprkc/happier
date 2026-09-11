@@ -506,9 +506,9 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         throw new Error('Claude runtime Activity producer binding was not configured');
     }
     const session = api.sessionSyncClient(baseSession, runtimeActivity.lifecycle.clientConfig());
-    logger.infoFile('[CLAUDE_STARTUP] stage=session_transport_attach_started');
+    logger.infoFile('[CLAUDE_STARTUP] stage=runtime_activity_attach_started');
     await runtimeActivity.lifecycle.attachSession(session);
-    logger.infoFile('[CLAUDE_STARTUP] stage=session_transport_attach_completed');
+    logger.infoFile('[CLAUDE_STARTUP] stage=runtime_activity_attach_completed');
     logger.infoFile('[CLAUDE_STARTUP] stage=effective_prompt_started');
     const defaultSystemPromptText = await resolveEffectiveCodingPromptText({
         credentials,
