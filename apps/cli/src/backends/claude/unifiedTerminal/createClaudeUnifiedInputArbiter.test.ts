@@ -3,6 +3,68 @@ import { describe, expect, it, vi } from 'vitest';
 import { createClaudeUnifiedInputArbiter } from './createClaudeUnifiedInputArbiter';
 
 describe('createClaudeUnifiedInputArbiter', () => {
+  it('settles an injected goal control without opening or awaiting a provider turn', async () => {
+    const injectPrompt = vi.fn(async (batch: Readonly<{ message: string }>) => ({
+      status: 'injected' as const,
+      at: 10_000,
+      bytesWritten: batch.message.length,
+    }));
+    const onProviderAcceptancePending = vi.fn();
+    const onPromptInjected = vi.fn();
+    const onPromptAccepted = vi.fn();
+    const arbiter = createClaudeUnifiedInputArbiter({
+      quietPeriodMs: 0,
+      injectPrompt,
+      onProviderAcceptancePending,
+      onPromptInjected,
+      onPromptAccepted,
+    });
+    arbiter.observeLifecycle({ type: 'turn_state', state: 'idle', observedAtMs: 10_000 });
+    arbiter.observeLifecycle({ type: 'output', observedAtMs: 10_000 });
+
+    await arbiter.enqueueUiMessage({
+      message: '/goal clear',
+      origin: { kind: 'goal_control' },
+    });
+    await arbiter.drainWhenSafe();
+
+    expect(injectPrompt).toHaveBeenCalledOnce();
+    expect(onProviderAcceptancePending).not.toHaveBeenCalled();
+    expect(onPromptInjected).not.toHaveBeenCalled();
+    expect(onPromptAccepted).not.toHaveBeenCalled();
+    expect(arbiter.snapshot()).toMatchObject({
+      queuedCount: 0,
+      providerAcceptancePendingCount: 0,
+      terminalCustodyCount: 0,
+      headInputState: 'submitted',
+    });
+
+    await arbiter.enqueueUiMessage({
+      message: 'the next real prompt',
+      origin: { kind: 'ui_pending' },
+      userMessageLocalIds: ['next-real-prompt'],
+    });
+    await arbiter.drainWhenSafe();
+
+    expect(injectPrompt).toHaveBeenCalledTimes(2);
+    expect(onProviderAcceptancePending).toHaveBeenCalledOnce();
+    expect(onProviderAcceptancePending).toHaveBeenCalledWith(
+      expect.objectContaining({ userMessageLocalIds: ['next-real-prompt'] }),
+      expect.objectContaining({ acceptedAs: 'new_turn' }),
+      10_000,
+    );
+    expect(onPromptInjected).toHaveBeenCalledOnce();
+    expect(onPromptAccepted).not.toHaveBeenCalled();
+    expect(arbiter.snapshot()).toMatchObject({
+      queuedCount: 1,
+      providerAcceptancePendingCount: 1,
+      terminalCustodyCount: 0,
+      headInputState: 'awaiting_provider_acceptance',
+    });
+
+    await arbiter.dispose();
+  });
+
   it('fails closed when prompt-only acceptance matches multiple terminal-custody rows', async () => {
     const acceptedLocalIds: string[] = [];
     const arbiter = createClaudeUnifiedInputArbiter({

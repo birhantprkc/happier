@@ -2046,12 +2046,11 @@ export async function runClaudeUnifiedTerminalSession<Mode extends EnhancedMode 
         unregisterPendingInputInterruptAndRunRuntimeControl =
           typeof unregister === 'function' ? unregister : null;
       }
-      // Claude `/goal` injection seam (P1-E3/P1-E4): a goal command becomes a literal user turn
-      // injected through the same arbiter as any prompt; the emitted `goal_status` attachment is
-      // the source of truth, so nothing here writes goal state into metadata. `currentInjectionMode`
-      // is read at injection time so the goal turn carries the live permission/plan mode.
+      // Claude `/goal` injection seam (P1-E3/P1-E4): a goal command is a terminal-local control
+      // injected through the same arbiter as prompts; the emitted `goal_status` attachment is
+      // the source of truth, so nothing here writes goal state into metadata.
       const injectGoalCommand = async (message: string): Promise<ClaudeGoalCommandDelivery> => {
-        await arbiter.enqueueUiMessage({ message, mode: currentInjectionMode, origin: { kind: 'rpc' } });
+        await arbiter.enqueueUiMessage({ message, origin: { kind: 'goal_control' } });
         await arbiter.drainWhenSafe();
         // The strongest delivery state the arbiter can PROVE: the command was drained from the queue
         // and written to the terminal. It cannot prove provider acceptance, so we never claim more.

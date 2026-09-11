@@ -538,6 +538,7 @@ export function createClaudeUnifiedInputArbiter<Mode = unknown>(opts: Readonly<{
   async function acceptBatch(
     batch: ClaudeUnifiedPromptBatch<Mode>,
     acceptance: ClaudeUnifiedPromptAcceptance,
+    notifyPromptAccepted = true,
   ): Promise<void> {
     lastDeferredReason = null;
     lastFailureReason = null;
@@ -558,7 +559,9 @@ export function createClaudeUnifiedInputArbiter<Mode = unknown>(opts: Readonly<{
     }
     providerAcceptanceByBatch.delete(batch);
     clearInjectionAcceptanceForBatch(batch);
-    await opts.onPromptAccepted?.(batch, acceptance);
+    if (notifyPromptAccepted) {
+      await opts.onPromptAccepted?.(batch, acceptance);
+    }
     if (pendingProviderAcceptance) {
       headInputState = 'awaiting_provider_acceptance';
     }
@@ -890,6 +893,15 @@ export function createClaudeUnifiedInputArbiter<Mode = unknown>(opts: Readonly<{
         lastDeferredReason = null;
         lastFailureReason = null;
         clearCurrentHeadBlocker();
+        if (next.origin.kind === 'goal_control') {
+          // `/goal` is a Claude terminal-local control command, not a provider turn. A successful
+          // terminal injection is its acceptance boundary: keeping it in provider-acceptance custody
+          // would block the arbiter forever because Claude emits no UserPromptSubmit/Stop lifecycle.
+          queue.shift();
+          clearProviderAcceptanceObservedDuringInjection(injectionAcceptance);
+          await acceptBatch(next, acceptance, false);
+          return;
+        }
         pendingProviderAcceptance = injectionAcceptance;
         pendingAcceptanceCompletedCompaction = false;
         headInputState = 'awaiting_provider_acceptance';

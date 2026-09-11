@@ -9,7 +9,7 @@ import type {
 import type { ClaudeScreenState } from './tuiControls/screenState';
 
 export type ClaudeUnifiedPromptOrigin = Readonly<{
-  kind: 'ui_pending' | 'ui_immediate' | 'rpc';
+  kind: 'ui_pending' | 'ui_immediate' | 'goal_control';
   clientId?: string | undefined;
   nonce?: string | undefined;
 }>;
