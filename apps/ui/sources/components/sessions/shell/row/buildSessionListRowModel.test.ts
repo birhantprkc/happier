@@ -167,6 +167,30 @@ function createSettings(
 }
 
 describe('buildSessionListRowModel', () => {
+    it('keeps the useful subtitle and exposes a canonical scheduled reminder presentation', () => {
+        const model = buildSessionListRowModel({
+            item: createSessionItem(createRenderable('reminded-session')),
+            state: {},
+            dataIndex: 0,
+            isFirst: true,
+            isLast: true,
+            isSingle: true,
+            settings: createSettings({
+                attentionStandingEnabled: true,
+                attentionStandingPolicy: {
+                    defaultStanding: false,
+                    overridesBySessionKey: {
+                        'server-a:reminded-session': { standing: true, remindAt: NOW_MS + 60_000, updatedAt: 1 },
+                    },
+                },
+            }),
+        });
+
+        expect(model.subtitle).toBe('~/reminded-session');
+        expect(model.reminder).toEqual({ state: 'scheduled', remindAt: NOW_MS + 60_000 });
+        expect(model.nextRuntimeFreshnessAtMs).toBe(NOW_MS + 60_000);
+    });
+
     it('carries the canonical safe existing-session draft projection without changing row placement', () => {
         const model = buildSessionListRowModel({
             item: createSessionItem(createRenderable('drafted-session')),

@@ -7313,6 +7313,7 @@ class Sync {
                                     includeTags: plan.includeTags,
                                     includeLabels: plan.includeLabels,
                                     includeAttentionStandings: true,
+                                    includeAttentionReminderTimes: true,
                                     assignmentSessionIds: plan.assignmentSessionIds,
                                     folderIds: plan.folderIds,
                                     tagIds: plan.tagIds,

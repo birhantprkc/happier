@@ -59,6 +59,7 @@ import { planSessionTagDisplay } from './sessionTagPlacement';
 import { useIsTablet } from '@/utils/platform/responsive';
 import type { SessionStatus } from '@/utils/sessions/sessionUtils';
 import { useSessionRowActionMenu } from './row/actionMenu/useSessionRowActionMenu';
+import { formatSessionAttentionReminderDateTime } from './row/actionMenu/sessionAttentionReminderAction';
 import { createSessionActionTarget } from '@/components/sessions/actions/sessionActionContext';
 import { executeSessionAction } from '@/components/sessions/actions/sessionActionExecution';
 import {
@@ -181,6 +182,7 @@ type SessionItemRenderProps = Omit<SessionItemBaseProps, 'activityTimeMode' | 's
     sessionSubtitle: string;
     pendingCount: number;
     draft: SessionListRowModel['draft'];
+    reminder: SessionListRowModel['reminder'];
     /** Live agent work in this session, already named. `null` unless the person opted in (R-8). */
     agentActivityLabel: string | null;
     isSessionIdentityLoading: boolean;
@@ -386,6 +388,19 @@ const stylesheet = StyleSheet.create((theme) => ({
         color: theme.colors.text.secondary,
         fontSize: 10,
         ...Typography.default('semiBold'),
+    },
+    reminderIndicator: {
+        width: 20,
+        height: 20,
+        borderRadius: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: theme.colors.surface.inset,
+    },
+    reminderIndicatorCompact: {
+        width: 18,
+        height: 18,
+        borderRadius: 9,
     },
     draftPreviewText: {
         color: theme.colors.text.secondary,
@@ -705,6 +720,7 @@ const SessionItemContent = React.memo(
         sessionSubtitle,
         pendingCount,
         draft,
+        reminder,
         agentActivityLabel,
         isSessionIdentityLoading,
         activityTimeLabel,
@@ -1118,6 +1134,7 @@ const SessionItemContent = React.memo(
                 setTagMenuEverOpened(true);
                 setTagMenuOpen(true);
             },
+            reminder,
         });
 
         const handleSwipeAction = React.useCallback(async () => {
@@ -1450,6 +1467,24 @@ const SessionItemContent = React.memo(
                                         {t('sessionDrafts.badge')}
                                     </Text>
                                 ) : null}
+                            </View>
+                        ) : null}
+                        {reminder ? (
+                            <View
+                                testID={`session-list-reminder-indicator:${resolvedSession.id}`}
+                                accessible={true}
+                                accessibilityRole="text"
+                                accessibilityLabel={`${t(reminder.state === 'due' ? 'sessionsList.reminders.due' : 'sessionsList.reminders.title')}, ${formatSessionAttentionReminderDateTime(reminder.remindAt, Date.now())}`}
+                                style={[
+                                    styles.reminderIndicator,
+                                    compact ? styles.reminderIndicatorCompact : null,
+                                ]}
+                            >
+                                <Icon
+                                    name="clock"
+                                    size={compact ? 11 : 12}
+                                    color={reminder.state === 'due' ? theme.colors.accent.orange : theme.colors.text.secondary}
+                                />
                             </View>
                         ) : null}
                     </View>
@@ -1860,6 +1895,7 @@ function SessionItemFromRowModel(props: SessionItemProps & { rowModel: SessionLi
             sessionSubtitle={itemProps.subtitleOverride ?? rowModel.subtitle}
             pendingCount={rowModel.pendingCount}
             draft={rowModel.draft}
+            reminder={rowModel.reminder}
             agentActivityLabel={rowModel.agentActivityLabel}
             isSessionIdentityLoading={rowModel.isIdentityLoading}
             activityTimeLabel={rowModel.activity.label}

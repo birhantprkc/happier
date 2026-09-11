@@ -395,7 +395,9 @@ function buildAttentionStandingSignature(policy: SessionAttentionStandingPolicy)
         defaultPart,
         ...overrides
             .sort(([left], [right]) => left.localeCompare(right))
-            .map(([key, standing]) => `${key}\u0001${standing ? '1' : '0'}`),
+            .map(([key, standing]) => typeof standing === 'boolean'
+                ? `${key}\u0001${standing ? '1' : '0'}`
+                : `${key}\u0001${standing.standing ? '1' : '0'}\u0001${standing.remindAt ?? ''}\u0001${standing.updatedAt}`),
     ].join('\u0002');
 }
 

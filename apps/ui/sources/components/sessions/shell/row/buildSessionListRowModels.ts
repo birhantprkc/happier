@@ -7,7 +7,10 @@ import type {
 import { buildSessionListRowModel } from './buildSessionListRowModel';
 import type { SessionListViewItem } from '@/sync/domains/session/listing/sessionListViewData';
 import { areSessionListRenderablesEqual } from '@/sync/domains/session/listing/sessionListRenderable';
-import { resolveSessionAttentionStanding } from '@/sync/domains/session/organization/attentionStanding';
+import {
+    resolveSessionAttentionStanding,
+    resolveSessionReminderPresentation,
+} from '@/sync/domains/session/organization/attentionStanding';
 import { formatShortRelativeTimeAt } from '@/utils/time/formatShortRelativeTime';
 import { sessionTagKey } from '../sessionTagUtils';
 
@@ -204,7 +207,13 @@ function buildInputSignature(input: Readonly<{
     // policy: a row whose standing did not change must not rebuild when an
     // unrelated session's override lands.
     appendSignaturePart(parts, settings.attentionStandingEnabled ? 1 : 0);
-    appendSignaturePart(parts, resolveSessionAttentionStanding(settings.attentionStandingPolicy, rowKey) ? 1 : 0);
+    appendSignaturePart(parts, resolveSessionAttentionStanding(settings.attentionStandingPolicy, rowKey, settings.runtimeNowMs) ? 1 : 0);
+    const reminder = resolveSessionReminderPresentation(
+        settings.attentionStandingPolicy.overridesBySessionKey[rowKey],
+        settings.runtimeNowMs,
+    );
+    appendSignaturePart(parts, reminder?.state);
+    appendSignaturePart(parts, reminder?.remindAt);
     appendSignaturePart(parts, settings.hasMultipleMachines ? 1 : 0);
     appendSignaturePart(parts, reachableDisplay?.workspaceSubtitle);
     appendSignaturePart(parts, reachableDisplay?.machineLabel);

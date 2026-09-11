@@ -143,6 +143,7 @@ export function createSessionItemTestRowModel(
         isSelected: input.selected ?? false,
         isPinned: input.pinned ?? false,
         isAttentionStanding: input.attentionStanding ?? false,
+        reminder: null,
         attentionStandingEnabled: input.attentionStandingEnabled ?? false,
         isArchived: session.archivedAt != null,
         isActive: session.active === true,

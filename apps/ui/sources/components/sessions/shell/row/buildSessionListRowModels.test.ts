@@ -227,6 +227,33 @@ describe('buildCachedSessionListRowModel', () => {
         expect(after.isAttentionStanding).toBe(true);
     });
 
+    it('rebuilds only the row whose reminder changed', () => {
+        const cache = createSessionListRowModelsCache();
+        const firstItem = createSessionItem(createRenderable('s1'));
+        const secondItem = createSessionItem(createRenderable('s2'));
+        const adjacency = { isFirst: true, isLast: true, isSingle: true };
+        const initialSettings = createSettings();
+        const firstBefore = buildCachedSessionListRowModel({ item: firstItem, snapshot: EMPTY_ROW_STATE, dataIndex: 0, adjacency, settings: initialSettings, cache });
+        const secondBefore = buildCachedSessionListRowModel({ item: secondItem, snapshot: EMPTY_ROW_STATE, dataIndex: 1, adjacency, settings: initialSettings, cache });
+        const firstKey = sessionTagKey(String(firstItem.serverId), 's1');
+        const remindAt = Date.now() + 60_000;
+        const reminderSettings = createSettings({
+            attentionStandingPolicy: {
+                defaultStanding: false,
+                overridesBySessionKey: {
+                    [firstKey]: { standing: false, remindAt, updatedAt: 1 },
+                },
+            },
+        });
+
+        const firstAfter = buildCachedSessionListRowModel({ item: firstItem, snapshot: EMPTY_ROW_STATE, dataIndex: 0, adjacency, settings: reminderSettings, cache });
+        const secondAfter = buildCachedSessionListRowModel({ item: secondItem, snapshot: EMPTY_ROW_STATE, dataIndex: 1, adjacency, settings: reminderSettings, cache });
+
+        expect(firstAfter).not.toBe(firstBefore);
+        expect(firstAfter.reminder).toEqual({ state: 'scheduled', remindAt });
+        expect(secondAfter).toBe(secondBefore);
+    });
+
     it('rebuilds a row when its working placement reason changes', () => {
         const cache = createSessionListRowModelsCache();
         const session = createRenderable('s1', {

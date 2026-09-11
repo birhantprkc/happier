@@ -212,6 +212,7 @@ function createMetadataPendingRowModel(id: string): SessionListRowModel {
         isSelected: false,
         isPinned: false,
         isAttentionStanding: false,
+        reminder: null,
         attentionStandingEnabled: false,
         isArchived: false,
         isActive: false,

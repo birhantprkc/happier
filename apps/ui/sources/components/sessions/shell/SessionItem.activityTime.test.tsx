@@ -277,6 +277,7 @@ function createSessionRowModel(overrides: Partial<SessionListRowModel> = {}): Se
         isSelected: true,
         isPinned: true,
         isAttentionStanding: false,
+        reminder: null,
         attentionStandingEnabled: false,
         isArchived: false,
         isActive: true,

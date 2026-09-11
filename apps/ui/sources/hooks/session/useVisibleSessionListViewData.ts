@@ -38,7 +38,10 @@ import {
 } from '@/sync/domains/session/listing/sessionListOrderingRules';
 import type { SessionListStorageFilter } from '@/sync/domains/session/sessionStorageKind';
 import { normalizeSessionFolders } from '@/sync/domains/session/folders';
-import type { SessionAttentionStandingPolicy } from '@/sync/domains/session/organization/attentionStanding';
+import {
+    resolveNextSessionAttentionReminderWakeAtMs,
+    type SessionAttentionStandingPolicy,
+} from '@/sync/domains/session/organization/attentionStanding';
 import { buildSessionOrganizationListViewState } from '@/sync/domains/session/organization/viewState';
 import { getServerProfileById } from '@/sync/domains/server/serverProfiles';
 import { fetchAndApplySessionFolderAssignments } from '@/sync/ops/sessionOrganization';
@@ -317,6 +320,7 @@ function resolveNextVisibleSessionListRuntimeFreshnessAtMs(
 
 function useVisibleSessionListRuntimeNowMs(
     source: ReadonlyArray<SessionListViewItem> | null,
+    attentionStandingPolicy: SessionAttentionStandingPolicy,
     enabled: boolean,
 ): number {
     // Shared session-list runtime clock: group placement and per-row working
@@ -326,9 +330,13 @@ function useVisibleSessionListRuntimeNowMs(
     // Inactive surfaces neither subscribe nor schedule wakes; their data is
     // frozen downstream, so ticking them would only churn renders.
     const runtimeNowMs = useSessionListRuntimeNowMs(enabled);
-    const nextFreshnessAtMs = React.useMemo(
-        () => (enabled ? resolveNextVisibleSessionListRuntimeFreshnessAtMs(source, runtimeNowMs) : null),
-        [enabled, source, runtimeNowMs],
+    const nextFreshnessAtMs = React.useMemo(() => {
+        if (!enabled) return null;
+        const runtimeAt = resolveNextVisibleSessionListRuntimeFreshnessAtMs(source, runtimeNowMs);
+        const reminderAt = resolveNextSessionAttentionReminderWakeAtMs(attentionStandingPolicy, runtimeNowMs);
+        return runtimeAt === null ? reminderAt : reminderAt === null ? runtimeAt : Math.min(runtimeAt, reminderAt);
+    },
+        [attentionStandingPolicy, enabled, source, runtimeNowMs],
     );
     useSessionListRuntimeWake(nextFreshnessAtMs, enabled);
     return runtimeNowMs;
@@ -353,7 +361,11 @@ function useVisibleSessionListComputation(
     options: VisibleSessionListViewDataOptions,
 ): VisibleSessionListComputation {
     const surfaceDataActive = options.sessionListSurfaceDataActive !== false;
-    const runtimeNowMs = useVisibleSessionListRuntimeNowMs(state.folderSource, surfaceDataActive);
+    const runtimeNowMs = useVisibleSessionListRuntimeNowMs(
+        state.folderSource,
+        state.sessionAttentionStandingPolicy,
+        surfaceDataActive,
+    );
     const previousVisibleRef = React.useRef<SessionListViewItem[] | null>(null);
 
     const computation = React.useMemo<VisibleSessionListComputation>(() => {
