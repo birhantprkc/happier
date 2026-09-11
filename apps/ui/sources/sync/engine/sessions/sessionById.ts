@@ -121,9 +121,7 @@ async function readSessionByIdHttp(params: Readonly<{
   }
 }
 
-function listRollbackEligibleTurnStarts(projection: SessionTurnsProjectionV1 | null): readonly number[] | null {
-  if (!projection) return null;
-
+function listRollbackEligibleTurnStarts(projection: SessionTurnsProjectionV1): number[] {
   const starts: number[] = [];
   for (const turn of listCompletedSessionTurns(projection.turns)) {
     if (turn.rollback?.state !== 'eligible') continue;
@@ -330,7 +328,9 @@ export async function fetchAndApplySessionById(params: Readonly<{
       request: params.request,
       log: params.log,
     });
-  const rollbackEligibleTurnStarts = listRollbackEligibleTurnStarts(sessionTurns);
+  const rollbackEligibleTurnStarts = sessionTurns
+    ? listRollbackEligibleTurnStarts(sessionTurns)
+    : undefined;
 
   const runtimeActivityProjection = resolveSessionRuntimeActivityProjectionFields({}, row);
   const nextSession = {

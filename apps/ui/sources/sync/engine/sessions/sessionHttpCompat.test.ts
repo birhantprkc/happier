@@ -187,6 +187,18 @@ describe('session record coercion carries the server-materialized unread entry f
         expect(page.sessions[0]?.unreadSince).toBeNull();
     });
 
+    it('normalizes a legacy null rollback eligibility projection to absent', () => {
+        const current = parseCompatSessionByIdResponse({
+            session: rawSessionRow({ rollbackEligibleTurnStarts: [1, 3] }),
+        });
+        const parsed = parseCompatSessionByIdResponse({
+            session: rawSessionRow({ rollbackEligibleTurnStarts: null }),
+        });
+
+        expect(current?.session.rollbackEligibleTurnStarts).toEqual([1, 3]);
+        expect(parsed?.session.rollbackEligibleTurnStarts).toBeUndefined();
+    });
+
     it('KEYSTONE: rebuilds a carrier for every field the protocol record schema declares', async () => {
         // The record rebuild is an allow-list, so a newly declared protocol field
         // is silently dropped unless a carrier is added here too — the exact way
