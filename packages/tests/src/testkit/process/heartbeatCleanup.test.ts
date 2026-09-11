@@ -165,7 +165,10 @@ function createWrapperEnv(
 async function runWrapperCleanupScenario(
   caseItem: WrapperCase,
   opts?: Readonly<{ exitAfterSpawn?: boolean; signalAfterSpawn?: NodeJS.Signals }>,
-): Promise<{ code: number | null; signal: string | null } | void> {
+): Promise<{
+  exit: { code: number | null; signal: string | null };
+  diagnostic: Array<Record<string, unknown>>;
+}> {
   const wrapperPath = resolve(repoRootDir(), caseItem.scriptPath);
 
   return await withTempPathBin({ prefix: `happier-heartbeat-${caseItem.name}-` }, async (tempPathBin) => {
@@ -205,15 +208,14 @@ async function runWrapperCleanupScenario(
       expect(marker.childPid).toBeGreaterThan(0);
       expect(marker.grandchildPid).toBeGreaterThan(0);
 
-      if (opts?.signalAfterSpawn) {
-        return await childExitPromise;
-      }
-
+      let exit: { code: number | null; signal: string | null };
       if (opts?.exitAfterSpawn === true) {
-        await childExitPromise;
+        exit = await childExitPromise;
+      } else if (opts?.signalAfterSpawn) {
+        exit = await childExitPromise;
       } else {
         child.kill('SIGTERM');
-        await childExitPromise;
+        exit = await childExitPromise;
       }
 
       await waitFor(() => !isProcessAlive(marker.childPid), {
@@ -227,6 +229,18 @@ async function runWrapperCleanupScenario(
         intervalMs: 100,
         context: `${caseItem.name} wrapper descendant shutdown`,
       });
+
+      const diagnostic = await readFile(env.HAPPIER_CI_DIAGNOSTIC_PATH!, 'utf8')
+        .then((raw) => raw
+          .trim()
+          .split('\n')
+          .filter(Boolean)
+          .map((line) => JSON.parse(line) as Record<string, unknown>))
+        .catch((error: NodeJS.ErrnoException) => {
+          if (error.code === 'ENOENT') return [];
+          throw error;
+        });
+      return { exit, diagnostic };
     } finally {
       if (!child.killed) {
         child.kill('SIGTERM');
@@ -373,7 +387,7 @@ describe.each(WRAPPER_CASES)('%s', (caseItem) => {
 
   it('maps child signal exits to canonical shell exit codes', async () => {
     const result = await runWrapperCleanupScenario(caseItem, { signalAfterSpawn: 'SIGTERM' });
-    expect(result).toEqual({ code: 143, signal: null });
+    expect(result.exit).toEqual({ code: 143, signal: null });
   }, 30_000);
 
   it('terminates descendant test processes when the child exits successfully', async () => {
@@ -386,6 +400,14 @@ describe.each(WRAPPER_CASES)('%s', (caseItem) => {
 });
 
 describe('run-vitest-with-heartbeat diagnostics', () => {
+  it('records when the heartbeat wrapper itself receives a process signal', async () => {
+    const result = await runWrapperCleanupScenario(WRAPPER_CASES[0]!);
+    expect(result.diagnostic).toContainEqual(expect.objectContaining({
+      event: 'process-signal',
+      signal: 'SIGTERM',
+    }));
+  }, 30_000);
+
   it('records the module that started before Vitest exits', async () => {
     const wrapperPath = resolve(repoRootDir(), 'packages/tests/scripts/run-vitest-with-heartbeat.mjs');
 
@@ -412,10 +434,20 @@ describe('run-vitest-with-heartbeat diagnostics', () => {
       const diagnostic = (await readFile(diagnosticPath, 'utf8'))
         .trim()
         .split('\n')
-        .map((line) => JSON.parse(line) as { event?: unknown; moduleId?: unknown });
+        .map((line) => JSON.parse(line) as { event?: unknown; moduleId?: unknown; testName?: unknown });
       expect(diagnostic).toContainEqual(expect.objectContaining({
         event: 'module-start',
         moduleId: testPath,
+      }));
+      expect(diagnostic).toContainEqual(expect.objectContaining({
+        event: 'test-case-ready',
+        moduleId: testPath,
+        testName: 'diagnostic fixture',
+      }));
+      expect(diagnostic).toContainEqual(expect.objectContaining({
+        event: 'test-case-result',
+        moduleId: testPath,
+        testName: 'diagnostic fixture',
       }));
     });
   }, 30_000);

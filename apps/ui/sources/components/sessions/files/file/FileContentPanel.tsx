@@ -635,7 +635,7 @@ function FileContentPanelInner({
     );
 
     return (
-        <View style={{ flex: 1 }}>
+        <View style={{ flex: 1, minHeight: 0, position: 'relative' }}>
             {displayMode === 'diff' && typeof diffContent === 'string' ? (
                 effectiveDiffVirtualized ? (
                     diffViewer

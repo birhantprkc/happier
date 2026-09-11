@@ -87,6 +87,38 @@ function shouldWaitForClassifiedFailure(input: Readonly<{
     && (input.recoveryMode === 'wait_until_reset' || input.recoveryMode === 'switch_or_wait');
 }
 
+type ConnectedServiceAuthGroupQuotaRecoveryProof = Extract<
+  ConnectedServiceAuthGroupSwitchResult,
+  { status: 'observed_generation' }
+>['quotaRecovery'];
+
+function resolveCurrentProfileQuotaRecoveryProof(input: Readonly<{
+  selected: ReturnType<typeof selectConnectedServiceAuthGroupCandidate>;
+  loaded: ConnectedServiceAuthGroupSwitchState;
+  receipt?: ConnectedServiceQuotaRecoveryCreditConsumeReceiptV1;
+}>): ConnectedServiceAuthGroupQuotaRecoveryProof {
+  const chosen = input.selected.selected;
+  if (!chosen || chosen.profileId !== input.loaded.activeProfileId) return undefined;
+  const evidence = input.selected.decisionTrace.candidates.find(
+    (entry) => entry.profileId === chosen.profileId,
+  )?.quotaEvidence;
+  const snapshot = input.loaded.memberStatesByProfileId.get(chosen.profileId)?.quotaSnapshot;
+  if (
+    !snapshot
+    || evidence?.status !== 'fresh'
+    || chosen.leastLimitedScore === null
+    || chosen.leastLimitedScore <= 0
+    || input.receipt?.status === 'unknown_after_timeout'
+  ) return undefined;
+  return {
+    ...(input.receipt ? { receipt: input.receipt } : {}),
+    quotaSnapshot: {
+      capturedAtMs: snapshot.capturedAtMs,
+      effectiveRemainingPercent: snapshot.effectiveRemainingPercent,
+    },
+  };
+}
+
 export class ConnectedServiceAuthGroupQuotaProbeIncompleteError extends Error {
   readonly code = 'connected_service_auth_group_quota_probe_incomplete';
 
@@ -825,6 +857,7 @@ export class ConnectedServiceAuthGroupSwitchCoordinator {
     planType?: string | null;
     switchesThisTurn?: number;
     sessionSwitchesThisHour?: number;
+    allowCurrentProfileRetry?: boolean;
   }>): Promise<ConnectedServiceAuthGroupSwitchResult> {
     return await this.runSwitchPipeline(input, 'classified_failure');
   }
@@ -1024,7 +1057,7 @@ export class ConnectedServiceAuthGroupSwitchCoordinator {
             request: input,
             loaded,
             activeProfileId: selectionActiveProfileId,
-            allowCurrentProfileRetry: false,
+            allowCurrentProfileRetry: input.allowCurrentProfileRetry === true,
           });
           didProbeForSelection = true;
           const currentLoadedActiveProfileId = normalizeProfileId(loaded.activeProfileId);
@@ -1035,6 +1068,7 @@ export class ConnectedServiceAuthGroupSwitchCoordinator {
             policy: loaded.policy,
             members: loaded.members,
             memberStatesByProfileId: loaded.memberStatesByProfileId,
+            allowCurrentProfileRetry: input.allowCurrentProfileRetry === true,
           });
           if (
             currentLoadedActiveProfileId
@@ -1092,7 +1126,7 @@ export class ConnectedServiceAuthGroupSwitchCoordinator {
             request: input,
             loaded,
             activeProfileId: selectionActiveProfileId,
-            allowCurrentProfileRetry: false,
+            allowCurrentProfileRetry: input.allowCurrentProfileRetry === true,
           });
         }
       }
@@ -1212,10 +1246,27 @@ export class ConnectedServiceAuthGroupSwitchCoordinator {
         state: loaded,
         activeProfileId: trigger === 'pre_turn' ? loaded.activeProfileId : selectionActiveProfileId,
         reason: input.reason,
-        ...(trigger === 'pre_turn' ? { allowCurrentProfileRetry: allowLoadedActiveProfileRetry } : {}),
+        ...(trigger === 'pre_turn'
+          ? { allowCurrentProfileRetry: allowLoadedActiveProfileRetry }
+          : { allowCurrentProfileRetry: input.allowCurrentProfileRetry === true }),
       });
-      let resetAttempted = false;
       let quotaRecovery: Extract<ConnectedServiceAuthGroupSwitchResult, { status: 'observed_generation' }>['quotaRecovery'];
+      if (
+        trigger === 'classified_failure'
+        && input.allowCurrentProfileRetry === true
+        && selected.selected?.profileId === loaded.activeProfileId
+      ) {
+        quotaRecovery = resolveCurrentProfileQuotaRecoveryProof({ selected, loaded });
+        if (!quotaRecovery) {
+          // The exception is evidence-gated: without a current positive quota snapshot, retain the
+          // normal classified-failure exclusion instead of retrying an unproven exhausted account.
+          selected = await this.selectPreparedCandidate({
+            state: loaded,
+            activeProfileId: selectionActiveProfileId,
+            reason: input.reason,
+          });
+        }
+      }
       if (!selected.selected && loaded.policy.autoUseQuotaResetsWhenExhausted === true
         && (input.reason === 'usage_limit' || input.reason === 'same_provider_account_exhausted')
         && this.deps.consumeAvailableRecoveryCreditForProfile) {
@@ -1241,18 +1292,18 @@ export class ConnectedServiceAuthGroupSwitchCoordinator {
           for (const excluded of selected.excluded) {
             if (excluded.reason === 'credential_unavailable') unavailableProfileIds.add(excluded.profileId);
           }
-          resetAttempted = true;
           const chosen = selected.selected;
-          const evidence = selected.decisionTrace.candidates.find((entry) => entry.profileId === chosen?.profileId)?.quotaEvidence;
-          const snapshot = chosen ? loaded.memberStatesByProfileId.get(chosen.profileId)?.quotaSnapshot : null;
-          if (chosen?.profileId === loaded.activeProfileId && snapshot && evidence?.status === 'fresh'
-            && chosen.leastLimitedScore !== null && chosen.leastLimitedScore > 0 && receipt?.status !== 'unknown_after_timeout') {
-            quotaRecovery = {
-              ...(receipt ? { receipt } : {}),
-              quotaSnapshot: { capturedAtMs: snapshot.capturedAtMs, effectiveRemainingPercent: snapshot.effectiveRemainingPercent },
-            };
-          } else if (chosen?.profileId === loaded.activeProfileId) {
-            selected = await this.selectPreparedCandidate({ state: loaded, activeProfileId: loaded.activeProfileId, reason: input.reason });
+          quotaRecovery = resolveCurrentProfileQuotaRecoveryProof({
+            selected,
+            loaded,
+            ...(receipt ? { receipt } : {}),
+          });
+          if (chosen?.profileId === loaded.activeProfileId && !quotaRecovery) {
+            selected = await this.selectPreparedCandidate({
+              state: loaded,
+              activeProfileId: loaded.activeProfileId,
+              reason: input.reason,
+            });
           }
           return null;
         };
@@ -1325,7 +1376,10 @@ export class ConnectedServiceAuthGroupSwitchCoordinator {
 
       let selectedProfileId = selected.selected.profileId;
       let selectedDecisionTrace = selected.decisionTrace;
-      if (selectedProfileId === loaded.activeProfileId && (resetAttempted || (trigger === 'pre_turn' && allowLoadedActiveProfileRetry))) {
+      if (
+        selectedProfileId === loaded.activeProfileId
+        && (quotaRecovery || (trigger === 'pre_turn' && allowLoadedActiveProfileRetry))
+      ) {
         const result: ConnectedServiceAuthGroupSwitchResult = {
           status: 'observed_generation',
           activeProfileId: loaded.activeProfileId,
@@ -1334,7 +1388,7 @@ export class ConnectedServiceAuthGroupSwitchCoordinator {
           ...(quotaRecovery ? { quotaRecovery } : {}),
           diagnostics: buildSwitchDecisionDiagnostics({ decisionTrace: selectedDecisionTrace }),
         };
-        if (resetAttempted) {
+        if (quotaRecovery) {
           const completion = buildLeaseCompletion({
             ...(input.sessionId ? { sessionId: input.sessionId } : {}),
             serviceId: input.serviceId, groupId: input.groupId,

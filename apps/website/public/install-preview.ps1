@@ -2343,28 +2343,44 @@ function Ensure-Minisign {
   $extractDir = Join-Path $TempRoot "minisign-extract"
   New-Item -ItemType Directory -Path $extractDir -Force | Out-Null
   Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
-  $exe = Get-ChildItem -Path $extractDir -Filter "minisign.exe" -Recurse | Select-Object -First 1
-  if (-not $exe) {
-    throw "Failed to locate minisign.exe in bootstrap archive."
+  $osArchitecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+  $archiveArchitecture = switch ($osArchitecture) {
+    "X64" { "x86_64" }
+    "Arm64" { "aarch64" }
+    default { throw "Unsupported Windows architecture for bundled minisign: $osArchitecture" }
   }
+  $exePath = Join-Path (Join-Path (Join-Path $extractDir "minisign-win64") $archiveArchitecture) "minisign.exe"
+  if (-not (Test-Path $exePath -PathType Leaf)) {
+    throw "Failed to locate the $archiveArchitecture minisign.exe in the bootstrap archive."
+  }
+  $exe = Get-Item $exePath
 
   try {
-    & $exe.FullName --version *> $null
+    $LASTEXITCODE = 1
+    & $exe.FullName -v *> $null
+    if ($LASTEXITCODE -ne 0) {
+      throw "Downloaded minisign executable failed its version probe (exit $LASTEXITCODE)."
+    }
   }
   catch {
     Write-Warning "Downloaded minisign binary is not compatible with this system."
     Write-Host "Installing minisign with winget..."
     $wingetInstallResult = Invoke-NativeCommandCapturingOutput {
-      winget install --id jedisct1.minisign --accept-source-agreements --accept-package-agreements
-    }
-    if ($wingetInstallResult.ExitCode -ne 0) {
-      throw "Unable to install minisign via winget. $($wingetInstallResult.Output)"
+      winget install --id jedisct1.minisign --source winget --accept-source-agreements --accept-package-agreements
     }
     $installedMinisign = Resolve-MinisignExecutablePath
     if ($installedMinisign) {
-      return $installedMinisign
+      $installedProbeResult = Invoke-NativeCommandCapturingOutput {
+        & $installedMinisign -v
+      }
+      if ($installedProbeResult.ExitCode -eq 0) {
+        return $installedMinisign
+      }
     }
-    throw "winget installed minisign, but minisign.exe was not found on PATH or in standard WinGet locations."
+    if ($wingetInstallResult.ExitCode -ne 0) {
+      throw "Unable to install minisign via winget (exit $($wingetInstallResult.ExitCode)). $($wingetInstallResult.Output)"
+    }
+    throw "winget installed minisign, but a compatible minisign.exe was not found on PATH or in standard WinGet locations."
   }
 
   return $exe.FullName

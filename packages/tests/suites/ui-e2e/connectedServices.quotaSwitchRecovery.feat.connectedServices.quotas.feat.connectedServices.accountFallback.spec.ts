@@ -1,5 +1,4 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { execFileSync } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -27,6 +26,7 @@ import { setUiFeatureToggle } from '../../src/testkit/uiE2e/setUiFeatureToggle';
 import { waitForInitialAppUi } from '../../src/testkit/uiE2e/waitForInitialAppUi';
 import { ensureAccountReadyForConnect } from '../../src/testkit/uiE2e/ensureAccountReadyForConnect';
 import { CLAUDE_CODE_E2E_OAUTH_SCOPE } from '../../src/testkit/connectedServicesRecovery';
+import { waitForDaemonMachineIdFromCliSettings } from '../../src/testkit/uiE2e/daemonMachineId';
 
 const run = createRunDirs({ runLabel: 'ui-e2e' });
 const CONNECTED_SERVICE_FEATURE_ENV = {
@@ -49,38 +49,6 @@ function readString(record: UnknownRecord, key: string): string {
     const value = record[key];
     if (typeof value !== 'string') throw new Error(`Expected string ${key}`);
     return value;
-}
-
-function resolveServerLightSqliteDbPath(params: { suiteDir: string }): string {
-    return resolve(join(params.suiteDir, 'server-light-data', 'happier-server-light.sqlite'));
-}
-
-function readLatestMachineIdFromServerLightDb(params: { suiteDir: string }): string {
-    const dbPath = resolveServerLightSqliteDbPath({ suiteDir: params.suiteDir });
-    try {
-        const raw = execFileSync('sqlite3', ['-json', dbPath, 'select id from Machine order by createdAt desc limit 1;'], {
-            encoding: 'utf8',
-        });
-        const parsed = JSON.parse(raw) as Array<{ id?: unknown }>;
-        const id = parsed?.[0]?.id;
-        if (typeof id === 'string' && id.trim()) return id.trim();
-    } catch {
-        // Pollers can retry while the daemon is registering.
-    }
-    throw new Error(`Failed to read machine id from server light sqlite db: ${dbPath}`);
-}
-
-async function waitForLatestMachineId(params: { suiteDir: string; timeoutMs?: number }): Promise<string> {
-    const timeoutMs = params.timeoutMs ?? 60_000;
-    const startedAt = Date.now();
-    while (Date.now() - startedAt < timeoutMs) {
-        try {
-            return readLatestMachineIdFromServerLightDb({ suiteDir: params.suiteDir });
-        } catch {
-            await new Promise((r) => setTimeout(r, 250));
-        }
-    }
-    return readLatestMachineIdFromServerLightDb({ suiteDir: params.suiteDir });
 }
 
 async function postSessionTurnMutation(params: Readonly<{
@@ -1007,7 +975,7 @@ test.describe('ui e2e: connected-service quota switch and recovery surfaces', ()
                 }
             }
 
-            const machineId = await waitForLatestMachineId({ suiteDir, timeoutMs: 120_000 });
+            const machineId = await waitForDaemonMachineIdFromCliSettings({ cliHomeDir, timeoutMs: 120_000 });
             const sessionId = await createProfileBoundPlainSession({
                 baseUrl: server.baseUrl,
                 token: authToken,

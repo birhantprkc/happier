@@ -12,6 +12,7 @@ import { fakeClaudeFixturePath } from '../../src/testkit/fakeClaude';
 import { gotoDomContentLoadedWithRetries, normalizeLoopbackBaseUrl } from '../../src/testkit/uiE2e/pageNavigation';
 import { ensureAccountReadyForConnect } from '../../src/testkit/uiE2e/ensureAccountReadyForConnect';
 import { collectBrowserDiagnostics } from '../../src/testkit/uiE2e/browserDiagnostics';
+import { waitForDaemonMachineIdFromCliSettings } from '../../src/testkit/uiE2e/daemonMachineId';
 import {
   createSessionFromNewSessionComposer,
   reloadCreatedSessionFromNewSessionComposer,
@@ -120,34 +121,6 @@ test.describe('ui e2e: auth + terminal connect', () => {
       },
       { timeout: 60_000 },
     ).toBe(true);
-  }
-
-  function readLatestMachineIdFromServerLightDb(params: { suiteDir: string }): string {
-    const dbPath = resolveServerLightSqliteDbPath({ suiteDir: params.suiteDir });
-    try {
-      const raw = execFileSync('sqlite3', ['-json', dbPath, 'select id from Machine order by createdAt desc limit 1;'], {
-        encoding: 'utf8',
-      });
-      const parsed = JSON.parse(raw) as Array<{ id?: unknown }>;
-      const id = parsed?.[0]?.id;
-      if (typeof id === 'string' && id.trim()) return id.trim();
-    } catch {
-      // ignore - pollers can retry
-    }
-    throw new Error(`Failed to read machine id from server light sqlite db: ${dbPath}`);
-  }
-
-  async function waitForLatestMachineId(params: { suiteDir: string; timeoutMs?: number }): Promise<string> {
-    const timeoutMs = params.timeoutMs ?? 60_000;
-    const startedAt = Date.now();
-    while (Date.now() - startedAt < timeoutMs) {
-      try {
-        return readLatestMachineIdFromServerLightDb({ suiteDir: params.suiteDir });
-      } catch {
-        await new Promise((r) => setTimeout(r, 250));
-      }
-    }
-    return readLatestMachineIdFromServerLightDb({ suiteDir: params.suiteDir });
   }
 
   function readMachineActiveFromServerLightDb(params: { suiteDir: string; machineId: string }): boolean | null {
@@ -312,7 +285,7 @@ test.describe('ui e2e: auth + terminal connect', () => {
       await restoreAccountUsingSecretKey(page, uiBaseUrl, accountSecretKeyFormatted, { postRestorePath: '/new' });
 
       const prompt = `UI_E2E_MESSAGE_${run.runId}`;
-      const machineId = await waitForLatestMachineId({ suiteDir, timeoutMs: 120_000 });
+      const machineId = await waitForDaemonMachineIdFromCliSettings({ cliHomeDir, timeoutMs: 120_000 });
       createdSession = await createSessionFromNewSessionComposer({
         page,
         uiBaseUrl,
@@ -376,7 +349,7 @@ test.describe('ui e2e: auth + terminal connect', () => {
       const transcriptMessages = transcriptMessageLocator(page);
       const messageCountBefore = await transcriptMessages.count();
 
-      const machineId = readLatestMachineIdFromServerLightDb({ suiteDir });
+      const machineId = await waitForDaemonMachineIdFromCliSettings({ cliHomeDir, timeoutMs: 120_000 });
       await daemon.stop();
       daemon = null;
 

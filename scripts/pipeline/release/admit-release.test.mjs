@@ -6,6 +6,9 @@ import { admitRelease } from './admit-release.mjs';
 const base = {
   checksProfile: 'fast',
   environment: 'preview',
+  plannedSourceSha: 'a'.repeat(40),
+  validatedSourceSha: 'a'.repeat(40),
+  ciResult: 'success',
   publishServerRuntimeNeeded: true,
   publishCliBinariesNeeded: true,
   publishStack: false,
@@ -55,4 +58,22 @@ test('requires full checks for production and successful selected risk gates', (
     risks: { ...base.risks, trustRoots: true },
     gates: { ...base.gates, trustRoots: 'skipped' },
   }), /trust validation/);
+});
+
+test('requires source validation for the exact planned SHA', () => {
+  assert.throws(() => admitRelease({
+    ...base,
+    validatedSourceSha: 'b'.repeat(40),
+  }), /validated source SHA.*planned source SHA/i);
+
+  assert.throws(() => admitRelease({
+    ...base,
+    ciResult: 'failure',
+  }), /successful exact-SHA CI evidence/i);
+
+  assert.deepEqual(admitRelease({
+    ...base,
+    sourceChecksWaived: true,
+    ciResult: 'skipped',
+  }), { admitted: true });
 });

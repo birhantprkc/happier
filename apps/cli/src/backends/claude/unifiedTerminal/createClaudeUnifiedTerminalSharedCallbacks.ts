@@ -20,6 +20,7 @@ import {
 } from './runtimeControlIntegration';
 import { createTerminalComposerDraftBlockedEvent } from './terminalComposerDraftBlockedEvent';
 import { DEFAULT_CLAUDE_TUI_CONTROL_TIMINGS } from './tuiControls';
+import type { ClaudeScreenState } from './tuiControls/screenState';
 
 type MetadataRuntimeModeApplier<Mode extends EnhancedMode> =
   (mode: Mode) => Promise<ClaudeUnifiedRuntimeControlApplyResult>;
@@ -55,6 +56,7 @@ export function createClaudeUnifiedTerminalSharedCallbacks<Mode extends Enhanced
     getMetadataRuntimeModeApplier: () => MetadataRuntimeModeApplier<Mode> | null;
     setMetadataRuntimeModeApplier: (apply: MetadataRuntimeModeApplier<Mode> | null) => void;
     flushPendingMetadataMode: () => Promise<unknown>;
+    onStartupDialogWaitingForUser?: ((screenState: ClaudeScreenState) => void | Promise<void>) | undefined;
     logPrefix: string;
     logDebug: (message: string, error: unknown) => void;
   }>,
@@ -91,8 +93,8 @@ export function createClaudeUnifiedTerminalSharedCallbacks<Mode extends Enhanced
       startupMode,
       isRuntimeControlInFlight,
       onResumeSummaryCompactionSubmitted,
-    }) =>
-      createClaudeUnifiedResumeChoiceStartupResolver({
+    }) => {
+      const resolveStartupDialog = createClaudeUnifiedResumeChoiceStartupResolver({
         choice: startupMode.claudeUnifiedTerminalResumeChoice ?? 'ask_every_time',
         broker: params.dialogChoiceBroker,
         port: controlPort,
@@ -101,7 +103,15 @@ export function createClaudeUnifiedTerminalSharedCallbacks<Mode extends Enhanced
         startupMode,
         isRuntimeControlInFlight,
         onResumeSummaryCompactionSubmitted,
-      }),
+      });
+      return async (input) => {
+        const resolution = await resolveStartupDialog(input);
+        if (resolution.status === 'waiting_for_user') {
+          await params.onStartupDialogWaitingForUser?.(input.screenState);
+        }
+        return resolution;
+      };
+    },
     tuiRuntimeControl: {
       featureEnabled: params.tuiRuntimeControlEnabled,
       emitRuntimeConfigOutcome: (event) => {

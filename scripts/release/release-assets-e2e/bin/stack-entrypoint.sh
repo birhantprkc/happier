@@ -120,8 +120,10 @@ setup_args=(
 if [[ -n "$HSTACK_HAPPIER_REPO" ]]; then
   # The local release-assets fixture bind-mounts the host checkout read-only.
   # Its numeric owner intentionally differs from root inside the container, so
-  # modern Git rejects the local clone unless this exact mounted path is admitted.
+  # modern Git rejects both the mounted worktree and its local-clone source Git
+  # directory unless both exact paths are admitted.
   git config --global --add safe.directory "$HSTACK_HAPPIER_REPO"
+  git config --global --add safe.directory "$HSTACK_HAPPIER_REPO/.git"
   setup_args+=( "--happier-repo=$HSTACK_HAPPIER_REPO" )
 fi
 

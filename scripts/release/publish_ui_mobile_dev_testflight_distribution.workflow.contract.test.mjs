@@ -5,7 +5,7 @@ import path from 'node:path';
 
 const repoRoot = path.resolve(import.meta.dirname, '..', '..');
 
-test('publish-ui-mobile-dev keeps TestFlight external distribution logic inside the shared pipeline', () => {
+test('publish-ui-mobile-dev defers TestFlight processing through the canonical recovery workflow', () => {
   const src = fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'publish-ui-mobile-dev.yml'), 'utf8');
 
   assert.match(src, /node scripts\/pipeline\/run\.mjs ui-mobile-release/);
@@ -23,5 +23,9 @@ test('publish-ui-mobile-dev keeps TestFlight external distribution logic inside 
     assert.match(job, /ref: \$\{\{ job\.workflow_sha \}\}/);
     assert.match(job, /path: \.testflight-preflight-control/);
     assert.match(job, /working-directory: \.testflight-preflight-control/);
+    assert.match(job, /HAPPIER_PIPELINE_REPO_ROOT:\s*\$\{\{ github\.workspace \}\}/);
+    assert.match(job, /--testflight-distribution-mode deferred/);
+    assert.match(job, /dispatch-testflight-reconciliation\.mjs/);
+    assert.match(job, /actions: write/);
   }
 });

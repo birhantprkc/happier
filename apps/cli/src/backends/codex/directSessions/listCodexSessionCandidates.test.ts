@@ -381,6 +381,42 @@ describe('listCodexSessionCandidates', () => {
     ]);
   });
 
+  it('keeps app-server candidates when a healthy cold process responds within the default budget', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'happier-codex-direct-list-cold-app-server-'));
+    const codexHome = join(root, 'codex-home');
+    await mkdir(codexHome, { recursive: true });
+    const sessionId = 'cold-app-server-session';
+    const fakeAppServer = await writeFakeCodexAppServerScript({
+      dir: root,
+      bodyLines: [
+        'for await (const line of rl) {',
+        '  if (!line.trim()) continue;',
+        '  const msg = JSON.parse(line);',
+        '  if (msg.method === "initialize") {',
+        '    process.stdout.write(JSON.stringify({ id: msg.id, result: { serverInfo: { name: "fake", version: "0.0.0" } } }) + "\\n");',
+        '    continue;',
+        '  }',
+        '  if (msg.method === "initialized") continue;',
+        '  if (msg.method === "thread/list") {',
+        '    await new Promise((resolve) => setTimeout(resolve, 400));',
+        `    process.stdout.write(JSON.stringify({ id: msg.id, result: { data: [{ id: ${JSON.stringify(sessionId)}, updatedAt: 1736000100, cwd: "/repo/cold", name: "Cold app-server title" }], nextCursor: null } }) + "\\n");`,
+        '  }',
+        '}',
+      ],
+    });
+
+    const result = await listCodexSessionCandidates({
+      source: { kind: 'codexHome', home: 'user' },
+      env: createDirectSessionsEnv(codexHome, { HAPPIER_CODEX_APP_SERVER_BIN: fakeAppServer }),
+      activeServerDir: join(root, 'servers', 'cloud'),
+      limit: 10,
+    });
+
+    expect(result.candidates).toEqual([
+      expect.objectContaining({ remoteSessionId: sessionId, title: 'Cold app-server title' }),
+    ]);
+  });
+
   it('derives rollout fallback candidates from the earliest rollout and omits unverified app-server backend mode', async () => {
     const root = await mkdtemp(join(tmpdir(), 'happier-codex-direct-list-rollout-fallback-'));
     const codexHome = join(root, 'codex-home');

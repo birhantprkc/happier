@@ -1,7 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { appendFile, mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { execFileSync } from 'node:child_process';
 
 import { createRunDirs } from '../../src/testkit/runDir';
 import { startServerLight, type StartedServer } from '../../src/testkit/process/serverLight';
@@ -18,6 +17,7 @@ import { ensureAccountReadyForConnect } from '../../src/testkit/uiE2e/ensureAcco
 import { selectNewSessionAgent } from '../../src/testkit/uiE2e/selectNewSessionAgent';
 import { enableEnhancedSessionWizard } from '../../src/testkit/uiE2e/enableEnhancedSessionWizard';
 import { approveTerminalConnect } from '../../src/testkit/uiE2e/approveTerminalConnect';
+import { waitForDaemonMachineIdFromCliSettings } from '../../src/testkit/uiE2e/daemonMachineId';
 
 const run = createRunDirs({ runLabel: 'ui-e2e' });
 
@@ -27,34 +27,6 @@ function jsonlLine(value: unknown): string {
 
 function responseItemLine(params: { timestamp: string; payload: Record<string, unknown> }): string {
   return jsonlLine({ type: 'response_item', timestamp: params.timestamp, payload: params.payload });
-}
-
-function resolveServerLightSqliteDbPath(params: { suiteDir: string }): string {
-  return resolve(join(params.suiteDir, 'server-light-data', 'happier-server-light.sqlite'));
-}
-
-function readLatestMachineIdFromServerLightDb(params: { suiteDir: string }): string {
-  const dbPath = resolveServerLightSqliteDbPath({ suiteDir: params.suiteDir });
-  const raw = execFileSync('sqlite3', ['-json', dbPath, 'select id from Machine order by createdAt desc limit 1;'], {
-    encoding: 'utf8',
-  });
-  const parsed = JSON.parse(raw) as Array<{ id?: unknown }>;
-  const id = parsed?.[0]?.id;
-  if (typeof id === 'string' && id.trim()) return id.trim();
-  throw new Error(`Failed to read machine id from server light sqlite db: ${dbPath}`);
-}
-
-async function waitForLatestMachineId(params: { suiteDir: string; timeoutMs?: number }): Promise<string> {
-  const timeoutMs = params.timeoutMs ?? 60_000;
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < timeoutMs) {
-    try {
-      return readLatestMachineIdFromServerLightDb({ suiteDir: params.suiteDir });
-    } catch {
-      await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
-    }
-  }
-  return readLatestMachineIdFromServerLightDb({ suiteDir: params.suiteDir });
 }
 
 test.describe('ui e2e: /new resume id browse fills from direct sessions', () => {
@@ -182,7 +154,7 @@ test.describe('ui e2e: /new resume id browse fills from direct sessions', () => 
         HAPPIER_E2E_PROVIDER_USE_CLI_SOURCE_ENTRYPOINT: '1',
       },
     });
-    const machineId = await waitForLatestMachineId({ suiteDir, timeoutMs: 120_000 });
+    const machineId = await waitForDaemonMachineIdFromCliSettings({ cliHomeDir, timeoutMs: 120_000 });
 
     await enableEnhancedSessionWizard({ page, baseUrl: uiBaseUrl });
 

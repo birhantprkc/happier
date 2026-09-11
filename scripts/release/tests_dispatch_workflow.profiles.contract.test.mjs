@@ -16,6 +16,11 @@ test('manual CI exposes explicit fast, release, and deep profiles', () => {
   assert.deepEqual(input.options, ['fast', 'release', 'deep', 'custom']);
 });
 
+test('manual installer diagnostics exercise the checked-out source instead of an older published installer', () => {
+  assert.equal(workflow.jobs.tests.with.installers_source, 'local-build');
+  assert.equal(workflow.jobs.tests.with.installers_ref, '.');
+});
+
 test('manual CI only requires custom_checks when the custom profile owns selection', () => {
   const input = workflow.on.workflow_dispatch.inputs.custom_checks;
   assert.equal(input.required, false, 'GitHub must allow non-custom profiles to omit custom_checks');

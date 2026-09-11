@@ -13,9 +13,10 @@ async function workflow(name) {
 }
 
 test('combined preview and production release reuses the canonical channel workflow concurrently', async () => {
-  const [release, combined] = await Promise.all([
+  const [release, combined, sourceValidation] = await Promise.all([
     workflow('release.yml'),
     workflow('release-preview-and-production.yml'),
+    workflow('release-source-validation.yml'),
   ]);
 
   assert.ok(release.on.workflow_call, 'the canonical channel workflow must be reusable');
@@ -27,8 +28,8 @@ test('combined preview and production release reuses the canonical channel workf
   const production = combined.jobs.release_production;
   assert.equal(preview.uses, './.github/workflows/release.yml');
   assert.equal(production.uses, './.github/workflows/release.yml');
-  assert.equal(preview.needs, 'snapshot_release_issues');
-  assert.equal(production.needs, 'snapshot_release_issues');
+  assert.deepEqual(preview.needs, ['snapshot_release_issues', 'source_validation']);
+  assert.deepEqual(production.needs, ['snapshot_release_issues', 'source_validation']);
   assert.notEqual(preview.needs, 'release_production', 'preview must not wait for the production channel');
   assert.notEqual(production.needs, 'release_preview', 'production must not wait for the preview channel');
   assert.equal(preview.with.environment, 'preview');
@@ -41,6 +42,28 @@ test('combined preview and production release reuses the canonical channel workf
   assert.equal(production.with.ci_run_id, '${{ inputs.ci_run_id }}');
   assert.equal(preview.with.combined_preview_production, true);
   assert.equal(production.with.combined_preview_production, true);
+  assert.equal(preview.with.shared_source_validation, true);
+  assert.equal(production.with.shared_source_validation, true);
+  assert.equal(preview.with.shared_source_validation_sha, '${{ needs.source_validation.outputs.source_sha }}');
+  assert.equal(production.with.shared_source_validation_sha, '${{ needs.source_validation.outputs.source_sha }}');
+
+  const sharedValidation = combined.jobs.source_validation;
+  assert.equal(sharedValidation.uses, './.github/workflows/release-source-validation.yml');
+  assert.equal(sharedValidation.with.base_refs, 'preview,main');
+  assert.equal(sharedValidation.with.source_sha, '${{ inputs.authorized_promotion_source_sha }}');
+  assert.equal(sharedValidation.with.ci_run_id, '${{ inputs.ci_run_id }}');
+  assert.equal(sourceValidation.on.workflow_dispatch, undefined, 'source validation is reusable control, not a second public release entry point');
+  assert.ok(sourceValidation.on.workflow_call.outputs.source_sha);
+
+  assert.equal(release.jobs.ci, undefined, 'exact-SHA CI verification belongs to the shared source validator');
+  assert.equal(release.jobs.mysql_db_contract, undefined, 'MySQL validation belongs to the shared source validator');
+  assert.equal(release.jobs.platform_service_validation, undefined, 'platform validation belongs to the shared source validator');
+  assert.equal(release.jobs.trust_root_validation, undefined, 'trust-root validation belongs to the shared source validator');
+  assert.equal(release.jobs.source_validation.uses, './.github/workflows/release-source-validation.yml');
+  const trustedRefGuard = release.jobs.trusted_ref_guard.steps.find((step) => step.name === 'Reject cross-repository or untrusted release control');
+  assert.equal(trustedRefGuard.env.CALLER_WORKFLOW_REF, '${{ github.workflow_ref }}');
+  assert.match(trustedRefGuard.run, /shared_source_validation=true/);
+  assert.match(trustedRefGuard.run, /release-preview-and-production\.yml@refs\/heads\/(?:dev|preview|main)/);
 
   const advance = combined.jobs.advance_release_issues;
   assert.deepEqual(advance.needs, ['snapshot_release_issues', 'release_preview', 'release_production']);

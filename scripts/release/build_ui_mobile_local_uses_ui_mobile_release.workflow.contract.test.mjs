@@ -50,6 +50,49 @@ test('build-ui-mobile-local exposes immutable APK retry recovery as a workflow i
   assert.match(src, /--target-sha\s+"\$AUTHORIZED_SHA"/);
 });
 
+test('production APK publishing reuses an existing exact-source immutable release before rebuilding', () => {
+  const src = fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'build-ui-mobile-local.yml'), 'utf8');
+  const workflow = YAML.parse(src);
+  const resolveExisting = workflow.jobs?.resolve_existing_apk;
+  const build = workflow.jobs?.build_android;
+  const promoteExisting = workflow.jobs?.promote_existing_apk;
+
+  assert.ok(resolveExisting);
+  assert.deepEqual(resolveExisting.needs, ['release_actor_guard']);
+  assert.equal(resolveExisting.permissions?.contents, 'read');
+  assert.equal(resolveExisting.outputs?.retry_version, '${{ steps.existing.outputs.retry_version }}');
+
+  const applicability = resolveExisting.steps.find((step) => step.id === 'applicable');
+  assert.equal(applicability?.env?.RELEASE_ENVIRONMENT, '${{ inputs.environment }}');
+  assert.equal(applicability?.env?.PUBLISH_APK_RELEASE, '${{ inputs.publish_apk_release }}');
+  assert.equal(applicability?.env?.RETRY_VERSION, '${{ inputs.retry_version }}');
+  assert.match(applicability?.run ?? '', /RELEASE_ENVIRONMENT.*production/s);
+  assert.match(applicability?.run ?? '', /PUBLISH_APK_RELEASE.*true/s);
+  assert.match(applicability?.run ?? '', /RETRY_VERSION/s);
+
+  const candidateCheckout = resolveExisting.steps.find((step) => step.name === 'Checkout exact APK candidate source');
+  assert.equal(candidateCheckout?.if, "steps.applicable.outputs.resolve == 'true'");
+  assert.equal(candidateCheckout?.with?.ref, '${{ inputs.source_ref != \'\' && inputs.source_ref || github.sha }}');
+  assert.equal(candidateCheckout?.with?.path, 'candidate');
+  assert.equal(candidateCheckout?.with?.['persist-credentials'], false);
+
+  const existing = resolveExisting.steps.find((step) => step.id === 'existing');
+  assert.match(existing?.run ?? '', /git -C candidate ls-remote origin/);
+  assert.match(existing?.run ?? '', /ui-mobile-v\$\{app_version\}/);
+  assert.match(existing?.run ?? '', /tag_sha.*candidate_sha|candidate_sha.*tag_sha/s);
+  assert.match(existing?.run ?? '', /gh release view/);
+
+  assert.ok(build.needs.includes('resolve_existing_apk'));
+  assert.match(build.if, /needs\.resolve_existing_apk\.outputs\.retry_version == ''/);
+  assert.deepEqual(promoteExisting.needs, ['release_actor_guard', 'resolve_existing_apk']);
+  assert.match(promoteExisting.if, /needs\.resolve_existing_apk\.outputs\.retry_version != ''/);
+
+  const retryVersionConsumers = promoteExisting.steps
+    .flatMap((step) => Object.values(step.env ?? {}))
+    .filter((value) => String(value).includes('resolve_existing_apk.outputs.retry_version'));
+  assert.ok(retryVersionConsumers.length > 0);
+});
+
 test('build-ui-mobile-local passes approved release notes and projects exact retry-candidate notes', () => {
   const src = fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'build-ui-mobile-local.yml'), 'utf8');
   assert.match(src, /release_message:/);

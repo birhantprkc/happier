@@ -10,7 +10,7 @@ import {
   resolveProcessOwnershipLeasesDir,
   sweepProcessOwnershipLeases,
 } from './processOwnershipLease';
-import { readPositiveEnvInt, resolveUiWebEntryProbeTimeoutMs } from './uiWebEnv';
+import { applyUiWebExpoNodeHeapEnv, readPositiveEnvInt, resolveUiWebEntryProbeTimeoutMs } from './uiWebEnv';
 import { resolveScriptUrlsFromHtml, selectPrimaryAppScriptUrl } from './uiWebHtml';
 import { spawnLoggedProcess } from './spawnProcess';
 import type { StartedUiWeb } from './uiWebTypes';
@@ -275,7 +275,7 @@ export async function startUiWebMetro(params: {
     ],
     command: process.execPath,
     cwd: uiWorkspaceDir,
-    env: {
+    env: applyUiWebExpoNodeHeapEnv({
       ...params.env,
       CI: '1',
       EXPO_NO_TELEMETRY: '1',
@@ -284,7 +284,7 @@ export async function startUiWebMetro(params: {
       TMPDIR: tmpDir,
       TMP: tmpDir,
       TEMP: tmpDir,
-    },
+    }),
     stdoutPath,
     stderrPath,
   });

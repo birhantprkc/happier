@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -21,6 +21,7 @@ import {
 import { gotoDomContentLoadedWithRetries, normalizeLoopbackBaseUrl } from '../../src/testkit/uiE2e/pageNavigation';
 import { ensureAccountReadyForConnect } from '../../src/testkit/uiE2e/ensureAccountReadyForConnect';
 import { parseTestTerminalAttachmentInfo, type TestTerminalAttachmentInfo } from '../../src/testkit/uiE2e/terminalAttachmentInfo';
+import { waitForDaemonMachineIdFromCliSettings } from '../../src/testkit/uiE2e/daemonMachineId';
 
 
 const run = createRunDirs({ runLabel: 'ui-e2e' });
@@ -76,38 +77,6 @@ async function waitForAttachmentInfo(happyHomeDir: string, sessionId: string): P
         await sleep(100);
     }
     throw new Error(`Timed out waiting for terminal attachment info at ${path}`);
-}
-
-function resolveServerLightSqliteDbPath(params: { suiteDir: string }): string {
-    return resolve(join(params.suiteDir, 'server-light-data', 'happier-server-light.sqlite'));
-}
-
-function readLatestMachineIdFromServerLightDb(params: { suiteDir: string }): string {
-    const dbPath = resolveServerLightSqliteDbPath({ suiteDir: params.suiteDir });
-    try {
-        const raw = execFileSync('sqlite3', ['-json', dbPath, 'select id from Machine order by createdAt desc limit 1;'], {
-            encoding: 'utf8',
-        });
-        const parsed = JSON.parse(raw) as Array<{ id?: unknown }>;
-        const id = parsed?.[0]?.id;
-        if (typeof id === 'string' && id.trim()) return id.trim();
-    } catch {
-        // ignore - pollers can retry
-    }
-    throw new Error(`Failed to read machine id from server light sqlite db: ${dbPath}`);
-}
-
-async function waitForLatestMachineId(params: { suiteDir: string; timeoutMs?: number }): Promise<string> {
-    const timeoutMs = params.timeoutMs ?? 60_000;
-    const startedAt = Date.now();
-    while (Date.now() - startedAt < timeoutMs) {
-        try {
-            return readLatestMachineIdFromServerLightDb({ suiteDir: params.suiteDir });
-        } catch {
-            await sleep(250);
-        }
-    }
-    return readLatestMachineIdFromServerLightDb({ suiteDir: params.suiteDir });
 }
 
 async function ensureTmuxSettingsInUi(params: {
@@ -265,7 +234,7 @@ test.describe('ui e2e: tmux spawn → attach', () => {
             },
         });
 
-        const machineId = await waitForLatestMachineId({ suiteDir, timeoutMs: 120_000 });
+        const machineId = await waitForDaemonMachineIdFromCliSettings({ cliHomeDir, timeoutMs: 120_000 });
 
         const session = await createSessionFromNewSessionComposer({
             page,

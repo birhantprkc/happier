@@ -10,8 +10,10 @@ Keep release policy simple: test source once, admit the operation cheaply, build
 
 When the same approved `dev` source must ship to both public channels, select
 the conductor's `preview-and-production` target. It reuses one exact-SHA CI and
-approval packet while the canonical channel workflow runs preview and
-production concurrently. Do not try to reuse preview artifact bytes for
+approval packet, and it executes the union of source-only MySQL, platform, and
+trust-root checks once before the canonical channel workflow runs preview and
+production concurrently. Each channel still performs its own admission against
+that shared exact-source evidence. Do not try to reuse preview artifact bytes for
 production: channel-specific binaries embed different feature-policy
 environments. The fast path removes duplicate orchestration and operator wait,
 not required channel-specific builds or artifact verification.
@@ -38,7 +40,7 @@ Do not publish from a dirty or protocol-incompatible maintainer-tools checkout. 
 
 First establish the actual execution host (`uname -s`, `pwd -P`) and the absolute source checkout. A path under a mounted VM workspace does not by itself mean the agent process is running inside Linux.
 
-- On the configured macOS host, run the provisioned `hmaint` executable directly so it can use the Mac Keychain and native signing/release prerequisites. If it is not on `PATH`, use the already-configured absolute maintainer-tools executable disclosed by the environment; do not scan unrelated home directories, install another copy, or guess a checkout.
+- On the configured macOS host, run the provisioned `hmaint` executable directly so it can use the Mac Keychain and native signing/release prerequisites. Resolve `hmaint` on `PATH` first; otherwise use the configured maintainer-tools checkout's `bin/hmaint` wrapper. Prove the wrapper with `hmaint --help` (there is no required `hmaint --version` command). Do not scan unrelated home directories, invoke the maintainer CLI's internal JavaScript entry point, install another copy, or guess a checkout.
 - From the managed Linux development VM, keep repository work in the authoritative VM checkout and use the Stack execution-host/broker path for Mac-only authority. Where an exact Mac command is required, use the 0.3 launcher form `apps/stack/bin/hstack-exec --target=<configured-mac-target> --cwd=<repo-relative-dir> -- <command> ...`; use the configured target name (normally `mac-host`) and never copy Keychain secrets into the VM.
 - `yarn ghops auth status` is the safe credential-path probe. In a managed Linux workspace it should report the Mac-host credential broker; it must not print the token. Failure of direct Keychain access from one process does not authorize falling back to a personal `gh` login.
 
@@ -63,6 +65,31 @@ For a failing or slow run, apply `skills/happier-ci-stabilize/SKILL.md`. Its rec
 - fresh release when source, packaging, dependencies, signing inputs, or candidate bytes changed.
 
 Do not blindly retry an ambiguous publication mutation. Reconcile remote state through its canonical mutation owner first. Use one foreground monitor, bound to one run and attempt, with 5-20 minute polling for long operations. Close only from terminal release status, exact candidate identity, required validation, and promoted-reference evidence.
+
+For a same-control transient failure, use GitHub's native
+`gh run rerun <run-id> --repo happier-dev/happier --failed`. For a
+control/test-only correction, wait for a terminal origin and run the exact
+`hmaint release resume` command and confirmation token returned by the private
+conductor. Select the richest valid origin—the completed run with the most
+individually verified candidates and downstream evidence—rather than assuming
+the newest run is best. Never replace the privileged conductor with a direct
+release workflow dispatch.
+
+npm trusted publishing validates the top-level caller of the reusable npm
+workflow. The supported `release-shared` configurations therefore include both
+`release.yml` and `release-preview-and-production.yml` for every published npm
+package. An `ENEEDAUTH` cluster across otherwise-authorized publisher jobs is a
+configuration failure to verify at that boundary, not a reason to add a
+long-lived npm token.
+
+TestFlight is a best-effort asynchronous projection. The native workflow owns
+building/submitting the exact candidate; it then hands the exact EAS build id or
+local IPA build identity to the existing `retry_testflight_distribution` action,
+which runs from the current trusted control checkout. Do not keep the parent
+release waiting for App Store processing, start a second iOS build to retry group
+attachment, or run a new control flag from an older candidate checkout. Inspect
+and rerun only the reconciliation action when Apple processing or group
+attachment fails.
 
 ## Preserve issue availability evidence
 

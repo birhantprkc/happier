@@ -683,6 +683,7 @@ test('non-main stack does not reuse runtime port with only a live pid and non-ha
       runtimeStatePath,
       defaultPort: 3005,
       listenerObservationScope,
+      waitForTcpPortFreeImpl: async () => ({ status: 'occupied', reason: 'address-in-use' }),
     });
 
     assert.notEqual(out, port);
@@ -708,6 +709,7 @@ test('non-main stack errors when pinned server port is occupied by a non-happier
           runtimeStatePath: null,
           defaultPort: 3005,
           listenerObservationScope,
+          waitForTcpPortFreeImpl: async () => ({ status: 'occupied', reason: 'address-in-use' }),
         }),
       /HAPPIER_STACK_SERVER_PORT/
     );
@@ -732,6 +734,7 @@ test('non-main stack errors when pinned server port health responds 200 for anot
           runtimeStatePath: null,
           defaultPort: 3005,
           listenerObservationScope,
+          waitForTcpPortFreeImpl: async () => ({ status: 'occupied', reason: 'address-in-use' }),
         }),
       /HAPPIER_STACK_SERVER_PORT/
     );

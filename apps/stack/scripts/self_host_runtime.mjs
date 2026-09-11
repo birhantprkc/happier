@@ -43,6 +43,7 @@ import {
   resolveConfiguredRelayRuntimeBinaryOverride,
   resolveConfiguredRelayRuntimePaths,
 } from '@happier-dev/cli-common/firstPartyRuntime/relayRuntime';
+import { removeRuntimePayloadPath } from '@happier-dev/cli-common/firstPartyRuntime';
 import {
   mergeSelfHostServerEnvText,
   parseEnvText as parseEnvTextShared,
@@ -2364,18 +2365,18 @@ async function cmdUninstall({ channel, mode, argv, json }) {
     homeDir: homedir(),
     spec: serviceSpec,
     persistent: true,
-  }).catch(() => {});
+  });
 
-  await rm(config.serverBinaryPath, { force: true });
-  await rm(config.serverPreviousBinaryPath, { force: true });
-  await rm(join(config.binDir, config.serverBinaryName), { force: true });
-  await rm(config.statePath, { force: true });
+  await removeRuntimePayloadPath(config.serverBinaryPath, config.platform);
+  await removeRuntimePayloadPath(config.serverPreviousBinaryPath, config.platform);
+  await removeRuntimePayloadPath(join(config.binDir, config.serverBinaryName), config.platform);
+  await removeRuntimePayloadPath(config.statePath, config.platform);
 
   if (purgeData) {
-    await rm(config.installRoot, { recursive: true, force: true });
-    await rm(config.configDir, { recursive: true, force: true });
-    await rm(config.dataDir, { recursive: true, force: true });
-    await rm(config.logDir, { recursive: true, force: true });
+    await removeRuntimePayloadPath(config.installRoot, config.platform);
+    await removeRuntimePayloadPath(config.configDir, config.platform);
+    await removeRuntimePayloadPath(config.dataDir, config.platform);
+    await removeRuntimePayloadPath(config.logDir, config.platform);
   }
 
   printResult({

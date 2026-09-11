@@ -63,6 +63,19 @@ reports the evidence as `WAIVED`, never `PASS`. Candidate identity, artifact
 integrity, binary smoke, signing/notarization, release authorization, and
 installer/updater trust-root checks remain hard contracts on this shipping line.
 
+Waivers are deliberately narrow and recorded in the terminal release status:
+
+| Approval | May bypass | Never bypasses |
+| --- | --- | --- |
+| `waive_ci` with a reason | exact-SHA source CI plus source-only MySQL and platform-service checks | trust-root checks, candidate identity, signing, artifact verification, binary smoke, or publication authorization |
+| `waive_validation_suites` with a reason | selected risk-based suites such as installer, continuity, or Docker compatibility checks | `artifact-verify` and `binary-smoke` |
+| guarded branch reset | fast-forward-only branch topology | release admission, candidate verification, or publication checks |
+| Qualified V4 activation approval | only the separately named irreversible activation | ordinary release approval or any other validation |
+
+Do not translate “test-only failure” into a blanket waiver. First identify the
+incorrect test or harness at its owner; use a bounded waiver only when the human
+explicitly accepts the missing evidence for this exact candidate.
+
 The slow test lane contains two pinned server-v0.2.1 regressions for pending
 queue and first-prompt behavior. They are exact tests, not a general
 compatibility verdict. The release agent selects them when the actual diff can
@@ -94,6 +107,21 @@ execution/broker path; credentials must never be copied into the VM. Confirm
 the transport with `yarn ghops auth status` and confirm repository identity with
 real paths and exact Git SHAs—similarly named host and VM checkouts are not
 interchangeable.
+
+On the Mac host, resolve the existing conductor in this order: `hmaint` on
+`PATH`, then the configured maintainer-tools checkout's `bin/hmaint` wrapper.
+Prove that wrapper with `hmaint --help`; there is intentionally no required
+`hmaint --version` command. Do not invoke the maintainer CLI's internal
+JavaScript entry point or install a second conductor inside the VM. From the
+managed Linux VM, route that same Mac wrapper with the 0.3 Stack launcher:
+
+```bash
+apps/stack/bin/hstack-exec --target=mac-host --cwd=<repo-relative-dir> -- \
+  hmaint release bootstrap --repo <macOS-mounted-absolute-checkout> --json
+```
+
+Always use the absolute checkout path returned by the actual execution host;
+do not translate it from a similarly named host or VM path by inspection.
 
 Before changelog/version materialization, the release agent runs
 `node scripts/pipeline/run.mjs release-analyze ...` over the actual source
@@ -145,7 +173,11 @@ eligibility once and invokes the canonical `release.yml` for both channels in
 parallel.
 
 The two calls share the exact authorized source, release notes, and successful
-CI run. They deliberately do not share built artifacts: preview and production
+CI run. Source-only MySQL, platform-service, and installer/updater trust-root
+checks are selected from the union of both release ranges and execute once in
+the combined parent. Each channel retains its own planning and final admission,
+which verifies that the shared evidence covers that channel's selected risks.
+They deliberately do not share built artifacts: preview and production
 embed different feature-policy environments and therefore require distinct
 candidate bytes. Same-channel releases still serialize, while the two channel
 calls use separate non-cancelling concurrency groups. Issues advance directly
@@ -155,6 +187,33 @@ Use GitHub's failed-job rerun when workflow control is unchanged. If control
 changes, resume the combined operation from its prior run; each channel reads
 its own terminal status artifact and reuses only the verified work for that
 channel.
+
+For a same-SHA transient failure, retain successful jobs and rerun only the
+failed jobs and their dependents:
+
+```bash
+gh run rerun <run-id> --repo happier-dev/happier --failed
+```
+
+For a control/test-only correction, wait until the origin run is terminal and
+then resume the existing conductor operation. Prefer the completed origin with
+the richest individually verified candidate and downstream evidence; the most
+recent run can be a worse origin when it failed during admission before
+re-verifying candidates.
+
+```bash
+hmaint release resume \
+  --repo <absolute-checkout> \
+  --operation-id <operation-id> \
+  --origin-run-id <completed-origin-run-id> \
+  --confirm "resume <operation-id> from run <completed-origin-run-id>" \
+  --json
+```
+
+Resume is valid only when source, package/build inputs, signing inputs, and
+immutable candidate bytes are unchanged. A candidate-reachable change requires
+a new prepared release. Never dispatch the privileged release workflow
+directly as a substitute for the conductor.
 
 Issue availability is tracked by the mutually exclusive `stage:source`, `stage:dev`, `stage:preview`, and `stage:stable` labels documented in `docs/issue-triage.md`. Ordinary current-`dev` nightlies perform `source → dev`; preview, production, and combined releases perform the transitions above. Failed and dry-run releases move nothing. The reconciler re-reads each snapshotted issue, preserves unrelated labels, and skips closed or manually restaged issues. It never comments on or closes an issue.
 
@@ -181,6 +240,61 @@ operation through `hmaint release resume`; a new attempt may reuse only
 individually verified immutable candidates from the exact prior run. Any
 release-output-affecting source change requires new release outputs.
 
+Use this decision table instead of restarting the full graph:
+
+| Evidence | Recovery |
+| --- | --- |
+| Same control SHA; transient runner, download, read-only API, or safely recoverable external failure | `gh run rerun <run-id> --failed` |
+| Corrected workflow control, tests, or validation; unchanged candidate bytes; terminal origin with verified candidates | `hmaint release resume` from the richest valid origin |
+| Changed source, package/build dependency, signing input, or immutable candidate bytes | Prepare a fresh release |
+| Ambiguous publication mutation | Inspect the canonical remote state, then use the owning recovery-aware job; never blind-retry |
+
+Independent jobs should be allowed to finish so one attempt exposes every
+reachable failure. Publication and trust-dependent jobs still remain gated by
+their real prerequisites: a consumer cannot be tested before its candidate
+exists. Poll long builds, notarization, store submission, and publication every
+5–20 minutes and use step-level progress plus the owning timeout; duration alone
+is not failure evidence.
+
+For a corrected non-secret Linux lane, use the existing manual test dispatcher
+instead of copying the CI workflow. The default is GitHub-hosted runners:
+
+```bash
+gh workflow run tests-dispatch.yml \
+  --repo happier-dev/happier \
+  --ref dev \
+  -f profile=custom \
+  -f runner_pool=github \
+  -f custom_checks=release_contracts \
+  -f installers_channel=stable \
+  -f providers_preset=all \
+  -f providers_tier=smoke
+```
+
+This is fast diagnostic evidence at the corrected SHA; it does not replace the
+final canonical exact-SHA CI required by release policy.
+
+Blacksmith is only an explicitly approved, budget-checked accelerator for the
+same non-secret Linux graph. It has no automatic fallback. Do not select a
+Blacksmith pool while its included credits are exhausted; dispatch with
+`runner_pool=github` instead.
+
+### npm trusted-publishing identity
+
+npm validates the top-level calling workflow identity for an OIDC publication
+through a reusable workflow. Every npm package published by this release graph
+must therefore trust both supported callers in `happier-dev/happier`:
+
+- `release.yml` for an individual preview or production operation;
+- `release-preview-and-production.yml` for the coordinated combined operation.
+
+Both use the `release-shared` GitHub environment. Register the workflow filename
+without `.github/workflows/`; do not add a long-lived `NPM_TOKEN` fallback.
+`ENEEDAUTH` in all npm publisher jobs while the release actor and OIDC steps are
+otherwise healthy usually means the top-level caller is absent or mismatched in
+npm's trusted-publisher configuration. Verify the package/version in the npm
+registry after publication rather than relying only on the workflow badge.
+
 For CLI, stack, server-runtime, and UI-web binary releases:
 
 1. The hosted workflow binds the authorized source commit once.
@@ -191,19 +305,33 @@ For CLI, stack, server-runtime, and UI-web binary releases:
 4. A separate promotion step projects those exact bytes into the rolling
    Release, downloads them again, and checks byte equality, checksums, and the
    minisign signature.
-5. For a channel with no published rolling Release yet, promotion creates one
-   native GitHub draft on the real rolling tag, uploads and audits by Release
-   id, then publishes that same draft. It does not create a temporary staging
-   tag or ref.
-6. For an already-published rolling Release, promotion retains the bounded
-   fail-closed prune/repopulate/retry path. Only after its audit succeeds does
-   the workflow advance the rolling tag and notes/version marker.
+5. Promotion creates or reuses one SHA-qualified staging draft, uploads the
+   complete unversioned rolling asset set, and audits that draft by Release id.
+   Older staging drafts for the same rolling tag are removed.
+6. If a predecessor exists, promotion preserves it under one bounded backup tag,
+   moves the audited staging Release onto the real rolling tag, verifies the
+   public Release and tag, then removes staging and backup refs. Recovery restores
+   the predecessor when an interrupted attempt left only the backup visible.
 
-An initial native draft is not visible through the public Release lookup until
-publication. Existing rolling replacement is deliberately recoverable rather
-than atomic: downloads from the rolling tag can fail during the bounded
-prune/repopulation interval, while the verified version-tagged Release remains
-available throughout.
+The immutable version-tagged Release remains available throughout. Re-running
+the same promotion reuses and re-audits the same-SHA staging draft or recognizes
+an already exact rolling Release; it does not create a second publication owner
+or blindly append assets to a partial rolling Release.
+
+### Best-effort TestFlight distribution
+
+The native iOS build/submission and App Store processing/group attachment are
+separate phases. After the signed build is submitted, the mobile workflow writes
+its exact EAS build id or local IPA build identity and dispatches the existing
+`retry_testflight_distribution` recovery action from the current trusted control
+checkout. Release promotion therefore does not hold a runner or the whole release
+open while Apple processes a build.
+
+The reconciliation run validates the source ref, environment, profile, app id,
+and build identity before querying App Store Connect. A skipped fingerprint build
+is an explicit no-op. A failed reconciliation remains visible and can be retried
+with the same recovery action; it must not trigger another native build or cause
+already verified product candidates to be rebuilt.
 
 If a rolling upload is interrupted after the immutable Release was published,
 rerun the owning publisher with the same `channel` and its version as

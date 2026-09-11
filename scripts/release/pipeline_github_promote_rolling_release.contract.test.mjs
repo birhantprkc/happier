@@ -83,6 +83,7 @@ function fixture({ missingRolling = false } = {}) {
   const release77Tag = join(root, 'release-77-tag');
   const rollingReadFailureMarker = join(root, 'rolling-read-failure-marker');
   const sourceAssetReadCounter = join(root, 'source-asset-read-counter');
+  const assetDownloadFailureMarker = join(root, 'asset-download-failure-marker');
   const deleteConfirmFailureMarker = join(root, 'delete-confirm-failure-marker');
   writeFileSync(log, '');
   writeFileSync(uploadCounter, '0');
@@ -273,6 +274,12 @@ if [ "$1" = "api" ]; then
       ;;
     *"repos/test/test/releases/assets/"*)
       asset="\${2##*/}"
+      if [ "\${HAPPIER_TEST_RESET_FIRST_ASSET_DOWNLOAD:-0}" = "1" ] && [ ! -f ${JSON.stringify(assetDownloadFailureMarker)} ]; then
+        : > ${JSON.stringify(assetDownloadFailureMarker)}
+        printf 'partial-bytes'
+        echo 'read: connection reset by peer' >&2
+        exit 1
+      fi
       case "$asset" in
         55-*) cat ${JSON.stringify(source)}/"\${asset#55-}" ;;
         77-*) cat ${JSON.stringify(staging)}/"\${asset#77-}" ;;
@@ -488,7 +495,7 @@ test('rolling promotion sends release assets to the exact GitHub upload API host
     const uploadCalls = readFileSync(testFixture.log, 'utf8')
       .split('\n')
       .filter((line) => line.includes('releases/77/assets'));
-    assert.equal(uploadCalls.length, 4);
+    assert.equal(uploadCalls.length, 3);
     for (const call of uploadCalls) {
       assert.match(call, /gh api -X POST https:\/\/uploads\.github\.com\/repos\/test\/test\/releases\/77\/assets\?name=/);
       assert.doesNotMatch(call, /--hostname uploads\.github\.com/);
@@ -528,6 +535,27 @@ test('rolling promotion audits release assets without buffering their bytes in t
   }
 });
 
+test('rolling promotion retries a read-only asset audit without retaining partial bytes', () => {
+  const testFixture = fixture();
+  try {
+    const result = spawnSync(process.execPath, args(), {
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        PATH: `${testFixture.bin}:${process.env.PATH ?? ''}`,
+        HAPPIER_TEST_RESET_FIRST_ASSET_DOWNLOAD: '1',
+        HAPPIER_PIPELINE_GH_ASSET_READ_RETRY_DELAY_MS: '0',
+      },
+      encoding: 'utf8',
+    });
+
+    assert.equal(result.status, 0, String(result.stderr));
+    assert.match(String(result.stderr), /retrying GitHub release asset read/i);
+  } finally {
+    rmSync(testFixture.root, { recursive: true, force: true });
+  }
+});
+
 test('rolling promotion rejects a channel alias whose downloaded bytes differ from its immutable source', () => {
   const testFixture = fixture();
   try {
@@ -542,7 +570,7 @@ test('rolling promotion rejects a channel alias whose downloaded bytes differ fr
     });
 
     assert.notEqual(result.status, 0);
-    assert.match(String(result.stderr), new RegExp(`differs from immutable source bytes: ${testFixture.aliasName}`));
+    assert.match(String(result.stderr), new RegExp(`checksum mismatch for ${testFixture.archiveName}`));
     assert.equal(readFileSync(testFixture.release1Tag, 'utf8'), 'cli-preview');
     assert.equal(readFileSync(testFixture.channelRef, 'utf8'), oldSha);
     assert.deepEqual(readdirSync(testFixture.rolling), ['old-asset']);
@@ -620,7 +648,6 @@ test('existing rolling replacement stages privately, restores after publish fail
         'checksums-happier-v1.2.3-preview.4.txt',
         'checksums-happier-v1.2.3-preview.4.txt.minisig',
         `happier-${process.platform === 'darwin' ? 'darwin' : 'linux'}-${process.arch === 'arm64' ? 'arm64' : 'x64'}.tar.gz`,
-        testFixture.archiveName,
       ],
     );
     for (const name of readdirSync(testFixture.staging)) {
@@ -665,7 +692,7 @@ test('rolling promotion retries a transient GitHub asset upload connectivity fai
     const uploadCalls = readFileSync(testFixture.log, 'utf8')
       .split('\n')
       .filter((line) => line.includes('uploads.github.com'));
-    assert.equal(uploadCalls.length, 5, 'the first asset upload should retry exactly once');
+    assert.equal(uploadCalls.length, 4, 'the first asset upload should retry exactly once');
   } finally {
     rmSync(testFixture.root, { recursive: true, force: true });
   }
@@ -689,7 +716,7 @@ test('rolling promotion outlasts four consecutive GitHub asset upload connection
     const uploadCalls = readFileSync(testFixture.log, 'utf8')
       .split('\n')
       .filter((line) => line.includes('uploads.github.com'));
-    assert.equal(uploadCalls.length, 8, 'the first asset should recover on attempt five before the remaining three uploads');
+    assert.equal(uploadCalls.length, 7, 'the first asset should recover on attempt five before the remaining two uploads');
   } finally {
     rmSync(testFixture.root, { recursive: true, force: true });
   }

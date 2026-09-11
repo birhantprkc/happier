@@ -48,9 +48,14 @@ export function buildStopWindowsScheduledTaskIfRunningPowerShellCommand(params: 
     '  $wrapperProcessIds = @($allProcesses | Where-Object { ([string]$_.CommandLine).IndexOf($wrapperActionToken, [StringComparison]::OrdinalIgnoreCase) -ge 0 } | ForEach-Object { [int]$_.ProcessId })',
     '  $serviceProcessIds = @($allProcesses | Where-Object { $wrapperProcessIds -contains [int]$_.ParentProcessId } | ForEach-Object { [int]$_.ProcessId })',
     '  foreach ($serviceProcessId in $serviceProcessIds) {',
-    '    & taskkill.exe /PID $serviceProcessId /T /F | Out-Null',
-    '    if ($LASTEXITCODE -ne 0 -and $null -ne (Get-Process -Id $serviceProcessId -ErrorAction SilentlyContinue)) {',
-    '      throw "Failed to stop scheduled task child process $serviceProcessId (taskkill exit $LASTEXITCODE)"',
+    '    $taskkillProcess = Start-Process -FilePath "taskkill.exe" -ArgumentList @("/PID", [string]$serviceProcessId, "/T", "/F") -NoNewWindow -Wait -PassThru',
+    '    $taskkillExitCode = $taskkillProcess.ExitCode',
+    '    if ($taskkillExitCode -ne 0 -and $null -ne (Get-Process -Id $serviceProcessId -ErrorAction SilentlyContinue)) {',
+    '      throw "Failed to stop scheduled task child process $serviceProcessId (taskkill exit $taskkillExitCode)"',
+    '    }',
+    '    Wait-Process -Id $serviceProcessId -Timeout 10 -ErrorAction SilentlyContinue',
+    '    if ($null -ne (Get-Process -Id $serviceProcessId -ErrorAction SilentlyContinue)) {',
+    '      throw "Failed to wait for scheduled task child process $serviceProcessId to exit"',
     '    }',
     '  }',
     '  $task = Get-ScheduledTask -TaskPath $taskPath -TaskName $taskName -ErrorAction SilentlyContinue',
@@ -180,16 +185,33 @@ export function renderWindowsScheduledTaskWrapperPs1(params: Readonly<{
     .join('\n');
 
   const cmd = args.length ? `& ${args.map(psQuoted).join(' ')}` : '';
-  const redirect = out || err ? ` 1>> ${psQuoted(out)} 2>> ${psQuoted(err)}` : '';
+  const redirect = [
+    out ? `1>> ${psQuoted(out)}` : '',
+    err ? `2>> ${psQuoted(err)}` : '',
+  ].filter(Boolean).join(' ');
+  const body = [
+    wd ? `Set-Location -LiteralPath ${psQuoted(wd)}` : '',
+    envLines,
+    cmd ? '$LASTEXITCODE = 1' : '',
+    cmd ? '$ErrorActionPreference = "Continue"' : '',
+    cmd ? `${cmd}${redirect ? ` ${redirect}` : ''}` : '',
+    cmd ? '$exitCode = $LASTEXITCODE' : '',
+    cmd ? 'exit $exitCode' : '',
+  ].filter(Boolean);
+  const diagnosticPath = err || out;
 
   return [
     '$ErrorActionPreference = "Stop"',
-    wd ? `Set-Location -LiteralPath ${psQuoted(wd)}` : '',
-    envLines,
-    cmd ? `${cmd}${redirect}` : '',
+    'try {',
+    ...body.map((line) => line.split('\n').map((part) => `  ${part}`).join('\n')),
+    '} catch {',
+    diagnosticPath
+      ? `  ($_ | Out-String) | Add-Content -LiteralPath ${psQuoted(diagnosticPath)}`
+      : '  Write-Error ($_ | Out-String)',
+    '  exit 1',
+    '}',
     '',
   ]
-    .filter(Boolean)
     .join('\n');
 }
 

@@ -326,7 +326,7 @@ jobs:
       - name: Upload built site across the trust boundary
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: website-dist-${{ needs.apply_bump.outputs.release_sha }}
+          name: website-dist-${{ inputs.environment }}-${{ needs.apply_bump.outputs.release_sha }}
           path: apps/website/dist
           retention-days: 7
           if-no-files-found: error
@@ -405,7 +405,7 @@ jobs:
       - name: Download the exact built site
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: website-dist-${{ needs.apply_bump.outputs.release_sha }}
+          name: website-dist-${{ inputs.environment }}-${{ needs.apply_bump.outputs.release_sha }}
           path: apps/website/dist
       - name: Verify the artifact is a real prerendered site
         run: |

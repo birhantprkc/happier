@@ -452,6 +452,9 @@ jobs:
   ui_mobile:
     name: UI mobile (dev)
     needs: [prepare_release_candidate, release_verify]
+    permissions:
+      actions: write
+      contents: write
     uses: ./.github/workflows/publish-ui-mobile-dev.yml
     secrets: inherit
     with:

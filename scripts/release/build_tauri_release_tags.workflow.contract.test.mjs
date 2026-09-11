@@ -135,3 +135,14 @@ test('build-tauri can reproject an exact immutable production version without ru
   assert.doesNotMatch(raw, /retry_version must match apps\/ui\/package\.json version/);
   assert.match(raw, /inputs\.retry_version != ''[\s\S]*?ui-desktop-v/);
 });
+
+test('build-tauri automatically reuses an existing exact-source immutable production release', async () => {
+  const raw = await loadWorkflow('build-tauri.yml');
+
+  assert.match(raw, /PUBLISH_RELEASE:\s*\$\{\{\s*inputs\.publish_release\s*\}\}/);
+  assert.match(raw, /GH_TOKEN:\s*\$\{\{\s*github\.token\s*\}\}/);
+  assert.match(raw, /git ls-remote origin "refs\/tags\/\$tag"/);
+  assert.match(raw, /tag_sha.*source_sha|source_sha.*tag_sha/s);
+  assert.match(raw, /gh release view "\$tag"/);
+  assert.match(raw, /retry_version="\$ui_version"/);
+});

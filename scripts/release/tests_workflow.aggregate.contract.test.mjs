@@ -68,3 +68,17 @@ test('selected owner jobs collect every independent diagnostic before failing', 
     }
   }
 });
+
+test('CLI matrix runs its unsharded integration suite once while both unit partitions remain required', async () => {
+  const raw = await readFile(join(process.cwd(), '.github/workflows/tests.yml'), 'utf8');
+  const workflow = YAML.parse(raw);
+  const steps = workflow.jobs.cli.steps;
+  const integration = steps.find((step) => step.id === 'integration-tests');
+  const assertion = steps.at(-1);
+
+  assert.equal(String(integration.if), '${{ matrix.part == 1 && !cancelled() }}');
+  assert.match(
+    assertion.run,
+    /\[ "\$CLI_PART" = "1" \] && \{[\s\S]*?\[ "\$INTEGRATION_TESTS_OUTCOME" != "success" \]/,
+  );
+});

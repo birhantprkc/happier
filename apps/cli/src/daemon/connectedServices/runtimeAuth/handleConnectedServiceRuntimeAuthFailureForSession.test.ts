@@ -4,6 +4,7 @@ import { DEFAULT_CONNECTED_SERVICE_AUTH_GROUP_POLICY_V1 } from '../accountGroups
 import {
   ConnectedServiceAuthGroupSwitchCoordinator,
   InMemoryConnectedServiceAuthGroupSwitchLeaseRegistry,
+  type ConnectedServiceAuthGroupSwitchState,
 } from '../accountGroups/switching/ConnectedServiceAuthGroupSwitchCoordinator';
 import { buildConnectedServiceCredentialRecord } from '@happier-dev/protocol';
 import type { TrackedSession } from '@/daemon/types';
@@ -1982,6 +1983,107 @@ describe('handleConnectedServiceRuntimeAuthFailureForSession', () => {
 
     expect(switchAfterClassifiedFailure).toHaveBeenCalledOnce();
     expect(restartSession).toHaveBeenCalledOnce();
+  });
+
+  it('continues a scheduled usage-limit recovery on the sole member after fresh reset evidence', async () => {
+    const currentState: ConnectedServiceAuthGroupSwitchState = {
+      serviceId: 'openai-codex',
+      groupId: 'main',
+      activeProfileId: 'current',
+      generation: 7,
+      runtimeStateRevision: 1,
+      credentialRevision: 'csr_aaaaaaaaaaaaaaaaaaaaaa',
+      policy: { ...DEFAULT_CONNECTED_SERVICE_AUTH_GROUP_POLICY_V1, strategy: 'priority', autoSwitch: true },
+      members: [{ profileId: 'current', priority: 1, createdAtMs: 1, enabled: true }],
+      memberStatesByProfileId: new Map([
+        ['current', {
+          quotaSnapshot: {
+            capturedAtMs: 20_000,
+            effectiveRemainingPercent: 100,
+            windows: [],
+          },
+        }],
+      ]),
+    };
+    const applyGeneration = vi.fn(async () => ({ mode: 'hot_apply' as const }));
+    const switchCoordinator = new ConnectedServiceAuthGroupSwitchCoordinator({
+      leases: new InMemoryConnectedServiceAuthGroupSwitchLeaseRegistry(),
+      nowMs: () => 20_000,
+      quotaFreshnessMs: 60_000,
+      loadState: async () => currentState,
+      commitSwitch: vi.fn(),
+      applyGeneration,
+    });
+    const continueAfterRuntimeAuthSwitch = vi.fn(async () => {});
+    const restartSession = vi.fn(async () => {});
+    const tracked = {
+      startedBy: 'daemon',
+      happySessionId: 'sess_single_member',
+      pid: 123,
+      spawnOptions: {
+        directory: '/tmp/project',
+        environmentVariables: {
+          [HAPPIER_CONNECTED_SERVICE_SELECTIONS_ENV_KEY]: JSON.stringify([{
+            kind: 'group',
+            serviceId: 'openai-codex',
+            groupId: 'main',
+            activeProfileId: 'current',
+            fallbackProfileId: 'current',
+            generation: 7,
+            credentialRevision: 'csr_aaaaaaaaaaaaaaaaaaaaaa',
+          }]),
+        },
+      },
+    } satisfies TrackedSession;
+
+    await expect(handleConnectedServiceRuntimeAuthFailureForSession({
+      getChildren: () => [tracked],
+      switchCoordinator,
+      restartSession,
+      continueAfterRuntimeAuthSwitch,
+      sessionId: 'sess_single_member',
+      switchesThisTurn: 0,
+      recoveryInvocationSource: 'scheduler_retry',
+      sourceAuthorization: {
+        status: 'authorized',
+        tracked,
+        sourceBinding: {
+          serviceId: 'openai-codex',
+          groupId: 'main',
+          profileId: 'current',
+          generation: 7,
+          credentialRevision: 'csr_aaaaaaaaaaaaaaaaaaaaaa',
+        },
+      },
+      classification: {
+        kind: 'usage_limit',
+        limitCategory: 'usage_limit',
+        serviceId: 'openai-codex',
+        profileId: 'current',
+        groupId: 'main',
+        groupGeneration: 7,
+        credentialRevision: 'csr_aaaaaaaaaaaaaaaaaaaaaa',
+        resetsAtMs: 10_000,
+        planType: null,
+        rateLimits: null,
+        source: 'structured_provider_error',
+      },
+    })).resolves.toMatchObject({
+      status: 'switch_attempted',
+      result: {
+        status: 'observed_generation',
+        activeProfileId: 'current',
+        generation: 7,
+      },
+    });
+
+    expect(applyGeneration).toHaveBeenCalledOnce();
+    expect(continueAfterRuntimeAuthSwitch).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'sess_single_member',
+      action: 'hot_applied',
+      target: expect.objectContaining({ profileId: 'current', generation: 7 }),
+    }));
+    expect(restartSession).not.toHaveBeenCalled();
   });
 
   it('still restarts when the failing profile IS the profile the live session runs on', async () => {

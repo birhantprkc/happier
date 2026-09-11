@@ -714,6 +714,7 @@ async function runRuntimeGroupSwitchRecovery(input: Readonly<{
   switchAttemptTracker?: SwitchAttemptTrackerLike | null;
   temporaryThrottleRecovery?: TemporaryThrottleRecoveryLike | null;
   applyLiveSession?: boolean;
+  recoveryInvocationSource?: RuntimeAuthRecoveryInvocationSource;
 }>): Promise<Awaited<ReturnType<typeof handleConnectedServiceRuntimeAuthFailure>>> {
   const effectiveSwitchesThisTurn = input.switchAttemptTracker?.resolveSwitchesThisTurn({
     sessionId: input.sessionId,
@@ -757,6 +758,10 @@ async function runRuntimeGroupSwitchRecovery(input: Readonly<{
       ? createCommitOnlySwitchCoordinator(input.switchCoordinator)
       : input.switchCoordinator,
     temporaryThrottleRecovery: input.temporaryThrottleRecovery ?? null,
+    ...(input.recoveryInvocationSource === 'scheduler_retry'
+      && (input.classification.kind === 'usage_limit' || input.classification.kind === 'rate_limit')
+      ? { allowCurrentProfileRetry: true }
+      : {}),
   });
 }
 
@@ -1271,6 +1276,7 @@ export async function handleConnectedServiceRuntimeAuthFailureForSession(input: 
           switchAttemptTracker: input.switchAttemptTracker ?? null,
           temporaryThrottleRecovery: input.temporaryThrottleRecovery ?? null,
           applyLiveSession: false,
+          recoveryInvocationSource: input.recoveryInvocationSource,
         }),
       });
       finalizeRuntimeGroupSwitchAttempt({
@@ -1428,6 +1434,7 @@ export async function handleConnectedServiceRuntimeAuthFailureForSession(input: 
         switchCoordinator,
         switchAttemptTracker: input.switchAttemptTracker ?? null,
         temporaryThrottleRecovery: input.temporaryThrottleRecovery ?? null,
+        recoveryInvocationSource: input.recoveryInvocationSource,
       });
     },
   });

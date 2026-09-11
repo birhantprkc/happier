@@ -1,7 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { execFileSync } from 'node:child_process';
 
 import { createRunDirs } from '../../src/testkit/runDir';
 import { startServerLight, type StartedServer } from '../../src/testkit/process/serverLight';
@@ -15,6 +14,7 @@ import {
 } from '../../src/testkit/uiE2e/createSessionFromNewSessionComposer';
 import { fakeClaudeFixturePath } from '../../src/testkit/fakeClaude';
 import { gotoDomContentLoadedWithRetries, normalizeLoopbackBaseUrl } from '../../src/testkit/uiE2e/pageNavigation';
+import { waitForDaemonMachineIdFromCliSettings } from '../../src/testkit/uiE2e/daemonMachineId';
 
 const run = createRunDirs({ runLabel: 'ui-e2e' });
 
@@ -385,38 +385,6 @@ test.describe('ui e2e: transcript viewport invariants', () => {
   let sessionId: string | null = null;
   let createdSession: CreatedSessionFromNewSessionComposer | null = null;
 
-  function resolveServerLightSqliteDbPath(params: { suiteDir: string }): string {
-    return resolve(join(params.suiteDir, 'server-light-data', 'happier-server-light.sqlite'));
-  }
-
-  function readLatestMachineIdFromServerLightDb(params: { suiteDir: string }): string {
-    const dbPath = resolveServerLightSqliteDbPath({ suiteDir: params.suiteDir });
-    try {
-      const raw = execFileSync('sqlite3', ['-json', dbPath, 'select id from Machine order by createdAt desc limit 1;'], {
-        encoding: 'utf8',
-      });
-      const parsed = JSON.parse(raw) as Array<{ id?: unknown }>;
-      const id = parsed?.[0]?.id;
-      if (typeof id === 'string' && id.trim()) return id.trim();
-    } catch {
-      // ignore - pollers can retry
-    }
-    throw new Error(`Failed to read machine id from server light sqlite db: ${dbPath}`);
-  }
-
-  async function waitForLatestMachineId(params: { suiteDir: string; timeoutMs?: number }): Promise<string> {
-    const timeoutMs = params.timeoutMs ?? 60_000;
-    const startedAt = Date.now();
-    while (Date.now() - startedAt < timeoutMs) {
-      try {
-        return readLatestMachineIdFromServerLightDb({ suiteDir: params.suiteDir });
-      } catch {
-        await new Promise((r) => setTimeout(r, 250));
-      }
-    }
-    return readLatestMachineIdFromServerLightDb({ suiteDir: params.suiteDir });
-  }
-
   async function readAccountSecretKeyFromSettings(page: Page, baseUrl: string): Promise<string> {
     await page.goto(`${baseUrl}/settings/account`, { waitUntil: 'domcontentloaded' });
     await expect(page.getByTestId('settings-account-secret-key-item')).toHaveCount(1, { timeout: 60_000 });
@@ -578,7 +546,7 @@ test.describe('ui e2e: transcript viewport invariants', () => {
 
     accountSecretKeyFormatted = await readAccountSecretKeyFromSettings(page, uiBaseUrl);
 
-    const machineId = await waitForLatestMachineId({ suiteDir, timeoutMs: 120_000 });
+    const machineId = await waitForDaemonMachineIdFromCliSettings({ cliHomeDir, timeoutMs: 120_000 });
     createdSession = await createSessionFromNewSessionComposer({
       page,
       uiBaseUrl,
@@ -827,9 +795,17 @@ test.describe('ui e2e: transcript viewport invariants', () => {
     const isOlderPageRequest = (url: string): boolean =>
       url.includes(`/v1/sessions/${sessionId}/messages?`) && url.includes('beforeSeq=');
 
-    // Delay older-page responses so the in-flight window (and the loading overlay) is observable.
+    let holdUserTriggeredOlderResponse = false;
+    let releaseUserTriggeredOlderResponse = () => {};
+    let userTriggeredOlderResponseGate = Promise.resolve();
+
+    // Keep the user-triggered response in flight until the loading overlay has been observed.
+    // A fixed delay races the request observer on loaded runners and can inspect the UI only after
+    // the response has already settled and the correctly transient overlay has disappeared.
     await page.route((url) => isOlderPageRequest(url.href), async (route) => {
-      await new Promise((r) => setTimeout(r, 700));
+      if (holdUserTriggeredOlderResponse) {
+        await userTriggeredOlderResponseGate;
+      }
       await route.continue();
     });
 
@@ -864,6 +840,10 @@ test.describe('ui e2e: transcript viewport invariants', () => {
     olderRequestCount = 0;
     olderRequestsSettled = 0;
     maxConcurrentOlderRequests = inFlightOlderRequests;
+    userTriggeredOlderResponseGate = new Promise<void>((resolve) => {
+      releaseUserTriggeredOlderResponse = resolve;
+    });
+    holdUserTriggeredOlderResponse = true;
     const beforeMetrics = await requireTranscriptScrollMetrics(page);
 
     // Scenario premise: at least one older page must still be unloaded, or the wheel below can
@@ -898,10 +878,15 @@ test.describe('ui e2e: transcript viewport invariants', () => {
       .toBeGreaterThan(0);
 
     // Invariant H: a user-triggered older load in flight shows the loading indicator.
-    await expect(
-      page.getByTestId('transcript-older-load-progress-overlay'),
-      'invariant H: older-load progress overlay must be visible while the load is in flight',
-    ).toBeVisible({ timeout: 5_000 });
+    try {
+      await expect(
+        page.getByTestId('transcript-older-load-progress-overlay'),
+        'invariant H: older-load progress overlay must be visible while the load is in flight',
+      ).toBeVisible({ timeout: 5_000 });
+    } finally {
+      releaseUserTriggeredOlderResponse();
+      holdUserTriggeredOlderResponse = false;
+    }
 
     await expect.poll(() => olderRequestsSettled, { timeout: 60_000 }).toBeGreaterThanOrEqual(1);
     await expect

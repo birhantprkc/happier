@@ -9,7 +9,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach } from
 import { execSync, spawn } from 'child_process';
 import { randomUUID } from 'crypto';
 import { existsSync, readFileSync, readdirSync } from 'fs';
-import { mkdtemp, rm } from 'fs/promises';
+import { mkdtemp, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
@@ -163,6 +163,8 @@ describe('ensureDaemonFullyStoppedBeforeRestart helper', () => {
         throw new Error('Failed to start helper process');
       }
 
+      await writeFile(configuration.daemonLockFile, `${child.pid}\n`, 'utf8');
+
       setTimeout(() => {
         try {
           process.kill(child!.pid!, 'SIGTERM');
@@ -175,6 +177,7 @@ describe('ensureDaemonFullyStoppedBeforeRestart helper', () => {
       await ensureDaemonFullyStoppedBeforeRestart(child.pid);
       expect(Date.now() - startedAt).toBeGreaterThanOrEqual(200);
       expect(isProcessAlive(child.pid)).toBe(false);
+      expect(existsSync(configuration.daemonLockFile)).toBe(false);
     } finally {
       if (child?.pid) {
         try {
@@ -265,28 +268,7 @@ async function ensureDaemonFullyStoppedBeforeRestart(previousKnownPid?: number |
     });
   }
 
-  await waitForCondition(
-    async () => !existsSync(configuration.daemonLockFile),
-    {
-      timeoutMs: 30_000,
-      intervalMs: 250,
-      label: 'daemon lock file cleanup before restart',
-    },
-  );
-
-  await waitForCondition(
-    async () => {
-      const state = await readDaemonState();
-      if (!state) return true;
-      if (typeof state.pid !== 'number' || !Number.isFinite(state.pid) || state.pid <= 0) return true;
-      return !isProcessAlive(state.pid);
-    },
-    {
-      timeoutMs: 30_000,
-      intervalMs: 250,
-      label: 'daemon state to be quiescent before restart',
-    },
-  );
+  await clearDaemonStateForTests();
 }
 
 async function waitForSessionCount(count: number, opts: WaitForOptions): Promise<void> {

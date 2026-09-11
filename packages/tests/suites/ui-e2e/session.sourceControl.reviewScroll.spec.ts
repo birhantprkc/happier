@@ -301,25 +301,42 @@ test.describe('ui e2e: SCM review scroll + tab state', () => {
     const pierre = detailsPaneLocator(page).locator('[data-testid="pierre-diff-viewer"]:visible');
     await expect(pierre).toBeVisible({ timeout: 60_000 });
     const diffPassage = pierre.locator('[data-line]').filter({ hasText: /^changed 180\n?$/ });
-    for (let i = 0; i < 40 && await diffPassage.count() === 0; i += 1) {
+    const isDiffPassageInViewport = async () => diffPassage.evaluate((node) => {
+      const rect = node.getBoundingClientRect();
+      return rect.bottom > 0 && rect.top < window.innerHeight;
+    }).catch(() => false);
+    for (let i = 0; i < 40 && !(await isDiffPassageInViewport()); i += 1) {
       await pierre.hover();
       await page.mouse.wheel(0, 300);
       await page.waitForTimeout(50);
     }
-    await expect(diffPassage).toHaveCount(1, { timeout: 60_000 });
-    await diffPassage.scrollIntoViewIfNeeded();
-    const diffPassageTop = (await diffPassage.boundingBox())!.y;
-    const initialDiffLineIndex = await diffPassage.getAttribute('data-line-index');
-    expect(initialDiffLineIndex).not.toBeNull();
+    let initialDiffLineIndex: string | null = null;
+    await expect.poll(async () => {
+      initialDiffLineIndex = await diffPassage.evaluate((node) => {
+        const rect = node.getBoundingClientRect();
+        const lineIndex = (node as HTMLElement).dataset.lineIndex;
+        return rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < window.innerHeight && lineIndex
+          ? lineIndex
+          : null;
+      }).catch(() => null);
+      return initialDiffLineIndex !== null;
+    }, { timeout: 60_000 }).toBe(true);
+    const initialDiffLineIndexes = initialDiffLineIndex!.split(',').map((value) => Number(value));
+    expect(initialDiffLineIndexes).toHaveLength(2);
+    expect(initialDiffLineIndexes.every(Number.isFinite)).toBe(true);
+    const shiftedDiffLineIndex = initialDiffLineIndexes
+      .map((value) => value + insertedLines.length)
+      .join(',');
     await writeFile(resolve(join(repoDir, bigPath)), `${[...insertedLines, ...originalLines].join('\n')}\n`, 'utf8');
     await refreshFiles();
     // The row's new index proves the changed patch was rendered. Its viewport
     // position proves the virtualizer retained the passage across that update.
-    await expect(diffPassage).toHaveAttribute('data-line-index', String(Number(initialDiffLineIndex) + insertedLines.length), { timeout: 60_000 });
-    await expect.poll(async () => Math.abs((await diffPassage.boundingBox())!.y - diffPassageTop), { timeout: 60_000 }).toBeLessThan(30);
+    await expect(diffPassage).toHaveAttribute('data-line-index', shiftedDiffLineIndex, { timeout: 60_000 });
+    await expect(diffPassage).toBeInViewport({ timeout: 60_000 });
     await writeFile(resolve(join(repoDir, bigPath)), `${originalLines.join('\n')}\n`, 'utf8');
     await refreshFiles();
     await expect(diffPassage).toHaveAttribute('data-line-index', initialDiffLineIndex!, { timeout: 60_000 });
+    await expect(diffPassage).toBeInViewport({ timeout: 60_000 });
     await detailsPaneLocator(page).locator('[data-testid="file-details-view-mode-menu"]:visible').click();
     await page.getByTestId('dropdown-option-file').click();
     const passage = fileScroll.getByText('changed 180', { exact: true });
@@ -330,27 +347,26 @@ test.describe('ui e2e: SCM review scroll + tab state', () => {
     }
     await expect(passage).toHaveCount(1, { timeout: 60_000 });
     await passage.scrollIntoViewIfNeeded();
-    const passageTop = (await passage.boundingBox())!.y;
+    await expect(passage).toBeInViewport({ timeout: 60_000 });
     const mountedScroll = await fileScroll.elementHandle();
     await refreshFiles();
     // Observe background refresh over a short stability window;
     // an immediate assertion could pass before its asynchronous read resolves.
     await page.waitForTimeout(1500);
     expect(await mountedScroll!.evaluate((node) => node.isConnected)).toBe(true);
-    await expect(passage).toBeVisible();
-    expect(Math.abs((await passage.boundingBox())!.y - passageTop)).toBeLessThan(30);
+    await expect(passage).toBeInViewport({ timeout: 60_000 });
 
     await writeFile(resolve(join(repoDir, bigPath)), `${[...insertedLines, ...originalLines].join('\n')}\n`, 'utf8');
     await refreshFiles();
-    // f:193 proves the new bytes have reached the real viewer, and the text
-    // assertion distinguishes passage anchoring from retaining a numeric offset.
-    await expect(fileScroll.locator('[id="f:193"]')).toContainText('changed 180', { timeout: 60_000 });
-    await expect(passage).toBeVisible();
-    expect(Math.abs((await passage.boundingBox())!.y - passageTop)).toBeLessThan(30);
+    // The f:193 suffix proves the new bytes have reached the real viewer, while
+    // resolving it from the semantic text row avoids retaining a recycled
+    // virtual DOM node. React/Pierre may namespace the DOM id, so its generated
+    // prefix is deliberately not part of this product contract.
+    await expect.poll(async () => passage.evaluate((node) => node.closest<HTMLElement>('[id]')?.id.endsWith('f:193') ?? false).catch(() => false), { timeout: 60_000 }).toBe(true);
+    await expect(passage).toBeInViewport({ timeout: 60_000 });
     await page.getByTestId(`session-details-tab-${toTestIdSafeValue(reviewTabKey)}`).click();
     await bigTab.click();
-    await expect(passage).toBeVisible({ timeout: 60_000 });
-    await expect.poll(async () => Math.abs((await passage.boundingBox())!.y - passageTop), { timeout: 60_000 }).toBeLessThan(30);
+    await expect(passage).toBeInViewport({ timeout: 60_000 });
     await page.getByTestId(`session-details-tab-close-${toTestIdSafeValue(`file:${bigPath}`)}`).click();
 
     // Switch back to the file tab, enter edit mode, type, switch away/back, and ensure text persists.

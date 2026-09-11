@@ -11,6 +11,7 @@ test('build-ui-mobile-local can resume TestFlight distribution without rebuildin
   assert.match(src, /- retry_testflight_distribution/);
   assert.match(src, /retry_testflight_build_number:/);
   assert.match(src, /retry_testflight_app_version:/);
+  assert.match(src, /retry_testflight_eas_build_id:/);
 
   const retryJob = src.slice(src.indexOf('  retry_testflight_distribution:'), src.indexOf('  ota_update:'));
   assert.notEqual(retryJob.trim(), '', 'expected a dedicated TestFlight distribution retry job');
@@ -19,6 +20,7 @@ test('build-ui-mobile-local can resume TestFlight distribution without rebuildin
   assert.match(retryJob, /repository: \$\{\{ job\.workflow_repository \}\}/);
   assert.match(retryJob, /ref: \$\{\{ job\.workflow_sha \}\}/);
   assert.match(retryJob, /scripts\/pipeline\/expo\/testflight-distribute\.mjs/);
+  assert.match(retryJob, /--eas-build-id "\$RETRY_TESTFLIGHT_EAS_BUILD_ID"/);
   assert.match(retryJob, /--build-number "\$RETRY_TESTFLIGHT_BUILD_NUMBER"/);
   assert.match(retryJob, /--app-version "\$RETRY_TESTFLIGHT_APP_VERSION"/);
   assert.doesNotMatch(retryJob, /Install dependencies|native-build\.mjs|ui-mobile-release/);
@@ -28,6 +30,11 @@ test('build-ui-mobile-local can resume TestFlight distribution without rebuildin
 
   const androidJob = src.slice(src.indexOf('  build_android:'), src.indexOf('  publish_android_apk:'));
   const iosJob = src.slice(src.indexOf('  build_ios:'), src.indexOf('  retry_testflight_distribution:'));
+  assert.match(iosJob, /Checkout trusted deferred TestFlight control bytes/);
+  assert.match(iosJob, /HAPPIER_PIPELINE_REPO_ROOT:\s*\$\{\{ github\.workspace \}\}/);
+  assert.match(iosJob, /--testflight-distribution-mode deferred/);
+  assert.match(iosJob, /dispatch-testflight-reconciliation\.mjs/);
+  assert.match(iosJob, /actions: write/);
   assert.match(androidJob, /inputs\.action != 'retry_testflight_distribution'/);
   assert.match(androidJob, /if: \$\{\{ always\(\) && \(inputs\.native_build_mode == 'local' \|\| steps\.apk\.outputs\.has_apk == 'true'\) \}\}/);
   assert.match(iosJob, /inputs\.action != 'retry_testflight_distribution'/);

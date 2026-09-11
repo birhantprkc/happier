@@ -8,7 +8,7 @@
  */
 
 import { logger } from "@/ui/logger";
-import { ApiSessionClient } from "@/api/session/sessionClient";
+import type { ApiSessionClient } from "@/api/session/sessionClient";
 import { AgentState } from "@/api/types";
 import { updateAgentStateBestEffort as updateAgentStateBestEffortShared } from "@/api/session/sessionWritesBestEffort";
 import { isToolAllowedForSession, makeToolIdentifier } from './permissionToolIdentifier';

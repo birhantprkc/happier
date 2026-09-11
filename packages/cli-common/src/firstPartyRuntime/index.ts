@@ -68,6 +68,7 @@ export type {
   ReleaseAssetBundle,
 } from './releaseAssetBundle.js';
 export { extractReleasePayloadRootFromArchive } from './extractReleasePayloadRootFromArchive.js';
+export { removeRuntimePayloadPath } from './copyRuntimePayloadTree.js';
 
 export { listInstalledVersionIdsNewestFirst } from './listInstalledVersionIdsNewestFirst.js';
 export { installVersionedPayload } from './installVersionedPayload.js';
@@ -119,6 +120,7 @@ export {
   relocateServerRuntimeArtifactClosure,
   resolveManagedServerRuntimePaths,
   resolveServerRuntimeExecutableNames,
+  resolveServerRuntimePrismaEngineFileName,
   resolveServerRuntimePayloadRootFromBinaryPath,
 } from './serverRuntimeArtifactLayout.js';
 

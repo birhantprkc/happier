@@ -598,6 +598,7 @@ export function SessionFileDetailsView(props: SessionFileDetailsViewProps) {
             <View
                 style={{
                     flex: 1,
+                    minHeight: 0,
                     position: 'relative',
                     width: '100%',
                     ...(constrainWidth ? { maxWidth: layout.maxWidth, alignSelf: 'center' } : { maxWidth: '100%' }),
@@ -724,6 +725,7 @@ export function SessionFileDetailsView(props: SessionFileDetailsViewProps) {
 const styles = StyleSheet.create((theme) => ({
     container: {
         flex: 1,
+        minHeight: 0,
         backgroundColor: theme.colors.surface.base,
     },
     noticeBanner: {

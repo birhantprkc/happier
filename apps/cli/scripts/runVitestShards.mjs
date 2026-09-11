@@ -59,6 +59,7 @@ export function resolveVitestIsolationPlan(configPath) {
   const claudeSignalCleanupFile = 'src/backends/claude/sdk/query.signalCleanup.test.ts';
   const codexAppServerClientFile = 'src/backends/codex/appServer/client/createCodexAppServerClient.test.ts';
   const processRunStateFile = 'src/daemon/processRunState.test.ts';
+  const durableMutationOutboxFile = 'src/api/session/sessionClient.durableMutationOutbox.test.ts';
   return {
     shardExcludes: [
       daemonServiceFile,
@@ -75,6 +76,7 @@ export function resolveVitestIsolationPlan(configPath) {
       claudeSignalCleanupFile,
       codexAppServerClientFile,
       processRunStateFile,
+      durableMutationOutboxFile,
     ],
     runs: [
       { file: daemonServiceFile, testNamePattern: 'runDaemonServiceCliCommand (?:allows|expands|prefers|resolves|restarts|restores|sets|treats)\\b' },
@@ -96,6 +98,7 @@ export function resolveVitestIsolationPlan(configPath) {
       { file: claudeSignalCleanupFile, testNamePattern: '.*' },
       { file: codexAppServerClientFile, testNamePattern: '.*' },
       { file: processRunStateFile, testNamePattern: '.*' },
+      { file: durableMutationOutboxFile, testNamePattern: '.*' },
     ],
   };
 }

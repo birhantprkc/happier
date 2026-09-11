@@ -1,12 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '..', '..');
 const publishedVersionsFixture = JSON.stringify({ github: {}, npm: {} });
+
+function previewVersionFor(packageJsonPath) {
+  const packageJson = JSON.parse(readFileSync(resolve(repoRoot, packageJsonPath), 'utf8'));
+  assert.equal(typeof packageJson.version, 'string');
+  return `${packageJson.version}-preview.1`;
+}
 
 test('publish-cli-binaries defaults to run-contracts=auto (skips locally)', async () => {
   const out = execFileSync(
@@ -16,7 +23,7 @@ test('publish-cli-binaries defaults to run-contracts=auto (skips locally)', asyn
       '--channel',
       'preview',
       '--version',
-      '0.2.11-preview.1',
+      previewVersionFor('apps/cli/package.json'),
       '--allow-stable',
       'false',
       '--check-installers',
@@ -47,7 +54,7 @@ test('publish-cli-binaries defaults to run-contracts=auto (runs on GitHub Action
       '--channel',
       'preview',
       '--version',
-      '0.2.11-preview.1',
+      previewVersionFor('apps/cli/package.json'),
       '--allow-stable',
       'false',
       '--check-installers',
@@ -78,7 +85,7 @@ test('publish-ui-web defaults to run-contracts=auto (skips locally)', async () =
       '--channel',
       'preview',
       '--version',
-      '0.2.11-preview.1',
+      previewVersionFor('apps/ui/package.json'),
       '--allow-stable',
       'false',
       '--check-installers',

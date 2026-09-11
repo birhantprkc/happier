@@ -1,7 +1,6 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { execFileSync } from 'node:child_process';
 
 import { createRunDirs } from '../../src/testkit/runDir';
 import { startServerLight, type StartedServer } from '../../src/testkit/process/serverLight';
@@ -15,40 +14,9 @@ import {
 import { fakeClaudeFixturePath } from '../../src/testkit/fakeClaude';
 import { gotoDomContentLoadedWithRetries, normalizeLoopbackBaseUrl } from '../../src/testkit/uiE2e/pageNavigation';
 import { ensureAccountReadyForConnect } from '../../src/testkit/uiE2e/ensureAccountReadyForConnect';
+import { waitForDaemonMachineIdFromCliSettings } from '../../src/testkit/uiE2e/daemonMachineId';
 
 const run = createRunDirs({ runLabel: 'ui-e2e' });
-
-function resolveServerLightSqliteDbPath(params: { suiteDir: string }): string {
-  return resolve(join(params.suiteDir, 'server-light-data', 'happier-server-light.sqlite'));
-}
-
-function readLatestMachineIdFromServerLightDb(params: { suiteDir: string }): string {
-  const dbPath = resolveServerLightSqliteDbPath({ suiteDir: params.suiteDir });
-  try {
-    const raw = execFileSync('sqlite3', ['-json', dbPath, 'select id from Machine order by createdAt desc limit 1;'], {
-      encoding: 'utf8',
-    });
-    const parsed = JSON.parse(raw) as Array<{ id?: unknown }>;
-    const id = parsed?.[0]?.id;
-    if (typeof id === 'string' && id.trim()) return id.trim();
-  } catch {
-    // ignore - pollers can retry
-  }
-  throw new Error(`Failed to read machine id from server light sqlite db: ${dbPath}`);
-}
-
-async function waitForLatestMachineId(params: { suiteDir: string; timeoutMs?: number }): Promise<string> {
-  const timeoutMs = params.timeoutMs ?? 60_000;
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < timeoutMs) {
-    try {
-      return readLatestMachineIdFromServerLightDb({ suiteDir: params.suiteDir });
-    } catch {
-      await new Promise((r) => setTimeout(r, 250));
-    }
-  }
-  return readLatestMachineIdFromServerLightDb({ suiteDir: params.suiteDir });
-}
 
 async function readComputedStylesForLocator(locator: Locator): Promise<{ fontSize: string; color: string }> {
   return locator.evaluate((el) => {
@@ -161,7 +129,7 @@ test.describe('ui e2e: thinking markdown rendering', () => {
       },
     });
 
-    const machineId = await waitForLatestMachineId({ suiteDir, timeoutMs: 120_000 });
+    const machineId = await waitForDaemonMachineIdFromCliSettings({ cliHomeDir, timeoutMs: 120_000 });
     const session = await createSessionFromNewSessionComposer({
       page,
       uiBaseUrl,

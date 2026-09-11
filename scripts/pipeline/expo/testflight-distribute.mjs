@@ -19,6 +19,7 @@ import { buildEasBuildViewArgs } from './testflight-eas-cli-args.mjs';
 import { resolveExternalGroupSelections } from './testflight-group-resolution.mjs';
 import { readIosIpaMetadata } from './read-ios-ipa-metadata.mjs';
 import { ensureBetaReviewSubmission } from './testflight-beta-review.mjs';
+import { readTestflightBuildDetails } from './testflight-build-request.mjs';
 
 function fail(message) {
   console.error(message);
@@ -119,6 +120,55 @@ async function ascRequest(input) {
   return body;
 }
 
+function isTransientAscReadError(error) {
+  if (error instanceof AscApiError) {
+    return [408, 425, 429].includes(error.status) || error.status >= 500;
+  }
+  const transientCodes = new Set([
+    'EAI_AGAIN',
+    'ECONNREFUSED',
+    'ECONNRESET',
+    'ENETUNREACH',
+    'ENOTFOUND',
+    'ETIMEDOUT',
+    'UND_ERR_BODY_TIMEOUT',
+    'UND_ERR_CONNECT_TIMEOUT',
+    'UND_ERR_HEADERS_TIMEOUT',
+    'UND_ERR_SOCKET',
+  ]);
+  let current = error;
+  while (current && typeof current === 'object') {
+    if (transientCodes.has(String(current.code ?? '').trim())) return true;
+    current = current.cause;
+  }
+  return false;
+}
+
+async function ascRequestWithReadRetry({ request, input }) {
+  const method = String(input.method ?? 'GET').toUpperCase();
+  if (method !== 'GET') return request(input);
+
+  const maxAttempts = 4;
+  const baseDelayMs = readNonNegativeInteger(
+    process.env.HAPPIER_TESTFLIGHT_READ_RETRY_DELAY_MS,
+    2_000,
+  );
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await request(input);
+    } catch (error) {
+      if (!isTransientAscReadError(error) || attempt === maxAttempts) throw error;
+      const delayMs = baseDelayMs * (2 ** (attempt - 1));
+      console.log(
+        `[pipeline] retrying transient App Store Connect read ` +
+        `(attempt=${attempt + 1}/${maxAttempts}, delay_ms=${delayMs})`,
+      );
+      await sleep(delayMs);
+    }
+  }
+  throw new Error('Unreachable App Store Connect read retry state.');
+}
+
 /**
  * @param {{ request: (input: { method?: string; url: string; body?: unknown }) => Promise<any>; url: string }} input
  * @returns {Promise<any[]>}
@@ -155,36 +205,6 @@ function loadExpoIosSubmitProfile({ repoRoot, submitProfile }) {
     );
   }
   return { ascAppId, ascApiKeyId, ascApiKeyIssuerId };
-}
-
-function normalizeBuildJsonPlatform(value) {
-  const platform = String(value ?? '').trim();
-  if (!platform) return '';
-  if (platform.toUpperCase() === 'IOS') return 'ios';
-  if (platform.toUpperCase() === 'ANDROID') return 'android';
-  return platform.toLowerCase();
-}
-
-function readBuildJsonDetails(buildJsonPath) {
-  const absolutePath = path.resolve(buildJsonPath);
-  if (!fs.existsSync(absolutePath)) fail(`--build-json path does not exist: ${absolutePath}`);
-  const parsed = JSON.parse(fs.readFileSync(absolutePath, 'utf8'));
-  const items = Array.isArray(parsed) ? parsed : [parsed];
-  for (const item of items) {
-    const id = String(item?.id ?? item?.buildId ?? '').trim();
-    const platform = normalizeBuildJsonPlatform(item?.platform);
-    const mode = String(item?.mode ?? '').trim().toLowerCase();
-    const artifactPath = String(item?.artifactPath ?? '').trim();
-    const buildNumber = String(item?.buildNumber ?? item?.appBuildVersion ?? item?.metadata?.buildNumber ?? '').trim();
-    const appVersion = String(item?.appVersion ?? item?.version ?? item?.metadata?.appVersion ?? '').trim();
-    if (id && (!platform || platform === 'ios')) {
-      return { easBuildId: id, artifactPath: '', buildNumber, appVersion };
-    }
-    if (mode === 'local' && (!platform || platform === 'ios')) {
-      return { easBuildId: '', artifactPath, buildNumber, appVersion };
-    }
-  }
-  fail(`Unable to resolve an iOS EAS build or local artifact from ${absolutePath}`);
 }
 
 function readEasBuildIdentity(buildPayload) {
@@ -477,7 +497,7 @@ async function main() {
   const buildJsonPath = String(values['build-json'] ?? '').trim();
   // Native-build dry-runs do not guarantee an output file. Ignore any pre-existing file too:
   // it may belong to an earlier build and must not decide whether this dry-run is valid.
-  const buildJsonDetails = buildJsonPath && !dryRun ? readBuildJsonDetails(buildJsonPath) : null;
+  const buildJsonDetails = buildJsonPath && !dryRun ? readTestflightBuildDetails({ buildJsonPath }) : null;
   const easBuildId = String(values['eas-build-id'] ?? '').trim() || String(buildJsonDetails?.easBuildId ?? '').trim();
   const artifactPath = String(buildJsonDetails?.artifactPath ?? '').trim();
   const easCliVersion =
@@ -519,10 +539,11 @@ async function main() {
     keyId: ascApiKeyId,
     privateKeyPem: normalizeAscPrivateKeyPem(privateKeyRaw),
   };
-  const request = (input) => ascRequest({
+  const rawRequest = (input) => ascRequest({
     ...input,
     token: createJwt(ascCredentials),
   });
+  const request = (input) => ascRequestWithReadRetry({ request: rawRequest, input });
   const groups = await resolveExternalGroups({ request, ascAppId, externalGroupNames: externalGroups });
   for (const group of groups) {
     const groupId = String(group?.id ?? '').trim();

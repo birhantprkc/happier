@@ -67,6 +67,7 @@ import { VoiceSurface } from '@/components/voice/surface/VoiceSurface';
 import { useDraft } from '@/hooks/session/useDraft';
 import {
     areSessionDraftCurrentnessCapturesEqual,
+    getSessionDraftSnapshot,
     type SessionDraftCurrentness,
 } from '@/sync/ops/sessionDrafts/sessionDraftRepository';
 import {
@@ -4454,9 +4455,12 @@ function SessionViewLoaded({
         liveArmedContinuationLocalId,
         liveArmedContinuationSubmission,
     ]);
-    const captureComposerSemanticDraftSnapshot = React.useCallback((): ComposerSemanticDraftSnapshot => (
-        readPendingMessageComposerSemanticDraftSnapshot(draftSnapshot?.document ?? null)
-    ), [draftSnapshot]);
+    const captureComposerSemanticDraftSnapshot = React.useCallback((): ComposerSemanticDraftSnapshot => {
+        if (!draftScope) return readPendingMessageComposerSemanticDraftSnapshot(null);
+        return readPendingMessageComposerSemanticDraftSnapshot(
+            getSessionDraftSnapshot(draftScope, { kind: 'session', sessionId })?.document ?? null,
+        );
+    }, [draftScope, sessionId]);
     const restoreSemanticDraftValuesFromSnapshot = React.useCallback((snapshot: ComposerSemanticDraftSnapshot) => {
         if (!draftScope) return;
         for (const [fieldId, value] of [

@@ -139,3 +139,44 @@ test('ui-mobile-release can validate TestFlight groups without starting a native
   assert.doesNotMatch(out, /scripts\/pipeline\/expo\/native-build\.mjs/);
   assert.doesNotMatch(out, /scripts\/pipeline\/expo\/submit\.mjs/);
 });
+
+test('ui-mobile-release can defer external TestFlight distribution after scheduling the exact build', (t) => {
+  const buildJsonPath = createBuildJsonPath(t);
+  const out = execFileSync(
+    process.execPath,
+    [
+      path.join(repoRoot, 'scripts', 'pipeline', 'run.mjs'),
+      'ui-mobile-release',
+      '--environment',
+      'dev',
+      '--action',
+      'native_submit',
+      '--platform',
+      'ios',
+      '--profile',
+      'dev',
+      '--build-json',
+      buildJsonPath,
+      '--testflight-distribution-mode',
+      'deferred',
+      '--dry-run',
+      '--secrets-source',
+      'env',
+    ],
+    {
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        EXPO_TOKEN: 'test-token',
+        APPLE_API_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\\nabc\\n-----END PRIVATE KEY-----\\n',
+        APP_STORE_CONNECT_PUBLICDEV_EXTERNAL_GROUPS: 'dev-group-id',
+      },
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 30_000,
+    },
+  );
+
+  assert.match(out, /TestFlight external distribution deferred/i);
+  assert.doesNotMatch(out, /scripts\/pipeline\/expo\/testflight-distribute\.mjs/);
+});
