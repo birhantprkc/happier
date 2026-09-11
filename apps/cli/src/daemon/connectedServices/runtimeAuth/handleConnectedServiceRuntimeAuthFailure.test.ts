@@ -502,6 +502,7 @@ describe('handleConnectedServiceRuntimeAuthFailure', () => {
         groupId: 'main',
         activeProfileId: 'primary',
         generation: 7,
+        runtimeStateRevision: 0,
         policy: { ...DEFAULT_CONNECTED_SERVICE_AUTH_GROUP_POLICY_V1, strategy: 'priority', autoSwitch: true },
         members: [{ profileId: 'primary', priority: 1, createdAtMs: 1, enabled: true }],
         memberStatesByProfileId: new Map([['primary', {
