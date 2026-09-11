@@ -2,7 +2,7 @@ import nodeTest from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, writeFile, chmod, readdir, stat, realpath, utimes } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
@@ -1980,6 +1980,7 @@ test('macos wsrepl lima matrix wrapper defaults host happier source to stack run
   const binDir = join(root, 'bin');
   const homeDir = join(root, 'home');
   const reportDir = join(root, 'reports');
+  const failedReportDir = join(root, 'reports-failed');
   const logDir = join(root, 'logs');
   const limaHome = join(homeDir, '.lima');
 
@@ -2102,7 +2103,11 @@ test('macos wsrepl lima matrix wrapper defaults host happier source to stack run
       'EOF',
       '    exit 0',
       '    ;;',
-      '  stop|start|list|info)',
+      '  start)',
+      '    if [[ "${WSREPL_QA_TEST_FAIL_VM_START:-0}" == "1" ]]; then exit 41; fi',
+      '    exit 0',
+      '    ;;',
+      '  stop|list|info)',
       '    exit 0',
       '    ;;',
       '  shell)',
@@ -2174,7 +2179,7 @@ test('macos wsrepl lima matrix wrapper defaults host happier source to stack run
     ...process.env,
     HOME: homeDir,
     LIMA_HOME: limaHome,
-    PATH: `${binDir}:${process.env.PATH ?? ''}`,
+    PATH: [binDir, '/usr/bin', '/bin', '/usr/sbin', '/sbin'].join(delimiter),
     WSREPL_QA_OUTPUT_DIR: reportDir,
     HAPPIER_QA_STACK_NAME: stackName,
     HAPPIER_QA_SESSION_ID: 'sess_default_source_1',
@@ -2184,6 +2189,13 @@ test('macos wsrepl lima matrix wrapper defaults host happier source to stack run
     WSREPL_QA_VM_HAPPIER_MODE: 'skip',
     WSREPL_QA_HOST_DIRECT_PEER_VM_CONNECTIVITY_CHECK: '0',
   };
+  delete env.HAPPIER_SERVER_URL;
+  delete env.HAPPIER_HOME_DIR;
+  delete env.HAPPIER_ACTIVE_SERVER_ID;
+  delete env.WSREPL_QA_HOST_HAPPIER_SOURCE;
+  delete env.WSREPL_QA_TEST_FAIL_VM_START;
+  delete env.WSREPL_QA_FORCE_VM_RECONFIGURE;
+  delete env.HSTACK_PROVISION_PROFILE;
 
   const res = spawnSync('bash', [scriptPath, 'happy-wsrepl'], {
     cwd: root,
@@ -2195,6 +2207,20 @@ test('macos wsrepl lima matrix wrapper defaults host happier source to stack run
 
   const resolved = JSON.parse(await readFile(join(reportDir, 'daemon', 'host.happier.resolve.json'), 'utf8'));
   assert.equal(resolved.hostHappierKind, 'stack_runtime');
+
+  const failed = spawnSync('bash', [scriptPath, 'happy-wsrepl'], {
+    cwd: root,
+    env: {
+      ...env,
+      WSREPL_QA_OUTPUT_DIR: failedReportDir,
+      WSREPL_QA_FORCE_VM_RECONFIGURE: '1',
+      WSREPL_QA_TEST_FAIL_VM_START: '1',
+    },
+    encoding: 'utf8',
+  });
+  assert.equal(failed.status, 41, `expected VM start failure to propagate\nstdout:\n${failed.stdout}\nstderr:\n${failed.stderr}`);
+  const failedSummary = JSON.parse(await readFile(join(failedReportDir, 'summary.json'), 'utf8'));
+  assert.equal(failedSummary.failureStage, 'ensure_vm');
 });
 
 test('macos wsrepl lima matrix watchdog probes daemon status using stack-scoped cli home', async () => {
