@@ -8,7 +8,11 @@ import { backoff, delayUnrefAbortable } from '@/utils/time';
 import { LruSet } from '@/utils/collections/lru';
 import { readNonBlankOpaqueIdentifier } from '@/utils/opaqueIdentifiers';
 import { createSerializedWorkQueueDiagnostics, type SerializedWorkDiagnosticContext } from '@/utils/serializedWorkQueueDiagnostics';
-import { isConditionalPendingSteerClaim, readPendingLocalId } from '@happier-dev/protocol';
+import {
+    isConditionalPendingSteerClaim,
+    readPendingLocalId,
+    redactBugReportSensitiveText,
+} from '@happier-dev/protocol';
 import { inferAgentIdFromSessionMetadata } from '@happier-dev/agents';
 import { configuration } from '@/configuration';
 import type { RawJSONLines } from '@/backends/claude/types';
@@ -488,6 +492,18 @@ export function classifySessionTransportErrorToProbeResult(
         statusCode,
         errorMessage: error instanceof Error ? error.message : 'Authentication failed',
     };
+}
+
+function logSessionConnectionState(state: ManagedConnectionState): void {
+    logger.infoFile('[API] Session socket connection state', {
+        phase: state.phase,
+        reason: state.reason,
+        attempt: state.attempt,
+        nextRetryAt: state.nextRetryAt,
+        lastErrorMessage: state.lastErrorMessage
+            ? redactBugReportSensitiveText(state.lastErrorMessage)
+            : null,
+    });
 }
 
 const SESSION_CONNECTION_STATE_EVENT = 'session-connection-state';
@@ -1312,6 +1328,7 @@ export class ApiSessionClient extends EventEmitter {
             }),
             onStateChange: (state) => {
                 this.currentConnectionState = state;
+                logSessionConnectionState(state);
                 this.emit(SESSION_CONNECTION_STATE_EVENT, state);
             },
             onConnected: async () => {
