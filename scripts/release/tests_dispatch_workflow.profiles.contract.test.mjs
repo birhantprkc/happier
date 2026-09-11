@@ -71,7 +71,7 @@ test('manual fast CI keeps core feedback and excludes release/deep certification
     assert.equal(flags[lane], 'true', `${lane} should remain in fast feedback`);
   }
   assert.equal(flags.run_build_smoke, 'false');
-  for (const lane of ['run_ui_e2e', 'run_e2e_core_slow', 'run_server_db_contract', 'run_release_contracts', 'run_installers_smoke', 'run_binary_smoke']) {
+  for (const lane of ['run_ui_e2e', 'run_e2e_core_slow', 'run_server_db_contract', 'run_release_contracts', 'run_installers_smoke', 'run_binary_smoke', 'run_cli_daemon_e2e']) {
     assert.equal(flags[lane], 'false', `${lane} should not block fast feedback`);
   }
 });

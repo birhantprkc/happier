@@ -2061,6 +2061,8 @@ jobs:
         run: yarn workspace @happier-dev/cli build
 
       - name: Run daemon integration suite (with light server)
+        env:
+          HAPPIER_CLI_DAEMON_SPAWN_STOP_STRESS_INTEGRATION: "1"
         run: |
           set -euo pipefail
 
@@ -2104,6 +2106,7 @@ jobs:
           node scripts/pipeline/run.mjs testing-create-auth-credentials
 
           yarn --cwd apps/cli -s vitest run --config vitest.integration.config.ts src/daemon/daemon.integration.test.ts
+          yarn --cwd apps/cli -s vitest run --config vitest.slow.config.ts src/daemon/daemon.spawnStop.stress.slow.test.ts
 
       - name: Dump server logs (on failure)
         if: failure()
