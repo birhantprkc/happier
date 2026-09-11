@@ -28,6 +28,7 @@ import type {
 import type { AgentMessage } from '@/agent/core';
 import { logger } from '@/ui/logger';
 import { filterJsonObjectOrArrayLine } from '@/agent/transport/utils/jsonStdoutFilter';
+import { classifyProviderOutputFailure } from '@/agent/runtime/classifyProviderOutputFailure';
 import {
   findToolNameFromId,
   findToolNameFromInputFields,
@@ -162,11 +163,7 @@ export class OpenCodeTransport implements TransportHandler {
     }
 
     // Authentication error - show actionable message.
-    if (
-      lower.includes('authentication') ||
-      lower.includes('unauthorized') ||
-      lower.includes('api key')
-    ) {
+    if (classifyProviderOutputFailure(trimmed).authenticationError) {
       const errorMessage: AgentMessage = {
         type: 'status',
         status: 'error',

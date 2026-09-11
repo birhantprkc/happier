@@ -11,6 +11,7 @@ import {
 } from '@happier-dev/protocol';
 
 import { classifyProviderLimitEvidence } from '@/daemon/connectedServices/quotas/normalization';
+import { classifyProviderOutputFailure } from '@/agent/runtime/classifyProviderOutputFailure';
 
 export type PrimarySessionRuntimeIssueCause =
   | 'status_error'
@@ -86,7 +87,7 @@ function refineStatusErrorSource(input: ClassifyPrimarySessionRuntimeIssueInput)
   if (/\btemporar(?:y|ily)\s+limiting\s+requests\b/u.test(text) && /\bnot\s+your\s+usage\s+limit\b/u.test(text)) {
     return 'provider_status_error';
   }
-  if (/\b(unauthorized|unauthenticated|authentication|auth|login required|not logged in|api key|401|403)\b/u.test(text)) {
+  if (classifyProviderOutputFailure(text).authenticationError) {
     return 'auth_error';
   }
   if (/\b(permission denied|permission blocked|blocked by policy|not allowed|access denied)\b/u.test(text)) {

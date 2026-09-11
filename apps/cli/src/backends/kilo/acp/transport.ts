@@ -22,6 +22,7 @@ import type { AgentMessage } from '@/agent/core';
 import { CHANGE_TITLE_TOOL_NAME_ALIASES } from '@happier-dev/protocol/tools/v2';
 import { logger } from '@/ui/logger';
 import { filterJsonObjectOrArrayLine } from '@/agent/transport/utils/jsonStdoutFilter';
+import { classifyProviderOutputFailure } from '@/agent/runtime/classifyProviderOutputFailure';
 import {
   findToolNameFromId,
   findToolNameFromInputFields,
@@ -83,12 +84,7 @@ export class KiloTransport implements TransportHandler {
       return { message: null };
     }
 
-    if (
-      trimmed.toLowerCase().includes('authentication') ||
-      trimmed.toLowerCase().includes('unauthorized') ||
-      trimmed.toLowerCase().includes('api key') ||
-      trimmed.includes('401')
-    ) {
+    if (classifyProviderOutputFailure(trimmed).authenticationError) {
       const errorMessage: AgentMessage = {
         type: 'status',
         status: 'error',

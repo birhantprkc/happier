@@ -6,6 +6,7 @@ import type {
   TransportHandler,
 } from '@/agent/transport/TransportHandler';
 import { filterJsonObjectOrArrayLine } from '@/agent/transport/utils/jsonStdoutFilter';
+import { classifyProviderOutputFailure } from '@/agent/runtime/classifyProviderOutputFailure';
 import type { AgentMessage } from '@/agent/core';
 import {
   findToolNameFromId,
@@ -80,12 +81,7 @@ export class KimiTransport implements TransportHandler {
     }
 
     // Authentication errors - surface an actionable message.
-    if (
-      trimmed.includes('401') ||
-      trimmed.toLowerCase().includes('invalid_authentication') ||
-      trimmed.toLowerCase().includes('unauthorized') ||
-      trimmed.toLowerCase().includes('api key')
-    ) {
+    if (classifyProviderOutputFailure(trimmed).authenticationError) {
       const message: AgentMessage = {
         type: 'status',
         status: 'error',
