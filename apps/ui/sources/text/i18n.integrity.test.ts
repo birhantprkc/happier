@@ -468,6 +468,8 @@ const IGNORED_UNTRANSLATED_KEYS_BY_LOCALE: Readonly<Record<string, ReadonlySet<s
     ca: new Set([
         'agentInput.suggestionGroups.sessions',
         'automations.form.schedule.manualTitle',
+        // "Errors" is the Catalan plural of "error", not an untranslated fallback.
+        'inbox.errors',
         'message.runtimeConfigOutcomeKeyModel',
         'session.agentActivity.screenTitle',
         'settingsSession.sessionList.headerIdentityDisplayAvatarTitle',

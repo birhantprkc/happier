@@ -6087,6 +6087,7 @@ export const zhHans: TranslationStructure = {
       customTitle: '选择日期和时间', customMessage: '输入本地日期和时间',
       customPlaceholder: '2026-09-08 09:00', futureTimeRequired: '请选择未来的时间。',
       dateLabel: '日期', timeLabel: '时间', addToPresets: '添加到预设',
+      datePlaceholder: '年-月-日', hourLabel: '时', minuteLabel: '分',
       setReminder: '设置提醒',
       remove: '移除提醒',
       presetPreviewUnavailable: '请选择有效的未来时间以预览预设。',

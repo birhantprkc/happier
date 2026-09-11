@@ -6550,6 +6550,7 @@ localTailscale: {
       customTitle: '日時を選択', customMessage: 'ローカルの日時を入力してください',
       customPlaceholder: '2026-09-08 09:00', futureTimeRequired: '未来の日時を選択してください。',
       dateLabel: '日付', timeLabel: '時刻', addToPresets: 'プリセットに追加',
+      datePlaceholder: '年-月-日', hourLabel: '時', minuteLabel: '分',
       setReminder: 'リマインダーを設定',
       remove: 'リマインダーを削除',
       presetPreviewUnavailable: '有効な未来の時刻を選ぶとプレビューできます。',

@@ -130,7 +130,7 @@ export function SessionReminderDateTimeModal(props: Readonly<{
                 <View style={{ flex: 1, gap: 7 }}>
                     <Text style={{ color: theme.colors.text.secondary, fontSize: 13 }}>{t('sessionsList.reminders.dateLabel')}</Text>
                     <View ref={dateAnchorRef} style={{ position: 'relative' }}>
-                        <TextInput testID="session-reminder-date-input" accessibilityLabel={t('sessionsList.reminders.dateLabel')} value={dateValue} onChangeText={setDateValue} placeholder="YYYY-MM-DD" style={fieldStyle} />
+                        <TextInput testID="session-reminder-date-input" accessibilityLabel={t('sessionsList.reminders.dateLabel')} value={dateValue} onChangeText={setDateValue} placeholder={t('sessionsList.reminders.datePlaceholder')} style={fieldStyle} />
                         <Pressable testID="session-reminder-date-picker-button" accessibilityRole="button" accessibilityLabel={t('sessionsList.reminders.dateLabel')} hitSlop={8} onPress={() => openPicker('date')} style={({ pressed }) => ({ position: 'absolute', right: 4, top: 4, bottom: 4, width: 40, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.55 : 1 })}>
                             <Icon name="calendar" size={18} color={theme.colors.text.secondary} />
                         </Pressable>

@@ -5929,6 +5929,7 @@ export const de: TranslationStructure = {
             customTitle: 'Datum und Uhrzeit wählen', customMessage: 'Lokales Datum und Uhrzeit eingeben',
             customPlaceholder: '2026-09-08 09:00', futureTimeRequired: 'Wähle einen Zeitpunkt in der Zukunft.',
             dateLabel: 'Datum', timeLabel: 'Uhrzeit', addToPresets: 'Zu Vorlagen hinzufügen',
+            datePlaceholder: 'JJJJ-MM-TT', hourLabel: 'Std.', minuteLabel: 'Min.',
             setReminder: 'Erinnerung festlegen',
             remove: 'Erinnerung entfernen',
             presetPreviewUnavailable: 'Wähle eine gültige zukünftige Zeit für die Vorschau.',

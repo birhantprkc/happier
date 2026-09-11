@@ -506,6 +506,8 @@ describe('InboxView session attention', () => {
         tree = (await renderScreen(<InboxView />)).tree;
 
         const items = tree!.findAllByType('Item');
+        const groups = tree!.findAllByType('ItemGroup');
+        expect(groups.some((group) => group.props.title === 'inbox.errors')).toBe(true);
         expect(items.some((item) => item.props.title === 'Unread session')).toBe(true);
         expect(items.some((item) => item.props.title === 'Shared session')).toBe(false);
 

@@ -6290,6 +6290,7 @@ export const es: TranslationStructure = {
       customTitle: 'Elegir fecha y hora', customMessage: 'Introduce una fecha y hora locales',
       customPlaceholder: '2026-09-08 09:00', futureTimeRequired: 'Elige una hora futura.',
       dateLabel: 'Fecha', timeLabel: 'Hora', addToPresets: 'Añadir a preajustes',
+      datePlaceholder: 'AAAA-MM-DD', hourLabel: 'h', minuteLabel: 'min',
       setReminder: 'Establecer recordatorio',
       remove: 'Eliminar recordatorio',
       presetPreviewUnavailable: 'Elige una hora futura válida para previsualizar el preajuste.',

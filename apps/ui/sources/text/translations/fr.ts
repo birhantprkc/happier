@@ -5916,6 +5916,7 @@ export const fr: TranslationStructure = {
             customTitle: 'Choisir la date et l’heure', customMessage: 'Saisis une date et une heure locales',
             customPlaceholder: '2026-09-08 09:00', futureTimeRequired: 'Choisis une heure future.',
             dateLabel: 'Date', timeLabel: 'Heure', addToPresets: 'Ajouter aux préréglages',
+            datePlaceholder: 'AAAA-MM-JJ', hourLabel: 'h', minuteLabel: 'min',
             setReminder: 'Définir le rappel',
             remove: 'Supprimer le rappel',
             presetPreviewUnavailable: 'Choisis une heure future valide pour prévisualiser le préréglage.',

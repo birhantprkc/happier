@@ -231,6 +231,19 @@ export function installSessionShellCommonModuleMocks(
         return createUnistylesMock();
     });
 
+    vi.mock('@/constants/Typography', async (importOriginal) => {
+        const original = await importOriginal<typeof import('@/constants/Typography')>();
+        return {
+            ...original,
+            Typography: new Proxy(original.Typography, {
+                get: (target, property, receiver) => {
+                    const value = Reflect.get(target, property, receiver);
+                    return typeof value === 'function' ? () => ({}) : value;
+                },
+            }),
+        };
+    });
+
     vi.mock('@/text', async () => {
         const activeOptions = sessionShellModuleState.options;
         if (activeOptions.text) {

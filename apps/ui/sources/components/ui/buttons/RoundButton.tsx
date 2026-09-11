@@ -9,6 +9,19 @@ import { ActivitySpinner } from '@/components/ui/feedback/ActivitySpinner';
 
 
 export type RoundButtonSize = 'large' | 'normal' | 'small';
+const RoundButtonSizeContext = React.createContext<RoundButtonSize | undefined>(undefined);
+
+export function RoundButtonSizeScope(props: Readonly<{
+    size: RoundButtonSize;
+    children: React.ReactNode;
+}>) {
+    return (
+        <RoundButtonSizeContext.Provider value={props.size}>
+            {props.children}
+        </RoundButtonSizeContext.Provider>
+    );
+}
+
 const sizes: { [key in RoundButtonSize]: { fontSize: number, hitSlop: number, pad: number } } = {
     large: { fontSize: 21, hitSlop: 0, pad: Platform.OS == 'ios' ? 0 : -1 },
     normal: { fontSize: 16, hitSlop: 8, pad: Platform.OS == 'ios' ? 1 : -2 },
@@ -97,6 +110,7 @@ export const RoundButton = React.memo((props: {
     action?: () => Promise<any>
 }) => {
     const { theme } = useUnistyles();
+    const scopedSize = React.useContext(RoundButtonSizeContext);
     const styles = stylesheet;
     const [loading, setLoading] = React.useState(false);
     const doLoading = props.loading !== undefined ? props.loading : loading;
@@ -135,7 +149,7 @@ export const RoundButton = React.memo((props: {
         }
     }
 
-    const size = sizes[props.size || 'large'];
+    const size = sizes[props.size ?? scopedSize ?? 'large'];
     const display = displays[props.display || 'default'];
 
     return (

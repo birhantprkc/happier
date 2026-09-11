@@ -6408,6 +6408,7 @@ export const pt: TranslationStructure = {
       customTitle: 'Escolher data e hora', customMessage: 'Introduz uma data e hora locais',
       customPlaceholder: '2026-09-08 09:00', futureTimeRequired: 'Escolhe uma hora futura.',
       dateLabel: 'Data', timeLabel: 'Hora', addToPresets: 'Adicionar às predefinições',
+      datePlaceholder: 'AAAA-MM-DD', hourLabel: 'h', minuteLabel: 'min',
       setReminder: 'Definir lembrete',
       remove: 'Remover lembrete',
       presetPreviewUnavailable: 'Escolhe uma hora futura válida para pré-visualizar.',

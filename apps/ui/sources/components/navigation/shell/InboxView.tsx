@@ -247,7 +247,7 @@ export const InboxView = React.memo(({}: InboxViewProps) => {
                 )}
 
                 {unreadSessions.length > 0 && (
-                    <ItemGroup title={t('inbox.unreadSessions')}>
+                    <ItemGroup title={t('inbox.errors')}>
                         {unreadSessions.map((session) => (
                             <Item
                                 key={session.id}

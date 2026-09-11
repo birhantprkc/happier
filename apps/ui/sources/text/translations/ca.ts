@@ -5930,6 +5930,7 @@ deps: {
             customTitle: 'Tria data i hora', customMessage: 'Introdueix una data i hora locals',
             customPlaceholder: '2026-09-08 09:00', futureTimeRequired: 'Tria una hora futura.',
             dateLabel: 'Data', timeLabel: 'Hora', addToPresets: 'Afegeix als predefinits',
+            datePlaceholder: 'AAAA-MM-DD', hourLabel: 'h', minuteLabel: 'min',
             setReminder: 'Defineix el recordatori',
             remove: 'Elimina el recordatori',
             presetPreviewUnavailable: 'Tria una hora futura vàlida per previsualitzar el predefinit.',

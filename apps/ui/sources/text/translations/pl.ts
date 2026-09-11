@@ -6307,6 +6307,7 @@ export const pl: TranslationStructure = {
       customTitle: 'Wybierz datę i godzinę', customMessage: 'Wpisz lokalną datę i godzinę',
       customPlaceholder: '2026-09-08 09:00', futureTimeRequired: 'Wybierz czas w przyszłości.',
       dateLabel: 'Data', timeLabel: 'Godzina', addToPresets: 'Dodaj do ustawień',
+      datePlaceholder: 'RRRR-MM-DD', hourLabel: 'godz.', minuteLabel: 'min',
       setReminder: 'Ustaw przypomnienie',
       remove: 'Usuń przypomnienie',
       presetPreviewUnavailable: 'Wybierz prawidłowy przyszły czas, aby zobaczyć podgląd.',

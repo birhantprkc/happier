@@ -334,13 +334,6 @@ vi.mock('react-native-worklets', () => ({
     scheduleOnRN: (fn: (...args: any[]) => void, ...args: any[]) => fn(...args),
 }));
 
-vi.mock('@/constants/Typography', async (importOriginal) => ({
-    ...(await importOriginal<typeof import('@/constants/Typography')>()),
-    Typography: new Proxy({} as Record<string, () => Record<string, never>>, {
-        get: () => () => ({}),
-    }),
-}));
-
 vi.mock('@/components/ui/icons/Icon', () => ({
     Icon: 'Icon',
     ICON_SIZE: { xs: 14, sm: 16, md: 20, lg: 24, xl: 29 },

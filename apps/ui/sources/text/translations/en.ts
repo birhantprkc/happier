@@ -5944,6 +5944,7 @@ export const en = {
             customPlaceholder: '2026-09-08 09:00',
             futureTimeRequired: 'Choose a time in the future.',
             dateLabel: 'Date', timeLabel: 'Time', addToPresets: 'Add to presets',
+            datePlaceholder: 'YYYY-MM-DD', hourLabel: 'HH', minuteLabel: 'MM',
             setReminder: 'Set reminder',
             remove: 'Remove reminder',
             presetPreviewUnavailable: 'Choose a valid future time to preview the preset.',

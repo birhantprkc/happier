@@ -100,7 +100,7 @@ function CalendarPicker(props: SessionReminderPickerProps) {
     </View>;
 }
 
-function TimeColumn(props: Readonly<{ label: string; values: readonly number[]; selected: number; accentColor: string; onSelect: (value: number) => void }>) {
+function TimeColumn(props: Readonly<{ id: 'hh' | 'mm'; label: string; values: readonly number[]; selected: number; accentColor: string; onSelect: (value: number) => void }>) {
     const { theme } = useUnistyles();
     const scrollRef = React.useRef<React.ElementRef<typeof ScrollView> | null>(null);
     React.useEffect(() => {
@@ -113,7 +113,7 @@ function TimeColumn(props: Readonly<{ label: string; values: readonly number[]; 
                 const selected = value === props.selected;
                 return <Pressable
                     key={value}
-                    testID={`session-reminder-time-${props.label.toLowerCase()}-${value}`}
+                    testID={`session-reminder-time-${props.id}-${value}`}
                     accessibilityRole="button"
                     accessibilityState={{ selected }}
                     onPress={() => props.onSelect(value)}
@@ -133,8 +133,8 @@ function TimePicker(props: SessionReminderPickerProps) {
     return <View testID="session-reminder-time-picker" style={styles.timePicker}>
         <PickerHeader title={new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(props.value)} />
         <View style={styles.timeColumns}>
-            <TimeColumn label="HH" values={Array.from({ length: 24 }, (_, value) => value)} selected={selectedHour} accentColor={props.accentColor} onSelect={(hour) => props.onChange(withTimePart(props.value, hour, selectedMinute))} />
-            <TimeColumn label="MM" values={Array.from({ length: 60 }, (_, value) => value)} selected={selectedMinute} accentColor={props.accentColor} onSelect={(minute) => props.onChange(withTimePart(props.value, selectedHour, minute))} />
+            <TimeColumn id="hh" label={t('sessionsList.reminders.hourLabel')} values={Array.from({ length: 24 }, (_, value) => value)} selected={selectedHour} accentColor={props.accentColor} onSelect={(hour) => props.onChange(withTimePart(props.value, hour, selectedMinute))} />
+            <TimeColumn id="mm" label={t('sessionsList.reminders.minuteLabel')} values={Array.from({ length: 60 }, (_, value) => value)} selected={selectedMinute} accentColor={props.accentColor} onSelect={(minute) => props.onChange(withTimePart(props.value, selectedHour, minute))} />
         </View>
         <View style={styles.timeFooter}><RoundButton size="small" title={t('common.done')} onPress={props.onDismiss} /></View>
     </View>;

@@ -5268,6 +5268,7 @@ export const ru: TranslationStructure = {
       customTitle: 'Выбрать дату и время', customMessage: 'Введите местные дату и время',
       customPlaceholder: '2026-09-08 09:00', futureTimeRequired: 'Выберите время в будущем.',
       dateLabel: 'Дата', timeLabel: 'Время', addToPresets: 'Добавить в шаблоны',
+      datePlaceholder: 'ГГГГ-ММ-ДД', hourLabel: 'ч', minuteLabel: 'мин',
       setReminder: 'Установить напоминание',
       remove: 'Удалить напоминание',
       presetPreviewUnavailable: 'Выберите корректное время в будущем для предпросмотра.',
