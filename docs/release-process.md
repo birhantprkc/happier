@@ -108,20 +108,29 @@ the transport with `yarn ghops auth status` and confirm repository identity with
 real paths and exact Git SHAs—similarly named host and VM checkouts are not
 interchangeable.
 
-On the Mac host, resolve the existing conductor in this order: `hmaint` on
-`PATH`, then the configured maintainer-tools checkout's `bin/hmaint` wrapper.
-Prove that wrapper with `hmaint --help`; there is intentionally no required
-`hmaint --version` command. Do not invoke the maintainer CLI's internal
-JavaScript entry point or install a second conductor inside the VM. From the
-managed Linux VM, route that same Mac wrapper with the 0.3 Stack launcher:
+On the Mac host, use
+`/Users/leeroy/Documents/Development/happier/maintainers-tools/bin/hmaint`
+directly and prove that exact wrapper with
+`/Users/leeroy/Documents/Development/happier/maintainers-tools/bin/hmaint --help`;
+there is intentionally no required `hmaint --version` command. Do not resolve a
+different copy from `PATH`, invoke the maintainer CLI's internal JavaScript
+entry point, or install a second conductor inside the VM. This 0.2 checkout
+does not contain `hstack-exec`. From the managed Linux VM, invoke an existing
+configured 0.3 checkout's launcher from the intended repository-relative
+working directory; the launcher projects that directory remotely and does not
+accept a launcher-level `--cwd` option:
 
 ```bash
-apps/stack/bin/hstack-exec --target=mac-host --cwd=<repo-relative-dir> -- \
-  hmaint release bootstrap --repo <macOS-mounted-absolute-checkout> --json
+cd <absolute-0.3-checkout>
+./apps/stack/bin/hstack-exec --target=mac-host -- \
+  /Users/leeroy/Documents/Development/happier/maintainers-tools/bin/hmaint release bootstrap \
+  --repo <macOS-mounted-absolute-checkout> --json
 ```
 
-Always use the absolute checkout path returned by the actual execution host;
-do not translate it from a similarly named host or VM path by inspection.
+Always use the absolute checkout path returned by the actual execution host.
+If the launcher, configured `mac-host`, Mac wrapper, or Mac-visible target path
+cannot be proved, fail closed; do not translate paths by inspection or fall back
+to a VM-local conductor.
 
 Before changelog/version materialization, the release agent runs
 `node scripts/pipeline/run.mjs release-analyze ...` over the actual source
@@ -219,6 +228,12 @@ Issue availability is tracked by the mutually exclusive `stage:source`, `stage:d
 
 Deploy branches typically include `deploy/<env>/ui`, `deploy/<env>/server`, `deploy/<env>/website`, and `deploy/<env>/docs` (depending on what changed and which options you select).
 
+`website` and `docs` are independent release targets. Either may be selected
+without the other, and each has its own change decision, deploy job, status
+surface, and recovery evidence. The combined preview-and-production mode
+combines channels; it forwards the selected target set to both channels and
+does not couple website and docs publication.
+
 ### Release authority and binary integrity
 
 The default privileged conductor dispatches the hosted workflow, but the
@@ -256,28 +271,11 @@ exists. Poll long builds, notarization, store submission, and publication every
 5–20 minutes and use step-level progress plus the owning timeout; duration alone
 is not failure evidence.
 
-For a corrected non-secret Linux lane, use the existing manual test dispatcher
-instead of copying the CI workflow. The default is GitHub-hosted runners:
-
-```bash
-gh workflow run tests-dispatch.yml \
-  --repo happier-dev/happier \
-  --ref dev \
-  -f profile=custom \
-  -f runner_pool=github \
-  -f custom_checks=release_contracts \
-  -f installers_channel=stable \
-  -f providers_preset=all \
-  -f providers_tier=smoke
-```
-
-This is fast diagnostic evidence at the corrected SHA; it does not replace the
-final canonical exact-SHA CI required by release policy.
-
-Blacksmith is only an explicitly approved, budget-checked accelerator for the
-same non-secret Linux graph. It has no automatic fallback. Do not select a
-Blacksmith pool while its included credits are exhausted; dispatch with
-`runner_pool=github` instead.
+For a corrected non-secret Linux lane, follow the exact manual-dispatch,
+exact-SHA binding, runner-pool, and failed-job rerun recipes in
+`.agents/skills/happier-ci-stabilize/SKILL.md`. Focused dispatch remains
+diagnostic evidence and does not replace the final canonical exact-SHA CI
+required by release policy.
 
 ### npm trusted-publishing identity
 

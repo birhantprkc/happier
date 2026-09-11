@@ -60,7 +60,7 @@ Before treating a local timeout as product evidence, check whether the developme
 ## Workflow simplification
 
 - Keep one canonical command per lane and let local/manual/automatic workflows call it.
-- Keep runner-pool selection as an input to the reusable workflow. GitHub-hosted runners are the default. Blacksmith is a manual accelerator only with explicit current approval and confirmed included budget for eligible non-secret Linux lanes, not a fork of CI; it has no automatic fallback, and the same job graph and commands must continue to work on GitHub-hosted runners.
+- Keep runner-pool selection as an input to the reusable workflow. GitHub-hosted runners are the default. Blacksmith is a manual accelerator only with explicit current approval and confirmed included budget for eligible non-secret Linux lanes, not a fork of CI; it has no automatic fallback. If it is unavailable or exhausted, make a new otherwise-identical `tests-dispatch.yml` run with `runner_pool=github`. The same job graph and commands must continue to work on GitHub-hosted runners.
 - Use matrices only for real platform/configuration differences.
 - Size a shard matrix from the canonical test inventory and recent elapsed-time evidence. Verify every configured shard is non-empty with the runner's list mode, and remove empty shards rather than paying a full checkout/install/browser setup for no coverage. More shards are not automatically faster when runner capacity is lower than the matrix or when the framework partitions by test count instead of measured duration.
 - Keep result aggregators tiny and free of dependency installation.

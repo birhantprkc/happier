@@ -18,6 +18,11 @@ production: channel-specific binaries embed different feature-policy
 environments. The fast path removes duplicate orchestration and operator wait,
 not required channel-specific builds or artifact verification.
 
+Channel combination does not combine product targets. `website` and `docs` are
+independent entries in the target-owned release target set: either may be
+selected without the other, and each retains its own plan, job, status surface,
+and recovery evidence in both single-channel and combined operations.
+
 ## Resolve authority first
 
 Inspect the public machine-readable contract with:
@@ -40,8 +45,8 @@ Do not publish from a dirty or protocol-incompatible maintainer-tools checkout. 
 
 First establish the actual execution host (`uname -s`, `pwd -P`) and the absolute source checkout. A path under a mounted VM workspace does not by itself mean the agent process is running inside Linux.
 
-- On the configured macOS host, run the provisioned `hmaint` executable directly so it can use the Mac Keychain and native signing/release prerequisites. Resolve `hmaint` on `PATH` first; otherwise use the configured maintainer-tools checkout's `bin/hmaint` wrapper. Prove the wrapper with `hmaint --help` (there is no required `hmaint --version` command). Do not scan unrelated home directories, invoke the maintainer CLI's internal JavaScript entry point, install another copy, or guess a checkout.
-- From the managed Linux development VM, keep repository work in the authoritative VM checkout and use the Stack execution-host/broker path for Mac-only authority. Where an exact Mac command is required, use the 0.3 launcher form `apps/stack/bin/hstack-exec --target=<configured-mac-target> --cwd=<repo-relative-dir> -- <command> ...`; use the configured target name (normally `mac-host`) and never copy Keychain secrets into the VM.
+- On the configured macOS host, run `/Users/leeroy/Documents/Development/happier/maintainers-tools/bin/hmaint` directly so it can use the Mac Keychain and native signing/release prerequisites. Prove that exact wrapper with `/Users/leeroy/Documents/Development/happier/maintainers-tools/bin/hmaint --help` (there is no required `hmaint --version` command). Do not scan unrelated home directories, resolve a different copy from `PATH`, invoke the maintainer CLI's internal JavaScript entry point, install another copy, or guess a checkout.
+- From the managed Linux development VM, keep repository work in the authoritative VM checkout and use the Stack execution-host/broker path for Mac-only authority. This 0.2 checkout does not own the launcher; use an existing configured 0.3 checkout's `apps/stack/bin/hstack-exec --target=mac-host -- <command> ...` from the intended repository-relative working directory. The current launcher projects that invocation directory remotely and has no launcher-level `--cwd` option. If the 0.3 launcher, configured `mac-host` target, Mac wrapper, or Mac-visible target checkout cannot be proved, fail closed. Never copy Keychain secrets into the VM or substitute a VM-local conductor.
 - `yarn ghops auth status` is the safe credential-path probe. In a managed Linux workspace it should report the Mac-host credential broker; it must not print the token. Failure of direct Keychain access from one process does not authorize falling back to a personal `gh` login.
 
 Before porting or releasing, resolve and compare real paths, repository roots, branch/commit bases, and dirty state. Host checkouts and VM-mounted siblings with similar names may be distinct repositories; never assume that changes written to one are visible in the other.

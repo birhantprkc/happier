@@ -39,6 +39,35 @@ Do not enqueue the entire graph after every correction. After one complete failu
 
 A GitHub native failed-job rerun is for the same SHA after a safe transient failure. It cannot validate code that exists only in a newer SHA. A custom dispatch on a corrected SHA is fast diagnostic evidence; it does not replace the final exact-SHA profile required by release policy.
 
+Use this exact 0.2 manual-dispatch shape for a focused hosted diagnostic, replacing only the check list and optional UI E2E spec list with values accepted by the current workflow:
+
+```bash
+gh workflow run tests-dispatch.yml \
+  --repo happier-dev/happier \
+  --ref dev \
+  -f profile=custom \
+  -f runner_pool=github \
+  -f custom_checks=release_contracts \
+  -f installers_channel=stable \
+  -f providers_preset=all \
+  -f providers_tier=smoke
+```
+
+`--ref` selects the workflow ref, not an arbitrary checkout SHA. Immediately bind the created run ID and prove its `headSha` equals the intended 40-character commit before using the run as exact-SHA evidence:
+
+```bash
+gh run view <run-id> --repo happier-dev/happier \
+  --json databaseId,attempt,event,headBranch,headSha,status,conclusion,workflowName,url
+```
+
+For a same-workflow-SHA safe transient, retain successful jobs and rerun only failures and their dependents:
+
+```bash
+gh run rerun <run-id> --repo happier-dev/happier --failed
+```
+
+Blacksmith never fails over automatically. If an explicitly approved Blacksmith run is unavailable or exhausted, start a new manual dispatch with the same profile/check/spec inputs and `runner_pool=github`; do not claim that the original run migrated pools. Blacksmith is never the pool for macOS, Windows, self-hosted, secret-bearing, or release-mutation jobs.
+
 ## Keep source CI and release admission separate
 
 - Source CI proves code correctness once for an exact SHA and emits or identifies explicit exact-SHA evidence.
