@@ -60,6 +60,7 @@ import { claudeUnifiedTerminalLauncher } from './claudeUnifiedTerminalLauncher';
 import { ClaudeUnifiedTerminalManagedSettingsOptionError } from './buildClaudeUnifiedTerminalSpawn';
 import { ClaudeUnifiedTerminalReadinessTimeoutError } from './createClaudeUnifiedTerminalReadinessBridge';
 import { createFakeControlPort } from './tuiControls/fakeControlPort';
+import { resolveClaudeUnifiedVisibleDialog } from './tuiControls/dialogRegistry';
 import { parseClaudeScreenState } from './tuiControls/screenState';
 import { PendingQueueMaterializationAuthError } from '@/agent/runtime/sessionInput/SessionProviderInputConsumer';
 
@@ -94,6 +95,13 @@ const EFFORT_CHANGE_DIALOG_HIGH = [
   '',
   '❯ 1. Yes, switch to high',
   '  2. No, go back',
+].join('\n');
+
+const TRUST_FOLDER_DIALOG = [
+  'Do you trust the files in this folder?',
+  '',
+  '  1. Yes, proceed',
+  '❯ 2. No, exit',
 ].join('\n');
 
 const USAGE_LIMIT_DIALOG = readFileSync(
@@ -1469,6 +1477,72 @@ describe('claudeUnifiedTerminalLauncher', () => {
         permissionMode: 'default',
         claudeUnifiedTerminalHost: 'auto',
       },
+    });
+  });
+
+  it('releases a provisional continuation barrier and blocks its pending row when startup waits for trust', async () => {
+    setProcessTty(false);
+    const session = createSession();
+    session.claudeArgs = ['--continue'];
+    const mode = {
+      permissionMode: 'default',
+      claudeUnifiedTerminalEnabled: true,
+      claudeUnifiedTerminalHost: 'tmux',
+    } as const;
+    vi.mocked(session.queue.size).mockReturnValueOnce(1).mockReturnValue(0);
+    vi.mocked(session.queue.waitForMessagesAndGetAsString).mockResolvedValueOnce({
+      message: 'queued behind startup trust',
+      mode,
+      isolate: false,
+      hash: 'unified-mode',
+      maxUserMessageSeq: 373,
+      userMessageLocalIds: ['issue-373-row'],
+    });
+    vi.mocked(session.client.blockPendingMessageDelivery!).mockResolvedValueOnce(true);
+    mocks.runClaudeUnifiedTerminalSession.mockImplementationOnce(async (opts: {
+      nextMessage: () => Promise<unknown>;
+      onProviderLaunchStarting?: () => void | Promise<void>;
+      dialogChoiceBroker: {
+        noteTerminalAnswerFailed: (dialog: NonNullable<ReturnType<typeof resolveClaudeUnifiedVisibleDialog>>) => void;
+      };
+      createStartupDialogResolver?: (input: {
+        controlPort: ReturnType<typeof createFakeControlPort>;
+        startupMode: EnhancedMode;
+      }) => ((input: {
+        screenState: ReturnType<typeof parseClaudeScreenState>;
+        observedAtMs: number;
+        abortSignal: AbortSignal;
+      }) => Promise<{ status: string }>);
+    }) => {
+      await opts.nextMessage();
+      await opts.onProviderLaunchStarting?.();
+      const screenState = parseClaudeScreenState(TRUST_FOLDER_DIALOG);
+      const dialog = resolveClaudeUnifiedVisibleDialog(screenState);
+      expect(dialog?.dialogId).toBe('trust_folder');
+      if (!dialog) throw new Error('expected trust-folder dialog fixture to be recognized');
+      opts.dialogChoiceBroker.noteTerminalAnswerFailed(dialog);
+      const resolver = opts.createStartupDialogResolver?.({
+        controlPort: createFakeControlPort({ captures: [TRUST_FOLDER_DIALOG] }),
+        startupMode: mode,
+      });
+      await expect(resolver?.({
+        screenState,
+        observedAtMs: 1,
+        abortSignal: new AbortController().signal,
+      })).resolves.toEqual({ status: 'waiting_for_user' });
+    });
+
+    await claudeUnifiedTerminalLauncher(session, {
+      initialMode: {
+        permissionMode: 'default',
+        claudeUnifiedTerminalHost: 'tmux',
+      },
+    });
+
+    expect(session.client.sessionTurnLifecycle?.cancelTurn).toHaveBeenCalledWith({ provider: 'claude' });
+    expect(session.client.blockPendingMessageDelivery).toHaveBeenCalledWith({
+      localIds: ['issue-373-row'],
+      reason: 'runtime_config_blocked',
     });
   });
 

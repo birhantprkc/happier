@@ -78,6 +78,7 @@ import { createClaudeUnifiedProviderInputOutcomeBridge } from './claudeUnifiedPr
 import { createClaudeUnifiedTerminalSharedCallbacks } from './createClaudeUnifiedTerminalSharedCallbacks';
 import { createProviderPromptAcceptanceSettlement } from '@/agent/runtime/prompt/createProviderPromptAcceptanceSettlement';
 import { resolveClaudeQueuedPromptForDispatch } from '../runtime/resolveClaudeQueuedPromptForDispatch';
+import { resolveClaudeUnifiedDialogBlockedReason } from './tuiControls/dialogRegistry';
 
 function shouldForegroundAttachTerminal(): boolean {
   return process.stdin.isTTY === true && process.stdout.isTTY === true;
@@ -886,6 +887,21 @@ export async function claudeUnifiedTerminalLauncher(
         applyUnifiedTerminalMetadataMode = apply;
       },
       flushPendingMetadataMode: () => applyUnifiedTerminalPermissionMetadata.flushPending(),
+      onStartupDialogWaitingForUser: async (screenState) => {
+        const blockedReason = resolveClaudeUnifiedDialogBlockedReason(screenState);
+        if (!blockedReason) return;
+        const releasedResumeBarrier = await binding.recordProviderStartupBlocked();
+        if (!releasedResumeBarrier) return;
+        await sustainedPendingDeliveryBlockHandler.blockForSustainedBlocker({
+          localIds: lastStartupBatchUserMessageLocalIds,
+          blocker: {
+            kind: 'terminal_busy',
+            source: 'readiness',
+            detail: blockedReason,
+          },
+          isCanonicalTurnActive: false,
+        });
+      },
       logPrefix: '[unified]',
       logDebug: (message, error) => logger.debug(message, error),
     });
