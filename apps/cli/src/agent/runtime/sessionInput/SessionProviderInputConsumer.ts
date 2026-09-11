@@ -174,7 +174,7 @@ function logInputConsumerMaterializationDecision(opts: {
   activeTurnSteerability: PendingForegroundSteerability | undefined;
   result: PendingMaterializationResult;
 }): void {
-  logger.debug('[pendingQueue] input consumer materialization decision', {
+  logger.infoFile('[pendingQueue] input consumer materialization decision', {
     source: opts.source,
     reconcileWhenEmpty: opts.reconcileWhenEmpty,
     activeTurnSteerability: opts.activeTurnSteerability ?? 'unsteerable',
