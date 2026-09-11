@@ -15,8 +15,8 @@ function isInstallablePayload(name) {
 }
 
 /**
- * Rolling stable and preview releases retain signed metadata and publish installable
- * payloads only under predictable channel-stable names.
+ * Rolling stable and preview releases retain every immutable asset and add predictable
+ * channel-stable aliases for installable payloads.
  * Signed manifests, signatures, checksum sidecars, and updater metadata remain canonical
  * under their immutable names because renaming them would make their contents misleading.
  * The caller must upload each alias from sourceName and audit the two byte-for-byte.
@@ -29,17 +29,13 @@ function isInstallablePayload(name) {
  * }} params
  */
 export function buildRollingAssetPlan({ immutableNames, payloadNames, version, rollingTag }) {
+  const plan = immutableNames.map((name) => ({ name, sourceName: name }));
   if (!rollingTag.endsWith('-stable') && !rollingTag.endsWith('-preview')) {
-    return immutableNames.map((name) => ({ name, sourceName: name }));
+    return plan;
   }
 
-  const payloadNameSet = new Set(payloadNames);
-  const plan = immutableNames
-    .filter((name) => !payloadNameSet.has(name) || !isInstallablePayload(name))
-    .map((name) => ({ name, sourceName: name }));
-
   const versionToken = `-v${version}`;
-  const occupied = new Set(plan.map(({ name }) => name));
+  const occupied = new Set(immutableNames);
   for (const sourceName of payloadNames) {
     if (!isInstallablePayload(sourceName)) continue;
     let name = sourceName;
@@ -54,6 +50,7 @@ export function buildRollingAssetPlan({ immutableNames, payloadNames, version, r
         name = `${sourceName.slice(0, first)}${sourceName.slice(first + versionToken.length)}`;
       }
     }
+    if (name === sourceName) continue;
     if (!name || basename(name) !== name || name === '.' || name === '..') {
       fail(`Unable to derive a safe stable asset name from ${sourceName}.`);
     }

@@ -13,7 +13,7 @@ const products = [
 ];
 
 for (const [label, versionedName, stableName] of products) {
-  test(`rolling ${label} publishes only the versionless channel payload`, () => {
+  test(`rolling ${label} keeps the immutable payload name and adds the versionless channel alias`, () => {
     const checksumsName = `checksums-product-v${version}.txt`;
     const metadataName = 'latest.json';
     const plan = buildRollingAssetPlan({
@@ -23,9 +23,13 @@ for (const [label, versionedName, stableName] of products) {
       rollingTag: 'product-preview',
     });
 
-    assert.deepEqual(plan.filter((entry) => entry.sourceName === versionedName), [
-      { name: stableName, sourceName: versionedName },
-    ]);
+    assert.deepEqual(
+      plan.filter((entry) => entry.sourceName === versionedName).sort((left, right) => left.name.localeCompare(right.name)),
+      [
+        { name: stableName, sourceName: versionedName },
+        { name: versionedName, sourceName: versionedName },
+      ].sort((left, right) => left.name.localeCompare(right.name)),
+    );
     assert.equal(plan.some((entry) => entry.name === 'checksums-product.txt'), false);
     assert.equal(plan.filter((entry) => entry.name === metadataName).length, 1);
   });
@@ -69,7 +73,7 @@ test('rolling alias derivation fails closed on a filename collision', () => {
   }), /collides/i);
 });
 
-test('stable mobile APK publishes only the channel-neutral public name', () => {
+test('stable mobile APK keeps the immutable name and adds the channel-neutral public alias', () => {
   const versionedName = `happier-production-android-v${version}.apk`;
   const plan = buildRollingAssetPlan({
     immutableNames: [versionedName],
@@ -80,7 +84,8 @@ test('stable mobile APK publishes only the channel-neutral public name', () => {
 
   assert.deepEqual(plan, [
     { name: 'happier-android.apk', sourceName: versionedName },
-  ]);
+    { name: versionedName, sourceName: versionedName },
+  ].sort((left, right) => left.name.localeCompare(right.name)));
 });
 
 test('preview mobile APK keeps its single versionless channel name', () => {
