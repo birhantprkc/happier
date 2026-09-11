@@ -89,7 +89,6 @@ export function useSessionRowActionMenu(params: Readonly<{
     isNativeMobile: boolean;
     setContextMenuOpen: (open: boolean) => void;
     openTagsMenuFromContext: () => void;
-    deferredContextActionDelayMs: number;
 }>): SessionRowActionMenuState {
     const target = params.target;
     const tagMenuItems = React.useMemo((): DropdownMenuItem[] => {
@@ -375,13 +374,6 @@ export function useSessionRowActionMenu(params: Readonly<{
                 actionId: itemId,
                 onTogglePinned: params.onTogglePinned,
             }).catch(showActionError);
-            return;
-        }
-        if (itemId === SESSION_ACTION_RENAME_ID) {
-            params.setContextMenuOpen(false);
-            setTimeout(() => {
-                void handleMoreMenuSelect(itemId);
-            }, params.deferredContextActionDelayMs);
             return;
         }
         params.setContextMenuOpen(false);

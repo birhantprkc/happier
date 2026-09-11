@@ -84,7 +84,6 @@ import {
 } from '@/components/sessions/debug/sessionDebugMenuItem';
 import { useFeatureEnabled } from '@/hooks/server/useFeatureEnabled';
 import { canForkConversation } from '@/sync/domains/sessionFork/forkUiSupport';
-import { deferOnWeb } from '@/utils/platform/deferOnWeb';
 import { resolveMachineTargetForSessionFromState } from '@/sync/ops/sessionMachineTarget';
 import { fireAndForget } from '@/utils/system/fireAndForget';
 import type { SessionForkReplaySettingsSource } from '@/sync/domains/sessionFork/resolveSessionForkReplayOptions';
@@ -92,12 +91,30 @@ import type { SessionForkReplaySettingsSource } from '@/sync/domains/sessionFork
 const SESSION_LIST_MINIMAL_IDENTITY_GAP = 8;
 const CONTEXT_MENU_PRESS_SUPPRESSION_TIMEOUT_MS = 600;
 const CONTEXT_MENU_PRESS_IN_OPEN_DELAY_MS = 350;
-const CONTEXT_MENU_DEFERRED_ACTION_DELAY_MS = 0;
 const SESSION_IDENTITY_SKELETON_ANIMATION_MS = 900;
 const SESSION_FOLDER_ROW_CHROME_INDENT_BASE = 38;
 const SESSION_FOLDER_ROW_CHROME_INDENT_STEP = 12;
 const SESSION_FOLDER_ROW_INDENT_CAP = 3;
 const SESSION_DELETE_DRAFT_MENU_ITEM_ID = 'session-draft.delete';
+
+let sessionForkStrategyFlowModulePromise:
+    Promise<typeof import('@/components/sessions/fork/openSessionForkStrategyFlow')> | null = null;
+
+function loadSessionForkStrategyFlowModule() {
+    if (!sessionForkStrategyFlowModulePromise) {
+        sessionForkStrategyFlowModulePromise = import(
+            '@/components/sessions/fork/openSessionForkStrategyFlow'
+        ).catch((error: unknown) => {
+            sessionForkStrategyFlowModulePromise = null;
+            throw error;
+        });
+    }
+    return sessionForkStrategyFlowModulePromise;
+}
+
+function preloadSessionForkStrategyFlowModule(): void {
+    void loadSessionForkStrategyFlowModule().catch(() => undefined);
+}
 
 type SessionItemActivityTimeMode = 'meaningful' | 'updatedAt';
 type SessionItemIdentityDisplay = 'avatar' | 'agentLogo' | 'none';
@@ -827,37 +844,33 @@ const SessionItemContent = React.memo(
             agentSwitchingEnabled,
         });
         const openForkFlow = React.useCallback(() => {
-            deferOnWeb(() => {
-                fireAndForget((async () => {
-                    const { openSessionForkStrategyFlow } = await import(
-                        '@/components/sessions/fork/openSessionForkStrategyFlow'
-                    );
-                    const currentSession = storage.getState().sessions[resolvedSession.id] ?? resolvedSession;
-                    const reachableMachineTarget = resolveMachineTargetForSessionFromState(
-                        storage.getState(),
-                        resolvedSession.id,
-                    );
-                    openSessionForkStrategyFlow({
-                        sessionId: resolvedSession.id,
-                        forkSupportSource: currentSession,
-                        serverId: serverId ?? null,
-                        machineId: reachableMachineTarget?.machineId ?? currentSession.metadata?.machineId ?? null,
-                        forkPoint: { type: 'latest' },
-                        settings: forkActionContext?.settings ?? null,
-                        replayEnabled: forkActionContext?.replayEnabled === true,
-                        executionRunsEnabled: forkActionContext?.executionRunsEnabled === true,
-                        agentSwitchingEnabled,
-                        navigateToSession: (childSessionId, options) => {
-                            void navigateToSession(childSessionId, {
-                                serverId: options?.serverId ?? serverId ?? null,
-                            });
-                        },
-                        navigateToNewSession: (route) => {
-                            router.push(route as any);
-                        },
-                    });
-                })(), { tag: 'SessionItem.openSessionForkStrategyFlow' });
-            });
+            fireAndForget((async () => {
+                const { openSessionForkStrategyFlow } = await loadSessionForkStrategyFlowModule();
+                const currentSession = storage.getState().sessions[resolvedSession.id] ?? resolvedSession;
+                const reachableMachineTarget = resolveMachineTargetForSessionFromState(
+                    storage.getState(),
+                    resolvedSession.id,
+                );
+                openSessionForkStrategyFlow({
+                    sessionId: resolvedSession.id,
+                    forkSupportSource: currentSession,
+                    serverId: serverId ?? null,
+                    machineId: reachableMachineTarget?.machineId ?? currentSession.metadata?.machineId ?? null,
+                    forkPoint: { type: 'latest' },
+                    settings: forkActionContext?.settings ?? null,
+                    replayEnabled: forkActionContext?.replayEnabled === true,
+                    executionRunsEnabled: forkActionContext?.executionRunsEnabled === true,
+                    agentSwitchingEnabled,
+                    navigateToSession: (childSessionId, options) => {
+                        void navigateToSession(childSessionId, {
+                            serverId: options?.serverId ?? serverId ?? null,
+                        });
+                    },
+                    navigateToNewSession: (route) => {
+                        router.push(route as any);
+                    },
+                });
+            })(), { tag: 'SessionItem.openSessionForkStrategyFlow' });
         }, [
             agentSwitchingEnabled,
             forkActionContext,
@@ -976,8 +989,11 @@ const SessionItemContent = React.memo(
             isBeingDraggedRef.current = isBeingDragged === true;
         }, [isBeingDragged]);
         const handleRowPointerEnter = React.useCallback(() => {
+            if (showForkAction) {
+                preloadSessionForkStrategyFlowModule();
+            }
             setIsRowHovered(true);
-        }, []);
+        }, [showForkAction]);
 
         const handleRowPointerLeave = React.useCallback(() => {
             setIsRowHovered(false);
@@ -1102,7 +1118,6 @@ const SessionItemContent = React.memo(
                 setTagMenuEverOpened(true);
                 setTagMenuOpen(true);
             },
-            deferredContextActionDelayMs: CONTEXT_MENU_DEFERRED_ACTION_DELAY_MS,
         });
 
         const handleSwipeAction = React.useCallback(async () => {
