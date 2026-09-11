@@ -14,6 +14,7 @@ function createSessionTurnEvidence(): CodexAppServerRollbackEvidenceSet {
         entries: [
             {
                 turnId: 'turn-1',
+                providerTurnId: 'provider-turn-1',
                 status: 'completed',
                 startedAt: 1,
                 updatedAt: 10,
@@ -28,6 +29,7 @@ function createSessionTurnEvidence(): CodexAppServerRollbackEvidenceSet {
             },
             {
                 turnId: 'turn-2',
+                providerTurnId: 'provider-turn-2',
                 status: 'completed',
                 startedAt: 11,
                 updatedAt: 30,
@@ -86,6 +88,7 @@ describe('resolveCodexAppServerRollbackPlan', () => {
             target: { type: 'latest_turn' },
         })).toMatchObject({
             numTurns: 1,
+            beforeTurnId: 'provider-turn-2',
             targetUserMessageSeq: 6,
             range: { startSeqInclusive: 6, endSeqInclusive: 9 },
         });

@@ -28,6 +28,7 @@ import type {
   SessionSystemRecordKind,
   SessionSystemRecordNamespace,
   SessionSystemRecordUpsertRequest,
+  SessionTurnsProjectionV1,
 } from '@happier-dev/protocol';
 import type { EphemeralSendResult } from './ephemeralSendOutcome';
 import type { RuntimeActivitySnapshotTail } from './mutations/createSessionMutationOutbox';
@@ -149,6 +150,7 @@ export interface SessionClientPort {
     ctx?: SessionEncryptionContext;
   }>;
   getAgentStateSnapshot?(): AgentState | null;
+  readSessionTurnsProjection?(): Promise<SessionTurnsProjectionV1 | null>;
   sessionTurnLifecycle?: SessionTurnLifecycleController;
 
   keepAlive(thinking: boolean, mode: 'local' | 'remote'): void;

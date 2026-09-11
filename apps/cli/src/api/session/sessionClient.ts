@@ -82,7 +82,7 @@ import {
     supportsRuntimeActivityV2,
     type SessionSyncPendingInputServerContractResult,
 } from '@/api/clientCompatibility/sessionSyncPendingInputServerContract';
-import { fetchSessionByIdCompat } from '@/session/transport/http/sessionsHttp';
+import { fetchSessionByIdCompat, fetchSessionTurnsProjection } from '@/session/transport/http/sessionsHttp';
 import type { SessionMessageCommitResult } from './sessionMessageCommitResult';
 
 export type SessionRuntimeActivityClientConfig = Readonly<{
@@ -166,6 +166,7 @@ import type {
     SessionSystemRecordNamespace,
     SessionSystemRecordUpsertRequest,
     SessionTranscriptObservationProvenanceV1,
+    SessionTurnsProjectionV1,
 } from '@happier-dev/protocol';
 import { calculateCost } from '@/utils/pricing';
 import { buildAcpAgentMessageEnvelope, shouldTraceAcpMessageType } from './acpMessageEnvelope';
@@ -794,6 +795,13 @@ export class ApiSessionClient extends EventEmitter {
      */
     getAgentStateSnapshot(): AgentState | null {
         return this.agentState;
+    }
+
+    async readSessionTurnsProjection(): Promise<SessionTurnsProjectionV1 | null> {
+        return await fetchSessionTurnsProjection({
+            token: this.token,
+            sessionId: this.sessionId,
+        });
     }
 
     beginTurnAssistantTextSnapshot(params?: {

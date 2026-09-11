@@ -53,6 +53,7 @@ import {
     type SessionTurnStoredRow,
 } from "./turns/parseSessionTurnState";
 import { hasCurrentSessionScopedMachineAccessInTx } from "@/app/api/socket/sessionScopedBinding";
+import { loadSessionRollbackEligibleTurnStartsInTx } from "./turns/sessionRollbackEligibilityProjection";
 
 type ParticipantCursor = SessionParticipantCursor;
 
@@ -571,6 +572,7 @@ export type ReassertSessionLatestTurnStatusResult =
         lastRuntimeIssue: SessionRuntimeIssueV1 | null;
         participantCursors: ParticipantCursor[];
         badgeAttentionChanged: boolean;
+        rollbackEligibleTurnStarts?: number[];
     }
     | { ok: false; error: "invalid-params" | "forbidden" | "session-not-found" | "internal" };
 
@@ -1834,6 +1836,17 @@ async function applySessionTurnMutationWithOwnerAccess(params: {
             markParticipants: true,
         });
 
+        const rollbackEligibleTurnStarts = result.didApply
+            && (
+                params.sessionTurnMutation.action === "mark_rollback_eligible"
+                || params.sessionTurnMutation.action === "mark_rolled_back"
+            )
+            ? await loadSessionRollbackEligibleTurnStartsInTx(
+                tx,
+                params.sessionTurnMutation.sessionId,
+            )
+            : undefined;
+
         return {
             ok: true,
             didApply: result.didApply,
@@ -1845,6 +1858,7 @@ async function applySessionTurnMutationWithOwnerAccess(params: {
             lastRuntimeIssue: result.lastRuntimeIssue,
             participantCursors: result.participantCursors,
             badgeAttentionChanged: result.badgeAttentionChanged,
+            ...(rollbackEligibleTurnStarts !== undefined ? { rollbackEligibleTurnStarts } : {}),
         };
     });
 }

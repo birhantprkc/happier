@@ -103,6 +103,7 @@ import {
     isCodexAppServerInvalidRequestMapExpectedStringError,
     isCodexAppServerInvalidParamsForFieldError,
     isCodexAppServerInvalidParamsError,
+    isCodexAppServerDefinitiveMethodNotFoundError,
     isCodexAppServerMethodNotFoundError,
     isCodexAppServerNoActiveTurnToSteerError,
 } from './appServerCompatibility';
@@ -4116,7 +4117,7 @@ export function createCodexAppServerRuntime(params: Readonly<{
         client: DisposableCodexAppServerClient,
         nextThreadId: string,
         startOrLoadResponse: unknown,
-        options: Readonly<{ publishThreadIdImmediately?: boolean }> = {},
+        options: Readonly<{ publishThreadIdImmediately?: boolean; hydrateRollbackTurns?: boolean }> = {},
     ): Promise<void> => {
         const activeProviderTurn = pendingTurn;
         threadId = nextThreadId;
@@ -4131,6 +4132,14 @@ export function createCodexAppServerRuntime(params: Readonly<{
         }
         if (!activeProviderTurn || activeProviderTurn.threadId !== nextThreadId) {
             turnBoundaryTracker.initializeFromCurrentMetadata();
+            if (options.hydrateRollbackTurns) {
+                try {
+                    const persistedTurns = await params.session.readSessionTurnsProjection?.();
+                    if (persistedTurns) turnBoundaryTracker.hydrateFromSessionTurns(persistedTurns);
+                } catch (error) {
+                    logger.warn('[codex-app-server] Failed to hydrate persisted rollback turns; rollback remains unavailable until a new turn completes', error);
+                }
+            }
             await finishPendingTurn({ flushReason: 'abort' });
         }
         if (options.publishThreadIdImmediately !== false) {
@@ -4241,7 +4250,10 @@ export function createCodexAppServerRuntime(params: Readonly<{
             client,
             startOrLoadResult.nextThreadId,
             startOrLoadResult.response,
-            { publishThreadIdImmediately: Boolean(resumeId || existingSessionId) },
+            {
+                publishThreadIdImmediately: Boolean(resumeId || existingSessionId),
+                hydrateRollbackTurns: Boolean(resumeId || existingSessionId),
+            },
         );
         const initialGoal = options.initialGoal;
         if (initialGoal?.objective) {
@@ -5428,7 +5440,25 @@ export function createCodexAppServerRuntime(params: Readonly<{
 
             const client = await ensureClient();
             try {
-                await client.request('thread/rollback', { threadId: activeThreadId, numTurns: rollbackPlan.numTurns });
+                if (rollbackPlan.beforeTurnId) {
+                    try {
+                        await client.request('thread/revert', {
+                            threadId: activeThreadId,
+                            beforeTurnId: rollbackPlan.beforeTurnId,
+                        });
+                    } catch (error) {
+                        if (!isCodexAppServerDefinitiveMethodNotFoundError(error, 'thread/revert')) throw error;
+                        await client.request('thread/rollback', {
+                            threadId: activeThreadId,
+                            numTurns: rollbackPlan.numTurns,
+                        });
+                    }
+                } else {
+                    await client.request('thread/rollback', {
+                        threadId: activeThreadId,
+                        numTurns: rollbackPlan.numTurns,
+                    });
+                }
             } catch (error) {
                 const unsupportedMessage = readRollbackUnsupportedErrorMessage(error);
                 if (unsupportedMessage) {

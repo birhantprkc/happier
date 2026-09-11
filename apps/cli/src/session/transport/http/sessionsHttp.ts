@@ -8,6 +8,8 @@ import {
   V2SessionByIdResponseSchema,
   V2SessionListResponseSchema,
   V2SessionMessageResponseSchema,
+  SessionTurnsProjectionV1Schema,
+  type SessionTurnsProjectionV1,
 } from '@happier-dev/protocol';
 
 import type { Credentials } from '@/persistence';
@@ -25,6 +27,28 @@ import { throwIfCliClientUpgradeRequired } from '@/api/clientCompatibility/cliCl
 
 export type RawSessionRecord = V2SessionByIdResponse['session'];
 export type RawSessionListRow = V2SessionListResponse['sessions'][number];
+
+export async function fetchSessionTurnsProjection(params: Readonly<{
+  token: string;
+  sessionId: string;
+}>): Promise<SessionTurnsProjectionV1 | null> {
+  const path = `/v1/sessions/${encodeSessionIdPathSegment(params.sessionId)}/turns`;
+  const response = await axios.get(`${resolveServerHttpBaseUrl()}${path}`, {
+    headers: {
+      Authorization: `Bearer ${params.token}`,
+      'Content-Type': 'application/json',
+    },
+    timeout: configuration.sessionControlHttpTimeoutMs,
+    validateStatus: () => true,
+  });
+  if (response.status === 404) return null;
+  if (isAuthenticationStatus(response.status)) throwAuthenticationStatusError(response.status);
+  if (response.status < 200 || response.status >= 300) {
+    throwUnexpectedHttpStatusError(response.status, `Unexpected status from ${path}: ${response.status}`);
+  }
+  const parsed = SessionTurnsProjectionV1Schema.safeParse(response.data);
+  return parsed.success && parsed.data.sessionId === params.sessionId ? parsed.data : null;
+}
 
 function parseOrThrow<T>(schema: { safeParse: (value: unknown) => { success: boolean; data?: T } }, payload: unknown, message: string): T {
   const parsed = schema.safeParse(payload);

@@ -2,6 +2,7 @@ import type { SessionRollbackTarget } from '@happier-dev/protocol';
 
 export type CodexAppServerRollbackEvidenceEntry = Readonly<{
     turnId: string;
+    providerTurnId?: string;
     status: 'in_progress' | 'completed' | 'failed' | 'cancelled';
     startedAt: number;
     updatedAt: number;
@@ -31,6 +32,7 @@ export type CodexAppServerRollbackEvidenceSet = Readonly<{
 
 export type CodexAppServerRollbackPlan = Readonly<{
     numTurns: number;
+    beforeTurnId?: string;
     targetUserMessageSeq: number;
     range: Readonly<{
         startSeqInclusive: number;
@@ -99,6 +101,7 @@ export function resolveCodexAppServerRollbackPlan(params: Readonly<{
         if (!latest || endSeqInclusive === null) return null;
         return {
             numTurns: 1,
+            ...(latest.providerTurnId ? { beforeTurnId: latest.providerTurnId } : {}),
             targetUserMessageSeq: latest.transcriptAnchors?.startUserMessageSeq ?? 0,
             range: {
                 startSeqInclusive: readRollbackStartSeq(latest),
@@ -120,6 +123,7 @@ export function resolveCodexAppServerRollbackPlan(params: Readonly<{
 
     return {
         numTurns,
+        ...(targetEntry.providerTurnId ? { beforeTurnId: targetEntry.providerTurnId } : {}),
         targetUserMessageSeq: targetEntry.transcriptAnchors?.startUserMessageSeq ?? targetUserMessageSeq,
         range: {
             startSeqInclusive: readRollbackStartSeq(targetEntry),
