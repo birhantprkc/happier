@@ -26,6 +26,8 @@ test('dispatches the canonical TestFlight recovery workflow with exact source an
 
   assert.match(output, /gh\s+"workflow"\s+"run"\s+"build-ui-mobile-local\.yml"/);
   assert.match(output, /action=retry_testflight_distribution/);
+  assert.match(output, /profile=dev/);
+  assert.doesNotMatch(output, /profile=publicdev/);
   assert.match(output, /source_ref=/);
   assert.match(output, /retry_testflight_eas_build_id=123e4567-e89b-12d3-a456-426614174000/);
 });

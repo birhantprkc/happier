@@ -6,6 +6,7 @@ import { parseArgs } from 'node:util';
 import { readTestflightBuildRequest } from './testflight-build-request.mjs';
 import {
   formatMobileReleaseEnvironment,
+  formatMobileReleaseProfile,
   normalizeMobileReleaseEnvironment,
   normalizeMobileReleaseProfile,
   supportsMobileNativeSubmit,
@@ -45,6 +46,7 @@ const environmentArg = formatMobileReleaseEnvironment(environment);
 const requestedProfile = String(values.profile ?? '').trim();
 const profile = normalizeMobileReleaseProfile(requestedProfile) || requestedProfile;
 if (!profile || !/^[a-z0-9-]+$/u.test(profile)) fail('--profile must be a valid EAS profile name');
+const profileArg = formatMobileReleaseProfile(profile);
 const buildJsonPath = String(values['build-json'] ?? '').trim();
 if (!buildJsonPath) fail('--build-json is required');
 
@@ -64,7 +66,7 @@ const fields = [
   'source_ref', sourceSha,
   'environment', environmentArg,
   'platform', 'ios',
-  'profile', profile,
+  'profile', profileArg,
   'action', 'retry_testflight_distribution',
   'publish_apk_release', 'false',
   'retry_testflight_eas_build_id', request.easBuildId,
