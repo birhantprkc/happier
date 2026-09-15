@@ -119,10 +119,12 @@ describe('createOpenCodeTuiSupervisor', () => {
 
   it('detaches the running process and clears attachment state', async () => {
     const proc = createSpawnedProcessHarness();
+    const onExit = vi.fn();
     const spawnProcess = vi.fn(() => proc.child as any);
     const commandPath = await createFakeExecutable('opencode');
     const supervisor = createOpenCodeTuiSupervisor({
       spawnProcess,
+      onExit,
       env: { HAPPIER_OPENCODE_PATH: commandPath } as NodeJS.ProcessEnv,
     });
 
@@ -138,6 +140,7 @@ describe('createOpenCodeTuiSupervisor', () => {
     await detachPromise;
 
     expect(supervisor.isAttached()).toBe(false);
+    expect(onExit).not.toHaveBeenCalled();
   });
 
   it('fails closed when the attach process errors before startup completes', async () => {

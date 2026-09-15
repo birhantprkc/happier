@@ -231,6 +231,10 @@ describe('AGENTS', () => {
   });
 
   it('loads provider-attach ops through backend catalog hooks only for supporting providers', async () => {
+    await expect(getProviderAttachOps('codex')).resolves.toMatchObject({
+      evaluateEligibility: expect.any(Function),
+      runAttach: expect.any(Function),
+    });
     await expect(getProviderAttachOps('opencode')).resolves.toMatchObject({
       evaluateEligibility: expect.any(Function),
       runAttach: expect.any(Function),

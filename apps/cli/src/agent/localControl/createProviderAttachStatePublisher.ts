@@ -1,4 +1,4 @@
-import { getAgentLocalControlCapability, type AgentId } from '@happier-dev/agents';
+import { getAgentLocalControlCapabilityForSession, type AgentId } from '@happier-dev/agents';
 
 import type { Credentials } from '@/persistence';
 import type { AgentState } from '@/api/types';
@@ -37,12 +37,16 @@ export function createProviderAttachStatePublisher(params: Readonly<{
   sessionId: string;
   credentials: Credentials;
   rawSession: RawSessionLike;
+  metadata: Record<string, unknown>;
   createSessionScopedSocketFn?: typeof createSessionScopedSocket;
   waitForSocketConnectFn?: typeof waitForSocketConnect;
   updateSessionAgentStateWithAckFn?: typeof updateSessionAgentStateWithAck;
   connectTimeoutMs?: number;
 }>): ProviderAttachPublisher | null {
-  const capability = getAgentLocalControlCapability(params.agentId);
+  const capability = getAgentLocalControlCapabilityForSession({
+    agentId: params.agentId,
+    metadata: params.metadata,
+  });
   if (!capability || capability.attachStrategy !== 'provider_attach') return null;
 
   const mode = resolveSessionStoredContentEncryptionMode(params.rawSession);

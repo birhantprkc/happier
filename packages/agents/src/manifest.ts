@@ -138,10 +138,16 @@ export const AGENTS_CORE = {
                             sessionRollback: { conversation: 'unsupported' },
                             usageLimitRecovery: { checkNow: 'unsupported' },
                         },
+                        localControl: { supported: true, topology: 'exclusive', attachStrategy: 'tmux' },
                         media: { nativeImageGeneration: NO_NATIVE_IMAGE_GENERATION },
                     },
                 },
-                appServer: { kind: 'appServer' },
+                appServer: {
+                    kind: 'appServer',
+                    overrides: {
+                        localControl: { supported: true, topology: 'shared', attachStrategy: 'provider_attach' },
+                    },
+                },
             },
         },
         handoff: { vendorStateTransfer: 'experimental', requiresExplicitSessionId: true },
@@ -300,6 +306,7 @@ export const AGENTS_CORE = {
             sessionRollback: { conversation: 'unsupported' },
         },
         handoff: { vendorStateTransfer: 'unsupported' },
+        localControl: { supported: true, topology: 'exclusive', attachStrategy: 'tmux' },
         // Kimi Code's ACP initialize advertises `mcpCapabilities.http`/`.sse` (see the
         // runtime fingerprint in the CLI's Kimi discovery owner), and the built-in ACP
         // config passes Happier's MCP descriptors on session/new and session/load.
@@ -370,7 +377,7 @@ export const AGENTS_CORE = {
             sessionRollback: { conversation: 'unsupported' },
         },
         handoff: { vendorStateTransfer: 'unsupported' },
-        localControl: { supported: false, attachStrategy: 'unsupported' },
+        localControl: { supported: true, topology: 'exclusive', attachStrategy: 'tmux' },
         runtimeInput: {
             inFlightSteerSupported: false,
             terminalPromptInjectionSupported: false,

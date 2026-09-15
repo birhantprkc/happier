@@ -119,6 +119,7 @@ export type ProviderAttachReachability =
 
 export type ProviderAttachOps = Readonly<{
   evaluateEligibility: (params: Readonly<{
+    sessionId: string;
     metadata: Record<string, unknown>;
     currentMachineId: string | null;
     sessionMachineId: string | null;

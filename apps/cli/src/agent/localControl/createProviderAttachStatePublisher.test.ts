@@ -31,6 +31,7 @@ describe('createProviderAttachStatePublisher', () => {
     const publisher = createProviderAttachStatePublisher({
       agentId: 'opencode',
       sessionId: 'sid_opencode_1',
+      metadata: { flavor: 'opencode', opencodeBackendMode: 'server' },
       credentials,
       rawSession,
       createSessionScopedSocketFn: () => socket as any,
@@ -91,6 +92,7 @@ describe('createProviderAttachStatePublisher', () => {
     const publisher = createProviderAttachStatePublisher({
       agentId: 'claude',
       sessionId: 'sid_claude_1',
+      metadata: { flavor: 'claude' },
       credentials,
       rawSession,
     });

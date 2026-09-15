@@ -1,5 +1,5 @@
 import {
-  getAgentLocalControlCapability,
+  getAgentLocalControlCapabilityForSession,
   inferAgentIdFromSessionMetadata,
   type AgentId,
 } from '@happier-dev/agents';
@@ -172,7 +172,7 @@ export async function evaluateCliSessionAttachEligibility(params: Readonly<{
     };
   }
 
-  const localControl = agentId ? getAgentLocalControlCapability(agentId) : null;
+  const localControl = agentId ? getAgentLocalControlCapabilityForSession({ agentId, metadata }) : null;
   const sessionMachineId = readMachineId(metadata);
   const sessionHost = readHost(metadata);
   const metadataTerminal = readMetadataTerminal(metadata);
@@ -209,6 +209,7 @@ export async function evaluateCliSessionAttachEligibility(params: Readonly<{
     }
 
     const evaluation = await providerAttachOps.evaluateEligibility({
+      sessionId: params.rawSession.id,
       metadata,
       currentMachineId: params.currentMachineId,
       sessionMachineId,

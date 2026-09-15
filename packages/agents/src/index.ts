@@ -50,6 +50,7 @@ export {
 } from './tools.js';
 export {
   getAgentLocalControlCapability,
+  getAgentLocalControlCapabilityForSession,
   usesProviderAttachForLocalControl,
   type AgentLocalControlCapability,
 } from './localControl.js';

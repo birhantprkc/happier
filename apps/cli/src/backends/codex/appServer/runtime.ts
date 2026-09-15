@@ -483,6 +483,7 @@ export type CodexAppServerReviewStartRequest = Readonly<{
 
 type PermissionHandlerSubset = Readonly<{
     handleToolCall: (toolCallId: string, toolName: string, input: unknown) => Promise<PermissionResult>;
+    cancelPendingRequest?: (requestId: string, reason: string) => boolean;
 }>;
 
 type RuntimeSession = ApiSessionClient;
@@ -1229,6 +1230,7 @@ export function createCodexAppServerRuntime(params: Readonly<{
         persist: (message: RuntimeSessionMediaMessage) => Promise<RuntimeSessionMediaPersistResult> | RuntimeSessionMediaPersistResult;
     }>;
     rememberUsageLimitRecoveryPreference?: (() => Promise<void>) | null;
+    createClient?: () => Promise<DisposableCodexAppServerClient>;
 }>): Readonly<{
     getSessionId: () => string | null;
     getPublishedSessionId: () => string | null;
@@ -2352,6 +2354,23 @@ export function createCodexAppServerRuntime(params: Readonly<{
             markActiveTurnMeaningfulContextWindowRecoveryActivity();
         }
 
+        if (update.type === 'provider-user-text') {
+            if (context.sidechainId) return;
+            const clientId = update.clientId;
+            const isHappierOriginated = clientId !== null && (
+                typeof params.session.getCommittedUserMessageSeq?.(clientId) === 'number'
+                || Array.from(pendingProviderPrompts).some((candidate) => candidate.localIds?.includes(clientId))
+            );
+            if (isHappierOriginated) return;
+            if (typeof params.session.sendUserTextMessageCommitted !== 'function') return;
+            await flushItemTranscriptBoundary(null);
+            await params.session.sendUserTextMessageCommitted(update.text, {
+                localId: `codex-app-server-user:${context.streamScopeId}:${update.itemId}`,
+                meta: { importedFrom: 'codex-app-server' },
+            });
+            return;
+        }
+
         if (update.type === 'assistant-text-delta') {
             latestAssistantItemIdByStreamScope.set(context.streamScopeId, update.itemId);
             appendStreamDelta(buildItemStateKey(context.streamScopeId, update.itemId), update.text, assistantTextByItemId, (deltaText) => {
@@ -2817,6 +2836,25 @@ export function createCodexAppServerRuntime(params: Readonly<{
         return { toolCallId, toolName, input };
     };
 
+    const pendingProviderRequestCallIds = new Map<string, string>();
+    const externallyResolvedProviderRequests = new Set<string>();
+    const providerRequestKey = (value: unknown): string | null => (
+        typeof value === 'string' || typeof value === 'number'
+            ? `${typeof value}:${String(value)}`
+            : null
+    );
+    const associatePendingProviderRequest = (requestKey: string | null | undefined, callId: string): void => {
+        if (!requestKey) return;
+        if (externallyResolvedProviderRequests.delete(requestKey)) {
+            params.permissionHandler?.cancelPendingRequest?.(
+                callId,
+                'Resolved in another Codex client',
+            );
+            return;
+        }
+        pendingProviderRequestCallIds.set(requestKey, callId);
+    };
+
     type CodexAppServerMcpElicitationAction = 'accept' | 'decline' | 'cancel';
 
     const mapMcpElicitationResponse = (result: PermissionResult): Readonly<Record<string, unknown>> => {
@@ -2850,6 +2888,8 @@ export function createCodexAppServerRuntime(params: Readonly<{
         }
 
         markActiveTurnMeaningfulContextWindowRecoveryActivity();
+        const requestKey = providerRequestKey(message?.id);
+        associatePendingProviderRequest(requestKey, invocation.toolCallId);
         const result = params.permissionHandler
             ? await params.permissionHandler.handleToolCall(invocation.toolCallId, invocation.toolName, invocation.input)
             : { decision: 'denied' as const };
@@ -2860,7 +2900,10 @@ export function createCodexAppServerRuntime(params: Readonly<{
     const handleServerRequest = async (
         method: string,
         requestParams: unknown,
-        options?: Readonly<{ allowProviderEffects?: boolean }>,
+        options?: Readonly<{
+            allowProviderEffects?: boolean;
+            providerRequestKey?: string | null;
+        }>,
     ): Promise<unknown> => {
         const updates = streamEventBridge.onServerRequest({ method, params: requestParams });
         const requestMatchesActiveTurn = options?.allowProviderEffects === false
@@ -2885,6 +2928,7 @@ export function createCodexAppServerRuntime(params: Readonly<{
             }
 
             if (update.type === 'approval-request') {
+                associatePendingProviderRequest(options?.providerRequestKey, update.callId);
                 const result = params.permissionHandler
                     ? await params.permissionHandler.handleToolCall(update.callId, update.toolName, update.input)
                     : { decision: 'denied' as const };
@@ -2892,6 +2936,7 @@ export function createCodexAppServerRuntime(params: Readonly<{
             }
 
             if (update.type === 'permissions-request') {
+                associatePendingProviderRequest(options?.providerRequestKey, update.callId);
                 const result = params.permissionHandler
                     ? await params.permissionHandler.handleToolCall(update.callId, update.toolName, update.input)
                     : { decision: 'denied' as const };
@@ -2938,6 +2983,7 @@ export function createCodexAppServerRuntime(params: Readonly<{
                         },
                     }
                     : normalizeCodexRequestUserInputQuestionsToAskUserQuestionInput(update.questions);
+            associatePendingProviderRequest(options?.providerRequestKey, update.callId);
             const result = params.permissionHandler
                     ? await params.permissionHandler.handleToolCall(update.callId, toolName, toolInput)
                     : { decision: 'abort' as const };
@@ -3698,11 +3744,13 @@ export function createCodexAppServerRuntime(params: Readonly<{
         if (!clientPromise) {
             const retainedThreadId = options.reattachRetainedThread === false ? null : threadId;
             historyBoundary.beginHydration();
-            clientPromise = createCodexAppServerClient({
-                cwd: params.directory,
-                ...(params.processEnv ? { processEnv: params.processEnv } : {}),
-                ...(params.configOverrides ? { configOverrides: params.configOverrides } : {}),
-                })
+            clientPromise = (params.createClient
+                ? params.createClient()
+                : createCodexAppServerClient({
+                    cwd: params.directory,
+                    ...(params.processEnv ? { processEnv: params.processEnv } : {}),
+                    ...(params.configOverrides ? { configOverrides: params.configOverrides } : {}),
+                }))
                 .then((client) => {
                     const attachedClientGeneration = clientLifecycleGeneration;
                     client.onExit((failure) => {
@@ -3851,25 +3899,59 @@ export function createCodexAppServerRuntime(params: Readonly<{
                     registerActiveTurnStreamNotificationHandler(client, 'item/started', attachedClientGeneration);
                     registerActiveTurnStreamNotificationHandler(client, 'item/completed', attachedClientGeneration);
                     registerActiveTurnStreamNotificationHandler(client, 'rawResponseItem/completed', attachedClientGeneration);
+                    client.registerNotificationHandler('serverRequest/resolved', (notificationParams) => {
+                        if (attachedClientGeneration !== clientLifecycleGeneration) return;
+                        if (readThreadId(notificationParams) !== threadId) return;
+                        const requestKey = providerRequestKey(readRecord(notificationParams)?.requestId);
+                        if (!requestKey) return;
+                        const callId = pendingProviderRequestCallIds.get(requestKey);
+                        if (!callId) {
+                            externallyResolvedProviderRequests.add(requestKey);
+                            return;
+                        }
+                        pendingProviderRequestCallIds.delete(requestKey);
+                        params.permissionHandler?.cancelPendingRequest?.(
+                            callId,
+                            'Resolved in another Codex client',
+                        );
+                    });
                     const registerHistoryBoundedServerRequest = (method: string): void => {
-                        client.registerRequestHandler(method, (requestParams) => historyBoundary.onRequest(
-                            { method, params: requestParams },
-                            () => runBridgeWork({ operation: 'provider-request-history', details: { method } }, () => handleServerRequest(method, requestParams, { allowProviderEffects: false })),
-                            () => runBridgeWork({ operation: 'provider-request', details: { method } }, () => handleServerRequest(method, requestParams)),
-                        ));
+                        client.registerRequestHandler(method, (requestParams, message) => {
+                            const requestKey = providerRequestKey(message.id);
+                            const pending = historyBoundary.onRequest(
+                                { method, params: requestParams },
+                                () => runBridgeWork({ operation: 'provider-request-history', details: { method } }, () => handleServerRequest(method, requestParams, { allowProviderEffects: false, providerRequestKey: requestKey })),
+                                () => runBridgeWork({ operation: 'provider-request', details: { method } }, () => handleServerRequest(method, requestParams, { providerRequestKey: requestKey })),
+                            );
+                            return Promise.resolve(pending).finally(() => {
+                                if (requestKey) {
+                                    pendingProviderRequestCallIds.delete(requestKey);
+                                    externallyResolvedProviderRequests.delete(requestKey);
+                                }
+                            });
+                        });
                     };
                     registerHistoryBoundedServerRequest('item/commandExecution/requestApproval');
                     registerHistoryBoundedServerRequest('item/fileChange/requestApproval');
                     registerHistoryBoundedServerRequest('item/tool/requestUserInput');
                     registerHistoryBoundedServerRequest('item/permissions/requestApproval');
-                    client.registerRequestHandler('mcpServer/elicitation/request', (requestParams, message) => historyBoundary.onRequest(
-                        { method: 'mcpServer/elicitation/request', params: requestParams },
-                        () => mapMcpElicitationResponse({ decision: 'denied' }),
-                        () => runBridgeWork({
-                            operation: 'provider-request',
-                            details: { method: 'mcpServer/elicitation/request' },
-                        }, () => handleMcpElicitationRequest(requestParams, message)),
-                    ));
+                    client.registerRequestHandler('mcpServer/elicitation/request', (requestParams, message) => {
+                        const requestKey = providerRequestKey(message.id);
+                        const pending = historyBoundary.onRequest(
+                            { method: 'mcpServer/elicitation/request', params: requestParams },
+                            () => mapMcpElicitationResponse({ decision: 'denied' }),
+                            () => runBridgeWork({
+                                operation: 'provider-request',
+                                details: { method: 'mcpServer/elicitation/request' },
+                            }, () => handleMcpElicitationRequest(requestParams, message)),
+                        );
+                        return Promise.resolve(pending).finally(() => {
+                            if (requestKey) {
+                                pendingProviderRequestCallIds.delete(requestKey);
+                                externallyResolvedProviderRequests.delete(requestKey);
+                            }
+                        });
+                    });
                     client.registerRequestHandler('account/chatgptAuthTokens/refresh', (requestParams) => {
                         return runBridgeWork({
                             operation: 'provider-request',
@@ -4898,6 +4980,9 @@ export function createCodexAppServerRuntime(params: Readonly<{
                 assertConnectedServiceAuthGroupAvailable();
                 const client = await ensureClient();
                 const pendingProviderPrompt = trackPendingProviderPrompt(promptForAttempt, optionsForAttempt);
+                const clientUserMessageId = pendingProviderPrompt.localIds?.length === 1
+                    ? pendingProviderPrompt.localIds[0]
+                    : null;
                 const activeTurn = await beginPendingTurnForThread(activeThreadId, {
                     localId: optionsForAttempt?.localId ?? null,
                     userMessageSeq: optionsForAttempt?.userMessageSeq ?? null,
@@ -4921,6 +5006,7 @@ export function createCodexAppServerRuntime(params: Readonly<{
                     const baseTurnStartParams = {
                         threadId: activeThreadId,
                         input,
+                        ...(clientUserMessageId ? { clientUserMessageId } : {}),
                         ...(currentModelId ? { model: currentModelId } : {}),
                         ...(currentReasoningEffort ? { effort: currentReasoningEffort } : {}),
                         ...(hasServiceTierOverride ? (currentServiceTier === 'fast' ? { serviceTier: 'fast' } : { serviceTier: null }) : {}),

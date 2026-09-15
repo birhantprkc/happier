@@ -1,6 +1,10 @@
 import chalk from 'chalk';
 
-import { inferAgentIdFromSessionMetadata, type AgentId } from '@happier-dev/agents';
+import {
+  getAgentLocalControlCapabilityForSession,
+  inferAgentIdFromSessionMetadata,
+  type AgentId,
+} from '@happier-dev/agents';
 
 import { getProviderAttachOps } from '@/backends/catalog';
 import { configuration } from '@/configuration';
@@ -25,7 +29,6 @@ import {
   explainAttachIneligibility,
   type AgentAttachStrategyForExplainer,
 } from '@/session/attach/explainAttachIneligibility';
-import { getAgentLocalControlCapability } from '@happier-dev/agents';
 import { bootstrapAccountSettingsContext } from '@/settings/accountSettings/bootstrapAccountSettingsContext';
 import { accountSettingsParse } from '@happier-dev/protocol';
 import { hostname } from 'node:os';
@@ -325,7 +328,10 @@ export async function handleAttachCommand(
       const tmuxAvailable = await (deps.isTmuxAvailableFn ?? isTmuxAvailable)().catch(() => false);
       const agentId = eligibility.agentId ?? null;
       const agentAttachStrategy: AgentAttachStrategyForExplainer = agentId
-        ? (getAgentLocalControlCapability(agentId)?.attachStrategy ?? 'unsupported')
+        ? (getAgentLocalControlCapabilityForSession({
+            agentId,
+            metadata: eligibility.metadata,
+          })?.attachStrategy ?? 'unsupported')
         : null;
       const explanation = explainAttachIneligibility({
         eligibility,
@@ -345,6 +351,7 @@ export async function handleAttachCommand(
       const statePublisher = createProviderAttachStatePublisherFn({
         agentId: eligibility.agentId,
         sessionId: resolvedSessionId,
+        metadata: eligibility.metadata,
         credentials: context.credentials,
         rawSession: context.rawSession,
       });

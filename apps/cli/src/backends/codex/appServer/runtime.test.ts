@@ -751,6 +751,21 @@ async function writeFakeCodexAppServerScript(params: Readonly<{
         '            }, 20);',
         '            continue;',
         '        }',
+        '        if (text === "bridge-provider-user-projection") {',
+        '            setTimeout(() => {',
+        '                process.stdout.write(JSON.stringify({ method: "item/started", params: { threadId: msg.params?.threadId ?? null, turnId, item: { id: "happier_user_1", type: "userMessage", clientId: msg.params?.clientUserMessageId ?? null, content: [{ type: "text", text }] } } }) + "\\n");',
+        '            }, 6);',
+        '            setTimeout(() => {',
+        '                process.stdout.write(JSON.stringify({ method: "item/started", params: { threadId: msg.params?.threadId ?? null, turnId, item: { id: "native_user_1", type: "userMessage", clientId: "native-tui-client-1", content: [{ type: "text", text: "hello from attached Codex TUI" }] } } }) + "\\n");',
+        '            }, 7);',
+        '            setTimeout(() => {',
+        '                process.stdout.write(JSON.stringify({ method: "item/completed", params: { threadId: msg.params?.threadId ?? null, turnId, item: { id: "native_reply_1", type: "agentMessage", text: "native reply" } } }) + "\\n");',
+        '            }, 10);',
+        '            setTimeout(() => {',
+        '                process.stdout.write(JSON.stringify({ method: "turn/completed", params: { threadId: msg.params?.threadId ?? null, turn: { id: turnId } } }) + "\\n");',
+        '            }, 15);',
+        '            continue;',
+        '        }',
         '        if (text === "bridge-mcp-elicitation") {',
         '            setTimeout(() => {',
         '                process.stdout.write(JSON.stringify({ id: "mcp-elicitation-request", method: "mcpServer/elicitation/request", params: { toolUseId: "mcp_tool_1", invocation: { server: "happier", tool: "change_title", arguments: { title: "New Title" } } } }) + "\\n");',
@@ -1419,6 +1434,21 @@ async function writeFakeCodexAppServerScript(params: Readonly<{
         '            setTimeout(() => {',
         '                process.stdout.write(JSON.stringify({ method: "turn/completed", params: { threadId: msg.params?.threadId ?? null, turn: { id: turnId } } }) + "\\n");',
         '            }, 24);',
+        '            continue;',
+        '        }',
+        '        if (text === "bridge-external-approval-resolution") {',
+        '            setTimeout(() => {',
+        '                process.stdout.write(JSON.stringify({ method: "item/started", params: { threadId: msg.params?.threadId ?? null, turnId, item: { id: "cmd_external", type: "commandExecution", command: "git fetch origin", cwd: "/repo" } } }) + "\\n");',
+        '            }, 6);',
+        '            setTimeout(() => {',
+        '                process.stdout.write(JSON.stringify({ id: "approval-external", method: "item/commandExecution/requestApproval", params: { threadId: msg.params?.threadId ?? null, turnId, itemId: "cmd_external", reason: "Needs approval" } }) + "\\n");',
+        '            }, 7);',
+        '            setTimeout(() => {',
+        '                process.stdout.write(JSON.stringify({ method: "serverRequest/resolved", params: { threadId: msg.params?.threadId ?? null, requestId: "approval-external" } }) + "\\n");',
+        '            }, 12);',
+        '            setTimeout(() => {',
+        '                process.stdout.write(JSON.stringify({ method: "turn/completed", params: { threadId: msg.params?.threadId ?? null, turn: { id: turnId } } }) + "\\n");',
+        '            }, 20);',
         '            continue;',
         '        }',
         '        if (text === "bridge-request-permissions") {',
@@ -4853,6 +4883,36 @@ describe('createCodexAppServerRuntime', () => {
         );
     });
 
+    it('commits attached-client user prompts without duplicating Happier-originated prompts', async () => {
+        const { root } = await createRuntimeFixture('happier-codex-app-server-runtime-provider-user-');
+
+        const sendUserTextMessageCommitted = vi.fn(async () => {});
+        const session = {
+            updateMetadata: vi.fn(),
+            getCommittedUserMessageSeq: vi.fn((localId: string) => localId === 'happier-local-1' ? 17 : null),
+            sendUserTextMessageCommitted,
+            sendAgentMessageCommitted: vi.fn(async () => {}),
+            sendCodexMessage: vi.fn(),
+        };
+        const runtime = createCodexAppServerRuntime({
+            directory: root,
+            onThinkingChange: vi.fn(),
+            session: session as unknown as ApiSessionClient,
+        });
+
+        await runtime.startOrLoad({});
+        await runtime.sendPrompt('bridge-provider-user-projection', { localId: 'happier-local-1' });
+
+        expect(sendUserTextMessageCommitted).toHaveBeenCalledTimes(1);
+        expect(sendUserTextMessageCommitted).toHaveBeenCalledWith(
+            'hello from attached Codex TUI',
+            {
+                localId: 'codex-app-server-user:thread-started:native_user_1',
+                meta: { importedFrom: 'codex-app-server' },
+            },
+        );
+    });
+
     it('commits native review completion text without duplicating identical assistant finals', async () => {
         const { root } = await createRuntimeFixture('happier-codex-app-server-runtime-review-dedupe-');
 
@@ -6550,6 +6610,46 @@ describe('createCodexAppServerRuntime', () => {
                     error: null,
                 }),
             ]),
+        );
+    });
+
+    it('dismisses the exact pending approval when another Codex client resolves it', async () => {
+        const { root } = await createRuntimeFixture('happier-codex-app-server-runtime-external-approval-resolution-');
+        let resolvePermission!: (result: { decision: 'abort' }) => void;
+        const permission = new Promise<{ decision: 'abort' }>((resolve) => {
+            resolvePermission = resolve;
+            setTimeout(() => resolve({ decision: 'abort' }), 100);
+        });
+        const permissionHandler = {
+            handleToolCall: vi.fn(async () => await permission),
+            cancelPendingRequest: vi.fn((requestId: string) => {
+                if (requestId !== 'cmd_external') return false;
+                resolvePermission({ decision: 'abort' });
+                return true;
+            }),
+        };
+        const runtime = createCodexAppServerRuntime({
+            directory: root,
+            onThinkingChange: vi.fn(),
+            session: {
+                updateMetadata: vi.fn(),
+                sendAgentMessageCommitted: vi.fn(async () => {}),
+                sendCodexMessage: vi.fn(),
+            } as any,
+            permissionHandler: permissionHandler as any,
+        } as any);
+
+        await runtime.startOrLoad({});
+        await runtime.sendPrompt('bridge-external-approval-resolution');
+
+        expect(permissionHandler.handleToolCall).toHaveBeenCalledWith(
+            'cmd_external',
+            'CodexBash',
+            { command: 'git fetch origin', cwd: '/repo' },
+        );
+        expect(permissionHandler.cancelPendingRequest).toHaveBeenCalledWith(
+            'cmd_external',
+            'Resolved in another Codex client',
         );
     });
 

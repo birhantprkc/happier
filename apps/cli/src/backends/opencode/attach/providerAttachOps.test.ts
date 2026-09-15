@@ -20,6 +20,7 @@ describe('openCodeProviderAttachOps', () => {
 
   it('classifies same-machine OpenCode sessions as local attach', async () => {
     await expect(openCodeProviderAttachOps.evaluateEligibility({
+      sessionId: 'happy-opencode-local',
       metadata: {
         path: '/tmp/opencode-workspace',
         opencodeSessionId: 'session-1',
@@ -47,6 +48,7 @@ describe('openCodeProviderAttachOps', () => {
     }));
 
     await expect(openCodeProviderAttachOps.evaluateEligibility({
+      sessionId: 'happy-opencode-marker',
       metadata: {
         path: '/tmp/opencode-workspace',
         opencodeSessionId: 'session-1',

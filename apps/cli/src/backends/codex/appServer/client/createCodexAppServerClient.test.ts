@@ -1,4 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import * as childProcess from 'node:child_process';
 
@@ -25,6 +27,69 @@ vi.mock('node:child_process', async (importOriginal) => {
 });
 
 describe('createCodexAppServerClient', () => {
+    it('speaks JSON-RPC over the shared app-server Unix WebSocket', async () => {
+        await withTempDir('happier-codex-app-server-client-websocket-', async (root) => {
+            type TestSocket = Readonly<{
+                on: (event: 'message', listener: (payload: unknown) => void) => void;
+                send: (payload: string) => void;
+            }>;
+            type TestWebSocketServer = Readonly<{
+                on: (event: 'connection', listener: (socket: TestSocket) => void) => void;
+                close: (callback: () => void) => void;
+            }>;
+            type TestWebSocketModule = Readonly<{
+                WebSocketServer: new (params: Readonly<{
+                    server: ReturnType<typeof createServer>;
+                    verifyClient: (
+                        info: Readonly<{ req: Readonly<{ headers: Readonly<Record<string, string | string[] | undefined>> }> }>,
+                        done: (allowed: boolean) => void,
+                    ) => void;
+                }>) => TestWebSocketServer;
+            }>;
+
+            const socketPath = process.platform === 'win32'
+                ? `\\\\.\\pipe\\happier-codex-test-${process.pid}-${Date.now()}`
+                : join(root, 'app-server.sock');
+            const httpServer = createServer();
+            const { WebSocketServer } = createRequire(import.meta.url)('ws') as unknown as TestWebSocketModule;
+            const webSocketServer = new WebSocketServer({
+                server: httpServer,
+                // Codex's tungstenite endpoint closes the handshake when clients offer
+                // permessage-deflate, so keep this fixture aligned with that real boundary.
+                verifyClient: (info, done) => done(info.req.headers['sec-websocket-extensions'] === undefined),
+            });
+            webSocketServer.on('connection', (socket) => {
+                socket.on('message', (payload) => {
+                    if (!Buffer.isBuffer(payload)) return;
+                    const message = JSON.parse(payload.toString('utf8')) as { id?: number; method?: string };
+                    if (message.method === 'initialize') {
+                        socket.send(JSON.stringify({ id: message.id, result: {} }));
+                    } else if (message.method === 'test/ping') {
+                        socket.send(JSON.stringify({ id: message.id, result: { pong: true } }));
+                    }
+                });
+            });
+            await new Promise<void>((resolve, reject) => {
+                httpServer.once('error', reject);
+                httpServer.listen(socketPath, resolve);
+            });
+
+            const spawn = vi.mocked(childProcess.spawn);
+            spawn.mockClear();
+            const client = await createCodexAppServerClient({
+                transport: { kind: 'unixWebSocket', socketPath },
+            });
+            try {
+                await expect(client.request('test/ping')).resolves.toEqual({ pong: true });
+                expect(spawn).not.toHaveBeenCalled();
+            } finally {
+                await client.dispose();
+                await new Promise<void>((resolve) => webSocketServer.close(resolve));
+                await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+            }
+        });
+    });
+
     it('settles pending requests and reports stdin failure without an uncaught stream error', async () => {
         await withTempDir('happier-codex-app-server-client-stdin-error-', async (root) => {
             const fakeAppServer = await writeFakeCodexAppServerScript({
