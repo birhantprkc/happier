@@ -131,6 +131,19 @@ describe('protocol package root exports', () => {
         expect(protocol.DirectSessionsSourceSchema.safeParse({ kind: 'piAgentDir', agentDir: '/custom/.pi/agent' }).success).toBe(true);
         expect(protocol.DirectSessionsSourceSchema.safeParse({ kind: 'piAgentDir', agentDir: '' }).success).toBe(false);
         expect(typeof protocol.DirectSessionsCandidatesListRequestSchema?.safeParse).toBe('function');
+        expect(protocol.DirectSessionsCandidatesListResponseSchema.safeParse({
+            ok: true,
+            candidates: [],
+            nextCursor: null,
+            capabilities: { deleteCandidate: true },
+        }).success).toBe(true);
+        expect(protocol.DirectSessionCandidateDeleteRequestSchema.safeParse({
+            machineId: 'machine-1',
+            providerId: 'kimi',
+            source: { kind: 'acpSessionList' },
+            remoteSessionId: 'provider-session-1',
+        }).success).toBe(true);
+        expect(protocol.DirectSessionCandidateDeleteResponseSchema.safeParse({ ok: true, deleted: true }).success).toBe(true);
         expect(typeof protocol.DirectTranscriptPageRequestSchema?.safeParse).toBe('function');
         expect(typeof protocol.DirectTranscriptReadAfterRequestSchema?.safeParse).toBe('function');
         expect(typeof protocol.DirectSessionLinkEnsureRequestSchema?.safeParse).toBe('function');

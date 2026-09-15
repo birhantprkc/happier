@@ -5972,6 +5972,10 @@ deps: {
         browseLoadMore: "Carrega més sessions",
         browseFailedToLoad: "No s'han pogut carregar les sessions del proveïdor.",
         browseLinkFailed: "No s'ha pogut enllaçar la sessió del proveïdor seleccionada.",
+        deleteCandidateActionsAccessibilityLabel: ({ title }: { title: string }) => `Més accions per a ${title}`,
+        deleteCandidateConfirmTitle: "Vols suprimir la sessió del proveïdor?",
+        deleteCandidateConfirmMessage: ({ title, provider }: { title: string; provider: string }) => `Vols suprimir “${title}” de ${provider}? Aquesta acció no es pot desfer.`,
+        deleteCandidateFailed: "No s'ha pogut suprimir la sessió del proveïdor.",
     },
 
     workspacePresentation: {

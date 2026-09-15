@@ -15,6 +15,9 @@ export type DirectSessionCandidatesPage = Readonly<{
   candidates: DirectSessionCandidateV1[];
   nextCursor: string | null;
   searchIncomplete?: boolean;
+  capabilities?: Readonly<{
+    deleteCandidate: boolean;
+  }>;
 }>;
 
 export type DirectSessionActivitySample = Readonly<{
@@ -60,6 +63,10 @@ export type DirectSessionProviderOps = Readonly<{
     searchTerm?: string;
     searchMode?: 'fast' | 'full';
   }>) => Promise<DirectSessionCandidatesPage>;
+  deleteCandidate?: (params: Readonly<{
+    source: DirectSessionsSource;
+    remoteSessionId: string;
+  }>) => Promise<void>;
   getActivity?: (params: Readonly<{
     source: DirectSessionsSource;
     remoteSessionId: string;

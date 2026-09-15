@@ -6129,6 +6129,10 @@ export const zhHans: TranslationStructure = {
     browseLoadMore: "加载更多会话",
     browseFailedToLoad: "加载提供方会话失败。",
     browseLinkFailed: "关联所选提供方会话失败。",
+    deleteCandidateActionsAccessibilityLabel: ({ title }: { title: string }) => `${title} 的更多操作`,
+    deleteCandidateConfirmTitle: "删除提供方会话？",
+    deleteCandidateConfirmMessage: ({ title, provider }: { title: string; provider: string }) => `要从 ${provider} 删除“${title}”吗？此操作无法撤销。`,
+    deleteCandidateFailed: "无法删除提供方会话。",
   },
 
     workspacePresentation: {

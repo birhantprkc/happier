@@ -5958,6 +5958,10 @@ export const fr: TranslationStructure = {
         browseLoadMore: 'Charger plus de sessions',
         browseFailedToLoad: 'Échec du chargement des sessions provider.',
         browseLinkFailed: 'Échec de la liaison de la session provider sélectionnée.',
+        deleteCandidateActionsAccessibilityLabel: ({ title }: { title: string }) => `Plus d’actions pour ${title}`,
+        deleteCandidateConfirmTitle: 'Supprimer la session du provider ?',
+        deleteCandidateConfirmMessage: ({ title, provider }: { title: string; provider: string }) => `Supprimer « ${title} » de ${provider} ? Cette action est irréversible.`,
+        deleteCandidateFailed: 'Impossible de supprimer la session du provider.',
     },
 
 	    sessionInfo: {

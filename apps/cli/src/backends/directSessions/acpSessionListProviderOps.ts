@@ -18,6 +18,7 @@ import {
 
 type AcpSessionListingBackend = AgentBackend & {
   listSessions?: (params: Readonly<{ cwd?: string | null; cursor?: string | null }>) => Promise<AcpSessionListPage>;
+  deleteSession?: (params: Readonly<{ sessionId: string }>) => Promise<void>;
 };
 
 async function createSharedAcpBackend(params: Readonly<{ agentId: AgentId; cwd: string }>): Promise<AgentBackend> {
@@ -103,9 +104,39 @@ export function createAcpSessionListDirectSessionProviderOps(agentId: AgentId): 
       return {
         candidates: matched.map(toCandidate),
         nextCursor: page.nextCursor,
+        capabilities: { deleteCandidate: page.canDelete },
         // ACP owns pagination, so a search only saw the page the agent returned.
         ...(normalizedSearchTerm ? { searchIncomplete: true } : {}),
       };
+    },
+    deleteCandidate: async ({ source, remoteSessionId }): Promise<void> => {
+      if (source.kind !== 'acpSessionList') {
+        throw new DirectSessionsProviderUnavailableError(
+          `Agent '${agentId}' only deletes sessions through the ACP session/list source.`,
+        );
+      }
+      if (!isBuiltInAcpSessionListingDeclared(agentId)) {
+        throw new DirectSessionsProviderUnavailableError(
+          `Agent '${agentId}' does not declare ACP session listing.`,
+        );
+      }
+
+      const backend = (await createSharedAcpBackend({ agentId, cwd: process.cwd() })) as AcpSessionListingBackend;
+      try {
+        if (typeof backend.deleteSession !== 'function') {
+          throw new DirectSessionsProviderUnavailableError(
+            `Agent '${agentId}' backend does not implement ACP session deletion.`,
+          );
+        }
+        await backend.deleteSession({ sessionId: remoteSessionId });
+      } catch (error) {
+        if (error instanceof AcpSessionCapabilityNotNegotiatedError) {
+          throw new DirectSessionsProviderUnavailableError(error.message);
+        }
+        throw error;
+      } finally {
+        await backend.dispose().catch(() => undefined);
+      }
     },
   };
 }

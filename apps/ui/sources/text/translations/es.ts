@@ -6332,6 +6332,10 @@ export const es: TranslationStructure = {
     browseLoadMore: "Cargar más sesiones",
     browseFailedToLoad: "No se pudieron cargar las sesiones del proveedor.",
     browseLinkFailed: "No se pudo vincular la sesión del proveedor seleccionada.",
+    deleteCandidateActionsAccessibilityLabel: ({ title }: { title: string }) => `Más acciones para ${title}`,
+    deleteCandidateConfirmTitle: "¿Eliminar la sesión del proveedor?",
+    deleteCandidateConfirmMessage: ({ title, provider }: { title: string; provider: string }) => `¿Eliminar “${title}” de ${provider}? Esta acción no se puede deshacer.`,
+    deleteCandidateFailed: "No se pudo eliminar la sesión del proveedor.",
   },
 
     workspacePresentation: {

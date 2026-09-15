@@ -5310,6 +5310,10 @@ export const ru: TranslationStructure = {
     browseLoadMore: "Загрузить ещё сессии",
     browseFailedToLoad: "Не удалось загрузить сессии провайдера.",
     browseLinkFailed: "Не удалось привязать выбранную сессию провайдера.",
+    deleteCandidateActionsAccessibilityLabel: ({ title }: { title: string }) => `Другие действия для ${title}`,
+    deleteCandidateConfirmTitle: "Удалить сессию провайдера?",
+    deleteCandidateConfirmMessage: ({ title, provider }: { title: string; provider: string }) => `Удалить «${title}» из ${provider}? Это действие нельзя отменить.`,
+    deleteCandidateFailed: "Не удалось удалить сессию провайдера.",
   },
 
     workspacePresentation: {

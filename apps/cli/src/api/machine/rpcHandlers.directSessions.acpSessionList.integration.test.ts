@@ -26,6 +26,8 @@ import { registerMachineDirectSessionsRpcHandlers } from './rpcHandlers.directSe
 type ListResponse = Readonly<{
   ok: boolean;
   candidates?: ReadonlyArray<{ remoteSessionId: string; title?: string; updatedAtMs: number }>;
+  capabilities?: Readonly<{ deleteCandidate: boolean }>;
+  deleted?: boolean;
   nextCursor?: string | null;
   searchIncomplete?: boolean;
   errorCode?: string;
@@ -39,19 +41,30 @@ type ListResponse = Readonly<{
  * `negotiateList: false` reproduces an agent whose static catalog declaration promises listing
  * but whose live handshake does not advertise `sessionCapabilities.list`.
  */
-function fakeAcpAgentSource(params: Readonly<{ evidenceDir: string; negotiateList: boolean }>): string {
+function fakeAcpAgentSource(params: Readonly<{
+  evidenceDir: string;
+  negotiateList: boolean;
+  negotiateDelete?: boolean;
+  deleteFails?: boolean;
+}>): string {
   return `#!/usr/bin/env node
 import { appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const evidenceDir = ${JSON.stringify(params.evidenceDir)};
 const negotiateList = ${JSON.stringify(params.negotiateList)};
+const negotiateDelete = ${JSON.stringify(params.negotiateDelete ?? params.negotiateList)};
+const deleteFails = ${JSON.stringify(params.deleteFails ?? false)};
 const send = (message) => process.stdout.write(JSON.stringify(message) + '\\n');
 const ok = (id, result) => send({ jsonrpc: '2.0', id, result });
 
-const sessionCapabilities = negotiateList
-  ? { list: {}, resume: {}, close: {}, delete: {}, fork: {} }
-  : { resume: {}, close: {}, delete: {}, fork: {} };
+const sessionCapabilities = {
+  ...(negotiateList ? { list: {} } : {}),
+  ...(negotiateDelete ? { delete: {} } : {}),
+  resume: {},
+  close: {},
+  fork: {},
+};
 
 process.on('SIGTERM', () => {
   appendFileSync(join(evidenceDir, 'terminated.log'), 'SIGTERM\\n');
@@ -98,6 +111,13 @@ process.stdin.on('data', (chunk) => {
         ],
         nextCursor: 'page-2',
       });
+    } else if (request.method === 'session/delete') {
+      appendFileSync(join(evidenceDir, 'delete-requests.jsonl'), JSON.stringify(request.params ?? null) + '\\n');
+      if (deleteFails) {
+        send({ jsonrpc: '2.0', id: request.id, error: { code: -32000, message: 'provider refused deletion' } });
+      } else {
+        ok(request.id, {});
+      }
     } else {
       ok(request.id, {});
     }
@@ -108,9 +128,20 @@ appendFileSync(join(evidenceDir, 'started.log'), 'started\\n');
 `;
 }
 
-function writeFakeAgent(params: Readonly<{ dir: string; fileName: string; negotiateList: boolean }>): string {
+function writeFakeAgent(params: Readonly<{
+  dir: string;
+  fileName: string;
+  negotiateList: boolean;
+  negotiateDelete?: boolean;
+  deleteFails?: boolean;
+}>): string {
   const scriptPath = join(params.dir, params.fileName);
-  writeFileSync(scriptPath, fakeAcpAgentSource({ evidenceDir: params.dir, negotiateList: params.negotiateList }), 'utf8');
+  writeFileSync(scriptPath, fakeAcpAgentSource({
+    evidenceDir: params.dir,
+    negotiateList: params.negotiateList,
+    negotiateDelete: params.negotiateDelete,
+    deleteFails: params.deleteFails,
+  }), 'utf8');
   chmodSync(scriptPath, 0o755);
   return scriptPath;
 }
@@ -126,6 +157,17 @@ function countLines(dir: string, fileName: string): number {
 function readListRequests(dir: string): Array<Record<string, unknown> | null> {
   try {
     return readFileSync(join(dir, 'list-requests.jsonl'), 'utf8')
+      .split('\n')
+      .filter((line) => line.trim().length > 0)
+      .map((line) => JSON.parse(line) as Record<string, unknown> | null);
+  } catch {
+    return [];
+  }
+}
+
+function readDeleteRequests(dir: string): Array<Record<string, unknown> | null> {
+  try {
+    return readFileSync(join(dir, 'delete-requests.jsonl'), 'utf8')
       .split('\n')
       .filter((line) => line.trim().length > 0)
       .map((line) => JSON.parse(line) as Record<string, unknown> | null);
@@ -176,6 +218,7 @@ describe.skipIf(process.platform === 'win32')('registerMachineDirectSessionsRpcH
     expect(first.candidates?.map((candidate) => candidate.remoteSessionId)).toEqual(['  sess_alpha  ']);
     expect(first.candidates?.[0]?.title).toBe('Alpha');
     expect(first.candidates?.[0]?.updatedAtMs).toBe(Date.parse('2026-09-01T10:00:00.000Z'));
+    expect(first.capabilities).toEqual({ deleteCandidate: true });
     expect(first.nextCursor).toBe('page-2');
 
     const second = (await handler({
@@ -234,6 +277,70 @@ describe.skipIf(process.platform === 'win32')('registerMachineDirectSessionsRpcH
 
     expect(res.ok).toBe(false);
     expect(res.errorCode).toBe('invalid_request');
+  });
+
+  it('advertises and dispatches exactly one provider-owned delete after live negotiation', async () => {
+    vi.stubEnv('HAPPIER_KIMI_PATH', writeFakeAgent({ dir, fileName: 'fake-kimi.mjs', negotiateList: true }));
+    const handler = registered.get(RPC_METHODS.DAEMON_DIRECT_SESSION_CANDIDATE_DELETE)!;
+
+    const res = (await handler({
+      machineId: 'm1',
+      providerId: 'kimi',
+      source: { kind: 'acpSessionList', cwd: '/work/repo' },
+      remoteSessionId: '  sess_alpha  ',
+    })) as ListResponse;
+
+    expect(res).toEqual({ ok: true, deleted: true });
+    expect(readDeleteRequests(dir)).toEqual([{ sessionId: '  sess_alpha  ' }]);
+  });
+
+  it('does not advertise or dispatch delete when the live handshake omits it', async () => {
+    vi.stubEnv('HAPPIER_FX_PATH', writeFakeAgent({
+      dir,
+      fileName: 'fake-fx-no-delete.mjs',
+      negotiateList: true,
+      negotiateDelete: false,
+    }));
+
+    const listed = (await registered.get(RPC_METHODS.DAEMON_DIRECT_SESSIONS_CANDIDATES_LIST)!({
+      machineId: 'm1',
+      providerId: 'fx',
+      source: { kind: 'acpSessionList', cwd: '/work/repo' },
+    })) as ListResponse;
+    expect(listed.ok).toBe(true);
+    expect(listed.capabilities).toEqual({ deleteCandidate: false });
+
+    const deleted = (await registered.get(RPC_METHODS.DAEMON_DIRECT_SESSION_CANDIDATE_DELETE)!({
+      machineId: 'm1',
+      providerId: 'fx',
+      source: { kind: 'acpSessionList', cwd: '/work/repo' },
+      remoteSessionId: 'sess_alpha',
+    })) as ListResponse;
+    expect(deleted.ok).toBe(false);
+    expect(deleted.errorCode).toBe('provider_unavailable');
+    expect(deleted.error).toMatch(/negotiate/i);
+    expect(readDeleteRequests(dir)).toEqual([]);
+  });
+
+  it('surfaces provider delete failures without retrying the destructive request', async () => {
+    vi.stubEnv('HAPPIER_KIMI_PATH', writeFakeAgent({
+      dir,
+      fileName: 'fake-kimi-delete-fails.mjs',
+      negotiateList: true,
+      deleteFails: true,
+    }));
+
+    const res = (await registered.get(RPC_METHODS.DAEMON_DIRECT_SESSION_CANDIDATE_DELETE)!({
+      machineId: 'm1',
+      providerId: 'kimi',
+      source: { kind: 'acpSessionList', cwd: '/work/repo' },
+      remoteSessionId: 'sess_alpha',
+    })) as ListResponse;
+
+    expect(res.ok).toBe(false);
+    expect(res.errorCode).toBe('internal_error');
+    expect(res.error).toMatch(/provider refused deletion/i);
+    expect(readDeleteRequests(dir)).toEqual([{ sessionId: 'sess_alpha' }]);
   });
 
   it('rejects a relative cwd filter instead of resolving it against the daemon working directory', async () => {

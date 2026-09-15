@@ -5992,6 +5992,10 @@ export const en = {
         browseLoadMore: 'Load more sessions',
         browseFailedToLoad: 'Failed to load provider sessions.',
         browseLinkFailed: 'Failed to link the selected provider session.',
+        deleteCandidateActionsAccessibilityLabel: ({ title }: { title: string }) => `More actions for ${title}`,
+        deleteCandidateConfirmTitle: 'Delete provider session?',
+        deleteCandidateConfirmMessage: ({ title, provider }: { title: string; provider: string }) => `Delete “${title}” from ${provider}? This can’t be undone.`,
+        deleteCandidateFailed: 'Failed to delete the provider session.',
     },
 
 	    sessionInfo: {

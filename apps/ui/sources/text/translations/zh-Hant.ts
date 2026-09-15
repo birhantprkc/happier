@@ -5350,6 +5350,10 @@ const zhHantOverrides: DeepPartial<TranslationStructure> = {
         browseLoadMore: "載入更多工作階段",
         browseFailedToLoad: "載入提供者工作階段失敗。",
         browseLinkFailed: "連結所選提供者工作階段失敗。",
+        deleteCandidateActionsAccessibilityLabel: ({ title }: { title: string }) => `${title} 的更多操作`,
+        deleteCandidateConfirmTitle: "刪除提供者工作階段？",
+        deleteCandidateConfirmMessage: ({ title, provider }: { title: string; provider: string }) => `要從 ${provider} 刪除「${title}」嗎？此操作無法復原。`,
+        deleteCandidateFailed: "無法刪除提供者工作階段。",
     },
 
     workspacePresentation: {

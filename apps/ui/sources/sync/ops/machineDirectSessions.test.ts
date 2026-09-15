@@ -108,6 +108,31 @@ describe('machine direct sessions ops server-scoped routing', () => {
         }));
     });
 
+    it('routes provider-owned candidate deletion through server-scoped machine rpc', async () => {
+        machineRpcWithServerScopeMock.mockResolvedValueOnce({ ok: true, deleted: true });
+        const { machineDirectSessionCandidateDelete } = await import('./machineDirectSessions');
+
+        const result = await machineDirectSessionCandidateDelete({
+            machineId: 'machine-1',
+            providerId: 'kimi',
+            remoteSessionId: 'vendor-session-1',
+            source: { kind: 'acpSessionList', cwd: '/work/repo' },
+        }, { serverId: 'server-a' });
+
+        expect(result).toEqual({ ok: true, deleted: true });
+        expect(machineRpcWithServerScopeMock).toHaveBeenCalledWith(expect.objectContaining({
+            machineId: 'machine-1',
+            serverId: 'server-a',
+            method: 'daemon.directSessions.candidate.delete',
+            payload: {
+                machineId: 'machine-1',
+                providerId: 'kimi',
+                remoteSessionId: 'vendor-session-1',
+                source: { kind: 'acpSessionList', cwd: '/work/repo' },
+            },
+        }));
+    });
+
     it('routes direct transcript paging through server-scoped machine rpc', async () => {
         machineRpcWithServerScopeMock.mockResolvedValueOnce({
             ok: true,

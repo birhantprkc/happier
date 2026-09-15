@@ -833,6 +833,7 @@ export type AcpListedSession = Readonly<{
 export type AcpSessionListPage = Readonly<{
   sessions: readonly AcpListedSession[];
   nextCursor: string | null;
+  canDelete: boolean;
 }>;
 
 function readAcpNegotiatedSessionCapabilities(agentCapabilities: unknown): NegotiatedAcpSessionCapabilities {
@@ -2090,7 +2091,29 @@ export class AcpBackend implements AgentBackend {
     return {
       sessions,
       nextCursor: readNonBlankOpaqueIdentifier(response?.nextCursor),
+      canDelete: negotiated.delete,
     };
+  }
+
+  /** Delete one provider-owned session through ACP `session/delete`. */
+  async deleteSession(params: Readonly<{ sessionId: SessionId }>): Promise<void> {
+    if (this.disposed) {
+      throw new Error('Backend has been disposed');
+    }
+
+    const sessionId = readNonBlankOpaqueIdentifier(params.sessionId);
+    if (!sessionId) {
+      throw new Error('Session ID is required');
+    }
+
+    const negotiated = this.connection
+      ? this.negotiatedSessionCapabilities
+      : (await this.createConnectionAndInitialize({ operationId: randomUUID() })).negotiatedSessionCapabilities;
+    if (!negotiated.delete) {
+      throw new AcpSessionCapabilityNotNegotiatedError(this.transport.agentName, 'session/delete');
+    }
+
+    await this.connection!.peer.deleteSession({ sessionId });
   }
 
   /**

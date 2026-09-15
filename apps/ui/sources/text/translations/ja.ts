@@ -6595,6 +6595,10 @@ localTailscale: {
     browseLoadMore: "さらにセッションを読み込む",
     browseFailedToLoad: "プロバイダー セッションの読み込みに失敗しました。",
     browseLinkFailed: "選択したプロバイダー セッションのリンクに失敗しました。",
+    deleteCandidateActionsAccessibilityLabel: ({ title }: { title: string }) => `${title} のその他の操作`,
+    deleteCandidateConfirmTitle: "プロバイダー セッションを削除しますか？",
+    deleteCandidateConfirmMessage: ({ title, provider }: { title: string; provider: string }) => `${provider} から「${title}」を削除しますか？この操作は元に戻せません。`,
+    deleteCandidateFailed: "プロバイダー セッションを削除できませんでした。",
   },
 
     workspacePresentation: {

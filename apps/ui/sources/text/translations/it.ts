@@ -6675,6 +6675,10 @@ export const it: TranslationStructure = {
     browseLoadMore: "Carica altre sessioni",
     browseFailedToLoad: "Impossibile caricare le sessioni del provider.",
     browseLinkFailed: "Impossibile collegare la sessione del provider selezionata.",
+    deleteCandidateActionsAccessibilityLabel: ({ title }: { title: string }) => `Altre azioni per ${title}`,
+    deleteCandidateConfirmTitle: "Eliminare la sessione del provider?",
+    deleteCandidateConfirmMessage: ({ title, provider }: { title: string; provider: string }) => `Eliminare “${title}” da ${provider}? Questa azione non può essere annullata.`,
+    deleteCandidateFailed: "Impossibile eliminare la sessione del provider.",
   },
 
     workspacePresentation: {
