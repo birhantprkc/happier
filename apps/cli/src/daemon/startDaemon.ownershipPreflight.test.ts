@@ -105,7 +105,7 @@ describe('startDaemon ownership preflight', () => {
     afterEach(() => {
         for (const [event, originalListeners] of processListenersBeforeTest) {
             const retainedListeners = new Set(originalListeners);
-            for (const listener of process.rawListeners(event)) {
+            for (const listener of process.rawListeners(event) as Array<(...args: any[]) => void>) {
                 if (!retainedListeners.has(listener)) {
                     process.removeListener(event, listener);
                 }
