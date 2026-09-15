@@ -80,6 +80,35 @@ describe('daemon control client (HTTP error responses)', () => {
     }
   });
 
+  it('uses authenticated daemon control when the caller cannot observe the daemon PID namespace', async () => {
+    let observedToken: string | undefined;
+    const server = http.createServer((req, res) => {
+      observedToken = req.headers['x-happier-daemon-token'] as string | undefined;
+      res.statusCode = 200;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ children: [{ pid: 42, metadata: null }] }));
+    });
+
+    try {
+      const { port } = await listen(server);
+      tmpHomeDir = await createTempDir('happier-daemon-client-pid-namespace-');
+      envScope.patch({ HAPPIER_HOME_DIR: tmpHomeDir });
+      reloadConfiguration();
+      writeDaemonState({
+        pid: 987_654_321,
+        httpPort: port,
+        startedAt: Date.now(),
+        startedWithCliVersion: 'test',
+        controlToken: 'test-token',
+      });
+
+      await expect(controlClient.listDaemonSessions()).resolves.toEqual([{ pid: 42, metadata: null }]);
+      expect(observedToken).toBe('test-token');
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
   it('does not manufacture a wall-clock abort signal for lifecycle-owned local requests', async () => {
     const server = http.createServer((_req, res) => {
       res.statusCode = 200;

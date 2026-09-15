@@ -368,16 +368,6 @@ async function daemonPost(path: string, body?: any, options: DaemonPostOptions =
   }
 
   try {
-    process.kill(state.pid, 0);
-  } catch (error) {
-    const errorMessage = 'Daemon is not running, file is stale';
-    logger.debug(`[CONTROL CLIENT] ${errorMessage}`);
-    return {
-      error: errorMessage
-    };
-  }
-
-  try {
     const timeout = resolveDaemonControlTimeoutMs(path, options);
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     const authToken = options.authScope === 'connected-service-broker-refresh'
