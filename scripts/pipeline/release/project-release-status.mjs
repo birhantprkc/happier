@@ -65,6 +65,23 @@ export function projectReleaseStatus(mode, env) {
   };
 
   if (mode === 'nightly') {
+    const decision = choice(env, 'NIGHTLY_DECISION', ['publish', 'already_current', 'blocked_ci']);
+    if (decision !== 'publish') {
+      const complete = decision === 'already_current';
+      const id = complete ? 'rolling_release_current' : 'source_ci_admission';
+      return summarizeReleaseStatus({
+        run: baseRun(env),
+        channel: 'dev',
+        sourceSha,
+        requestedSurfaces: [{ id, requested: true, required: true, evidence: 'verified' }],
+        surfaces: [{
+          id,
+          result: complete ? 'success' : 'failed',
+          identity: { sourceSha, verified: complete },
+          recoveryHint: complete ? { job: 'nightly_noop' } : { job: 'nightly_waiting_for_ci' },
+        }],
+      });
+    }
     const item = (id, required, evidence, name, verified, recoveryHint) => ({
       id,
       requested: true,

@@ -61,7 +61,7 @@ test('nightly-dev verifies exact immutable candidates before promoting rolling r
   );
 });
 
-test('nightly-dev admits exact-SHA CI before builds and safely skips an already completed scheduled SHA', async () => {
+test('nightly-dev publishes the newest forward-only CI-certified dev SHA and reports blocked newer heads', async () => {
   const raw = await readFile(join(repoRoot, '.github', 'workflows', 'nightly-dev.yml'), 'utf8');
 
   assert.match(
@@ -71,12 +71,17 @@ test('nightly-dev admits exact-SHA CI before builds and safely skips an already 
   );
   assert.match(raw, /CI_RUN_ID:\s*\$\{\{ needs\.prepare_release_candidate\.outputs\.ci_run_id \}\}/, 'the bound CI run id must be passed through an environment variable');
   assert.match(raw, /--run-id "\$CI_RUN_ID"/, 'CI run id must be shell-quoted when forwarded to the verifier');
-  assert.match(raw, /EVENT_NAME[\s\S]*?actions\/workflows\/tests\.yml\/runs\?branch=dev&head_sha=\$\{SOURCE_SHA\}[\s\S]*?waiting_for_ci=true/);
+  assert.match(
+    raw,
+    /EVENT_NAME[\s\S]*?actions\/workflows\/tests\.yml\/runs\?branch=dev&event=push&status=success&per_page=100[\s\S]*?head_branch == "dev"[\s\S]*?source_sha=\$candidate_sha/,
+    'scheduled nightlies must bind the newest successful canonical dev CI instead of requiring current HEAD itself to be green',
+  );
+  assert.doesNotMatch(raw, /actions\/workflows\/tests\.yml\/runs\?[^\n]*head_sha=/);
   assert.doesNotMatch(raw, /format\(\x27--run-id \{0\}\x27/, 'CI run id must not be interpolated into an unquoted shell fragment');
   assert.match(
     raw,
-    /prepare_release_candidate:[\s\S]*?release_needed:\s*\$\{\{ steps\.release_need\.outputs\.release_needed \}\}[\s\S]*?EVENT_NAME:[\s\S]*?github\.event_name[\s\S]*?gh run list[\s\S]*?for tag in server-dev stack-dev cli-dev ui-web-dev[\s\S]*?release_needed=false/,
-    'scheduled no-op requires both a prior successful exact-SHA nightly and all core tags at that SHA',
+    /prepare_release_candidate:[\s\S]*?decision:\s*\$\{\{ steps\.release_need\.outputs\.decision \}\}[\s\S]*?for tag in server-dev stack-dev cli-dev ui-web-dev[\s\S]*?compare\/\$\{actual\}\.\.\.\$\{SOURCE_SHA\}[\s\S]*?blocked_ci[\s\S]*?already_current/,
+    'scheduled publication must reject rollback/divergence and distinguish a blocked newer head from an already-current green head',
   );
   for (const job of ['cli', 'hstack', 'server_runtime', 'ui_web', 'resolve_validation_risk']) {
     assert.match(
@@ -85,8 +90,10 @@ test('nightly-dev admits exact-SHA CI before builds and safely skips an already 
       `${job} must not run for a proven unchanged scheduled nightly`,
     );
   }
+  assert.match(raw, /nightly_waiting_for_ci:[\s\S]*?exit 1/);
   assert.match(raw, /nightly_noop:[\s\S]*?release_needed == 'false'[\s\S]*?already completed and promoted/);
-  assert.match(raw, /release_status:[\s\S]*?release_needed != 'false'/);
+  assert.match(raw, /release_status:[\s\S]*?if:\s*\$\{\{ always\(\) \}\}[\s\S]*?nightly_waiting_for_ci[\s\S]*?nightly_noop/);
+  assert.match(raw, /NIGHTLY_DECISION:\s*\$\{\{ needs\.prepare_release_candidate\.outputs\.decision \|\| 'blocked_ci' \}\}/);
 });
 
 test('nightly-dev propagates generic unattended copy and terminal status', async () => {
@@ -133,7 +140,7 @@ test('ordinary nightlies advance the pre-bound source issue snapshot only after 
   assert.match(raw, /prepare_release_candidate:[\s\S]*?needs:\s*\[resolve_resume, snapshot_source_issues\]/);
   assert.match(
     raw,
-    /advance_source_issues_to_dev:[\s\S]*?needs:\s*\[snapshot_source_issues, verify_promoted\][\s\S]*?issues:\s*write[\s\S]*?reconcile-issue-stage\.mjs advance[\s\S]*?from-stage "stage:source"[\s\S]*?to-stage "stage:dev"/,
+    /advance_source_issues_to_dev:[\s\S]*?source_sha == needs\.prepare_release_candidate\.outputs\.head_sha[\s\S]*?needs:\s*\[snapshot_source_issues, prepare_release_candidate, verify_promoted\][\s\S]*?issues:\s*write[\s\S]*?reconcile-issue-stage\.mjs advance[\s\S]*?from-stage "stage:source"[\s\S]*?to-stage "stage:dev"/,
   );
   assert.match(raw, /SOURCE_ISSUES_JSON:\s*\$\{\{ needs\.snapshot_source_issues\.outputs\.issues_json \}\}/);
   assert.match(raw, /RESUME_RUN_ID:\s*\$\{\{ inputs\.resume_run_id \}\}[\s\S]*?SOURCE_REF:\s*\$\{\{ inputs\.source_ref \}\}/);

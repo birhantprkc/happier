@@ -3,6 +3,36 @@ import assert from 'node:assert/strict';
 
 import { projectReleaseStatus } from './project-release-status.mjs';
 
+test('nightly status reports a CI-blocked scheduled head as terminal failure', () => {
+  const status = projectReleaseStatus('nightly', {
+    RELEASE_RUN: '40',
+    RELEASE_RUN_URL: 'https://github.com/happier-dev/happier/actions/runs/40',
+    RELEASE_RUN_NAME: 'NIGHTLY — Dev Releases',
+    SOURCE_SHA: '0'.repeat(40),
+    NIGHTLY_DECISION: 'blocked_ci',
+  });
+
+  assert.equal(status.terminal, 'failed');
+  assert.deepEqual(status.surfaces.map(({ id, state }) => ({ id, state })), [
+    { id: 'source_ci_admission', state: 'failed' },
+  ]);
+});
+
+test('nightly status reports an already promoted certified head as complete', () => {
+  const status = projectReleaseStatus('nightly', {
+    RELEASE_RUN: '41',
+    RELEASE_RUN_URL: 'https://github.com/happier-dev/happier/actions/runs/41',
+    RELEASE_RUN_NAME: 'NIGHTLY — Dev Releases',
+    SOURCE_SHA: '1'.repeat(40),
+    NIGHTLY_DECISION: 'already_current',
+  });
+
+  assert.equal(status.terminal, 'complete');
+  assert.deepEqual(status.surfaces.map(({ id, state }) => ({ id, state })), [
+    { id: 'rolling_release_current', state: 'complete' },
+  ]);
+});
+
 test('nightly status preserves an independently verified sibling after grouped failure', () => {
   const status = projectReleaseStatus('nightly', {
     RELEASE_RUN: '42',
