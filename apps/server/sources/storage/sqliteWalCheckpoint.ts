@@ -184,12 +184,12 @@ export type SqliteIncrementalVacuumWorkerHandle = Readonly<{ stop: () => Promise
 export type StartSqliteWalCheckpointWorkerOptions = Readonly<{
     client: PrismaClientType;
     intervalMs: number;
-    // Injectable for tests; defaults to a real TRUNCATE checkpoint.
+    // Injectable for tests; defaults to PASSIVE-first maintenance with TRUNCATE only for backlog.
     runCheckpoint?: (client: PrismaClientType) => Promise<SqliteWalCheckpointResult>;
 }>;
 
 /**
- * Start a background worker that periodically issues `PRAGMA wal_checkpoint(TRUNCATE)`.
+ * Start a background worker that periodically runs PASSIVE-first WAL maintenance.
  *
  * Returns `null` when checkpointing is disabled (`intervalMs <= 0`). The returned
  * handle's `stop()` clears the timer and awaits any in-flight checkpoint so it is
