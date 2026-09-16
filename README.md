@@ -108,19 +108,6 @@ Happier grows through shared experience and collaboration.
 
 Learn more about the best ways to contribute in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Why “Happier”?
-
-We originally started as contributors to [Happy](https://github.com/slopus/happy), submitting fixes, improvements, and new features upstream. 
-
-We were using it daily for work and genuinely loved the concept.  
-Over time, we realized that our own needs required faster iteration that we could not comfortably explore within the main project.
-
-So we started building them for ourselves.
-
-After weeks of refining, fixing, and extending the foundation, we decided to share Happier so others could try it, use it, and help shape what comes next.
-
-Happier is about exploring a faster-moving, more collaborative direction, while remaining deeply grateful for the foundation Happy provided. We loved and still love Happy. ❤️ Happier would not exist without it.
-
 ## Key Features
 
 - **Broad provider support**<br />
@@ -394,6 +381,19 @@ Happier grows through shared experience and collaboration.
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
+
+## Why “Happier”?
+
+We originally started as contributors to [Happy](https://github.com/slopus/happy), submitting fixes, improvements, and new features upstream. 
+
+We were using it daily for work and genuinely loved the concept.  
+Over time, we realized that our own needs required faster iteration that we could not comfortably explore within the main project.
+
+So we started building them for ourselves.
+
+After weeks of refining, fixing, and extending the foundation, we decided to share Happier so others could try it, use it, and help shape what comes next.
+
+Happier is about exploring a faster-moving, more collaborative direction, while remaining deeply grateful for the foundation Happy provided. We loved and still love Happy. ❤️ Happier would not exist without it.
 
 ## License
 

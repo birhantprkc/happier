@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import * as tmp from 'tmp';
 
 import type { TerminalAttachmentId, TerminalHostAdapter, TerminalHostHandle } from '@/integrations/terminalHost/_types';
+import { logger } from '@/ui/logger';
 
 import {
   readTerminalAttachmentInfo,
@@ -47,7 +48,7 @@ function buildAdapter(dispose: TerminalHostAdapter['dispose']): TerminalHostAdap
     createOrAttachHost: async () => HANDLE,
     injectUserPrompt: async () => ({ status: 'injected', at: 1, bytesWritten: 1 }),
     interruptTurn: async () => undefined,
-    evaluateLiveness: async () => ({ paneAlive: true, observedAt: 1 }),
+    evaluateLiveness: vi.fn(async () => ({ paneAlive: true, observedAt: 1 })),
     dispose,
   };
 }
@@ -117,6 +118,77 @@ describe('executeTerminalHostDisposition', () => {
       removeAttachmentInfo: vi.fn(async () => false),
     })).resolves.toEqual({ status: 'destroyed', attachmentId: HANDLE.attachmentId, descriptorRetained: true });
     expect(dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('retires the descriptor when disposal reports failure but the exact host is positively dead', async () => {
+    const removeAttachmentInfo = vi.fn(async () => true);
+    const adapter = buildAdapter(async () => {
+      throw Object.assign(new Error('tmux target disappeared during kill'), { code: 'ENOENT' });
+    });
+    vi.mocked(adapter.evaluateLiveness).mockResolvedValue({
+      paneAlive: false,
+      paneDead: true,
+      observedAt: 2,
+    });
+
+    await expect(executeTerminalHostDisposition({
+      happyHomeDir: '/tmp/happy',
+      sessionId: 'session-disappeared-during-dispose',
+      expectedAttachmentId: HANDLE.attachmentId,
+      intent: { kind: 'destroy_owned_host', reason: 'explicit_user_stop' },
+      adapter,
+      readAttachmentInfo: vi.fn(async () => ({
+        version: 2 as const,
+        attachmentId: HANDLE.attachmentId,
+        sessionId: 'session-disappeared-during-dispose',
+        handle: HANDLE,
+        terminal: { mode: 'tmux' as const, tmux: { target: 'happy:owned-window' } },
+        updatedAt: 1,
+      })),
+      removeAttachmentInfo,
+    })).resolves.toEqual({ status: 'destroyed', attachmentId: HANDLE.attachmentId });
+
+    expect(adapter.evaluateLiveness).toHaveBeenCalledWith(HANDLE);
+    expect(removeAttachmentInfo).toHaveBeenCalledOnce();
+  });
+
+  it('retains the retry descriptor and logs the disposal failure when host death is unproven', async () => {
+    const warning = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const removal = vi.fn(async () => true);
+    const disposalError = Object.assign(new Error('permission denied while closing pane'), { code: 'EPERM' });
+    const adapter = buildAdapter(async () => {
+      throw disposalError;
+    });
+    vi.mocked(adapter.evaluateLiveness).mockResolvedValue({ paneAlive: true, observedAt: 2 });
+
+    await expect(executeTerminalHostDisposition({
+      happyHomeDir: '/tmp/happy',
+      sessionId: 'session-dispose-failed',
+      expectedAttachmentId: HANDLE.attachmentId,
+      intent: { kind: 'destroy_owned_host', reason: 'explicit_user_stop' },
+      adapter,
+      readAttachmentInfo: vi.fn(async () => ({
+        version: 2 as const,
+        attachmentId: HANDLE.attachmentId,
+        sessionId: 'session-dispose-failed',
+        handle: HANDLE,
+        terminal: { mode: 'tmux' as const, tmux: { target: 'happy:owned-window' } },
+        updatedAt: 1,
+      })),
+      removeAttachmentInfo: removal,
+    })).resolves.toEqual({ status: 'parked', reason: 'destroy_failed' });
+
+    expect(removal).not.toHaveBeenCalled();
+    expect(warning).toHaveBeenCalledWith(
+      '[TERMINAL HOST] Failed to destroy exact terminal host; retaining descriptor for retry',
+      expect.objectContaining({
+        sessionId: 'session-dispose-failed',
+        attachmentId: HANDLE.attachmentId,
+        hostKind: 'tmux',
+        error: disposalError,
+        livenessStatus: 'alive',
+      }),
+    );
   });
 
   it('retires remote ownership evidence before removing the local descriptor', async () => {

@@ -26,9 +26,10 @@ export type SqliteWalCheckpointResult = Readonly<{
     // SQLite returns 1 when the checkpoint could not run to completion because the
     // database was busy (e.g. a reader held the WAL), 0 otherwise.
     busy: number;
-    // Size of the WAL log in frames before the checkpoint.
+    // Number of frames in the WAL file.
     logFrames: number;
-    // Number of frames moved back into the database file.
+    // Total number of WAL frames that have been checkpointed, including frames
+    // checkpointed before this invocation.
     checkpointedFrames: number;
 }>;
 
@@ -182,19 +183,40 @@ export function startSqliteWalCheckpointWorker(
 
     let stopped = false;
     let inFlight: Promise<void> | null = null;
+    let consecutiveBusyCount = 0;
 
     const run = async (): Promise<void> => {
         if (stopped || inFlight) return;
         inFlight = (async () => {
+            const startedAtMs = Date.now();
             try {
                 const result = await runCheckpoint(options.client);
                 if (result.busy !== 0) {
+                    consecutiveBusyCount += 1;
+                    const outcome = result.logFrames > 0 && result.logFrames === result.checkpointedFrames
+                        ? "wal-reset-deferred"
+                        : "checkpoint-incomplete";
                     log(
-                        { module: "storage", event: "sqlite-wal-checkpoint-busy", sqliteWalCheckpoint: result },
-                        "SQLite WAL checkpoint could not fully complete (database busy)",
+                        {
+                            module: "storage",
+                            event: "sqlite-wal-checkpoint-busy",
+                            sqliteWalCheckpoint: {
+                                ...result,
+                                outcome,
+                                durationMs: Date.now() - startedAtMs,
+                                retryIntervalMs: options.intervalMs,
+                                consecutiveBusyCount,
+                            },
+                        },
+                        outcome === "wal-reset-deferred"
+                            ? "SQLite WAL frames were checkpointed, but the WAL reset was deferred because the database is busy; retry scheduled"
+                            : "SQLite WAL checkpoint was incomplete because the database is busy; retry scheduled",
                     );
+                } else {
+                    consecutiveBusyCount = 0;
                 }
             } catch (error) {
+                consecutiveBusyCount = 0;
                 log(
                     { module: "storage", event: "sqlite-wal-checkpoint-failed", error },
                     "SQLite WAL checkpoint failed",

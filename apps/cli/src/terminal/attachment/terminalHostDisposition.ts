@@ -1,4 +1,6 @@
 import type { TerminalAttachmentId, TerminalHostAdapter } from '@/integrations/terminalHost/_types';
+import { evaluateTerminalHostLivenessForRecovery } from '@/integrations/terminalHost/livenessPolicy';
+import { logger } from '@/ui/logger';
 import {
   readTerminalAttachmentInfo,
   removeTerminalAttachmentInfo,
@@ -121,8 +123,19 @@ export async function executeTerminalHostDisposition(input: Readonly<{
     }
     try {
       await input.adapter.dispose(handle);
-    } catch {
-      return { status: 'parked', reason: 'destroy_failed' };
+    } catch (error) {
+      const liveness = await evaluateTerminalHostLivenessForRecovery(input.adapter, handle);
+      if (liveness.status !== 'dead') {
+        logger.warn('[TERMINAL HOST] Failed to destroy exact terminal host; retaining descriptor for retry', {
+          sessionId: input.sessionId,
+          attachmentId: current.attachmentId,
+          hostKind: handle.kind,
+          error,
+          livenessStatus: liveness.status,
+          liveness: liveness.liveness,
+        });
+        return { status: 'parked', reason: 'destroy_failed' };
+      }
     }
     try {
       await input.beforeDescriptorRetirement?.({

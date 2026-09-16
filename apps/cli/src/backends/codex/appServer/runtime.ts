@@ -2875,36 +2875,39 @@ export function createCodexAppServerRuntime(params: Readonly<{
         return action === 'accept' ? { action, content: {} } : { action };
     };
 
-    const handleMcpElicitationRequest = async (
+    type PreparedProviderResponse = () => Promise<unknown>;
+
+    const prepareMcpElicitationRequest = async (
         requestParams: unknown,
         message?: Readonly<{ id?: unknown }> | null,
-    ): Promise<unknown> => {
+    ): Promise<PreparedProviderResponse> => {
         if (!(await ensureActiveTurnForProviderRequest(requestParams))) {
-            return mapMcpElicitationResponse({ decision: 'denied' });
+            return async () => mapMcpElicitationResponse({ decision: 'denied' });
         }
         const invocation = readMcpElicitationInvocation(requestParams, message);
         if (!invocation) {
-            return mapMcpElicitationResponse({ decision: 'denied' });
+            return async () => mapMcpElicitationResponse({ decision: 'denied' });
         }
 
         markActiveTurnMeaningfulContextWindowRecoveryActivity();
         const requestKey = providerRequestKey(message?.id);
         associatePendingProviderRequest(requestKey, invocation.toolCallId);
-        const result = params.permissionHandler
-            ? await params.permissionHandler.handleToolCall(invocation.toolCallId, invocation.toolName, invocation.input)
-            : { decision: 'denied' as const };
-
-        return mapMcpElicitationResponse(result);
+        return async () => {
+            const result = params.permissionHandler
+                ? await params.permissionHandler.handleToolCall(invocation.toolCallId, invocation.toolName, invocation.input)
+                : { decision: 'denied' as const };
+            return mapMcpElicitationResponse(result);
+        };
     };
 
-    const handleServerRequest = async (
+    const prepareServerRequest = async (
         method: string,
         requestParams: unknown,
         options?: Readonly<{
             allowProviderEffects?: boolean;
             providerRequestKey?: string | null;
         }>,
-    ): Promise<unknown> => {
+    ): Promise<PreparedProviderResponse> => {
         const updates = streamEventBridge.onServerRequest({ method, params: requestParams });
         const requestMatchesActiveTurn = options?.allowProviderEffects === false
             ? false
@@ -2914,13 +2917,13 @@ export function createCodexAppServerRuntime(params: Readonly<{
         for (const update of updates) {
             if (!requestMatchesActiveTurn) {
                 if (update.type === 'approval-request') {
-                    return mapApprovalDecision(update.requestKind, { decision: 'denied' });
+                    return async () => mapApprovalDecision(update.requestKind, { decision: 'denied' });
                 }
                 if (update.type === 'permissions-request') {
-                    return mapPermissionsDecision(update, { decision: 'denied' });
+                    return async () => mapPermissionsDecision(update, { decision: 'denied' });
                 }
                 if (update.type === 'user-input-request') {
-                    return buildUserInputResponse(update, { decision: 'abort' }, { allowDecisionFallback: false });
+                    return async () => buildUserInputResponse(update, { decision: 'abort' }, { allowDecisionFallback: false });
                 }
             }
             if (isMeaningfulCodexContextWindowRecoveryActivity(update)) {
@@ -2929,18 +2932,22 @@ export function createCodexAppServerRuntime(params: Readonly<{
 
             if (update.type === 'approval-request') {
                 associatePendingProviderRequest(options?.providerRequestKey, update.callId);
-                const result = params.permissionHandler
-                    ? await params.permissionHandler.handleToolCall(update.callId, update.toolName, update.input)
-                    : { decision: 'denied' as const };
-                return mapApprovalDecision(update.requestKind, result);
+                return async () => {
+                    const result = params.permissionHandler
+                        ? await params.permissionHandler.handleToolCall(update.callId, update.toolName, update.input)
+                        : { decision: 'denied' as const };
+                    return mapApprovalDecision(update.requestKind, result);
+                };
             }
 
             if (update.type === 'permissions-request') {
                 associatePendingProviderRequest(options?.providerRequestKey, update.callId);
-                const result = params.permissionHandler
-                    ? await params.permissionHandler.handleToolCall(update.callId, update.toolName, update.input)
-                    : { decision: 'denied' as const };
-                return mapPermissionsDecision(update, result);
+                return async () => {
+                    const result = params.permissionHandler
+                        ? await params.permissionHandler.handleToolCall(update.callId, update.toolName, update.input)
+                        : { decision: 'denied' as const };
+                    return mapPermissionsDecision(update, result);
+                };
             }
 
         if (update.type === 'user-input-request') {
@@ -2984,20 +2991,48 @@ export function createCodexAppServerRuntime(params: Readonly<{
                     }
                     : normalizeCodexRequestUserInputQuestionsToAskUserQuestionInput(update.questions);
             associatePendingProviderRequest(options?.providerRequestKey, update.callId);
-            const result = params.permissionHandler
-                    ? await params.permissionHandler.handleToolCall(update.callId, toolName, toolInput)
-                    : { decision: 'abort' as const };
-            logger.debug('[codex-app-server] requestUserInput resolved', {
-                callId: update.callId,
-                toolName,
-                decision: result.decision,
-                answerKeys: result.answers ? Object.keys(result.answers) : [],
-            });
-            return buildUserInputResponse(update, result, { allowDecisionFallback: treatAsApproval });
+            return async () => {
+                const result = params.permissionHandler
+                        ? await params.permissionHandler.handleToolCall(update.callId, toolName, toolInput)
+                        : { decision: 'abort' as const };
+                logger.debug('[codex-app-server] requestUserInput resolved', {
+                    callId: update.callId,
+                    toolName,
+                    decision: result.decision,
+                    answerKeys: result.answers ? Object.keys(result.answers) : [],
+                });
+                return buildUserInputResponse(update, result, { allowDecisionFallback: treatAsApproval });
+            };
         }
         }
 
-        return null;
+        return async () => null;
+    };
+
+    const handleServerRequest = async (
+        method: string,
+        requestParams: unknown,
+        options?: Readonly<{
+            allowProviderEffects?: boolean;
+            providerRequestKey?: string | null;
+        }>,
+    ): Promise<unknown> => {
+        const respond = await runBridgeWork({
+            operation: options?.allowProviderEffects === false ? 'provider-request-history' : 'provider-request-prepare',
+            details: { method },
+        }, () => prepareServerRequest(method, requestParams, options));
+        return await respond();
+    };
+
+    const handleMcpElicitationRequest = async (
+        requestParams: unknown,
+        message?: Readonly<{ id?: unknown }> | null,
+    ): Promise<unknown> => {
+        const respond = await runBridgeWork({
+            operation: 'provider-request-prepare',
+            details: { method: 'mcpServer/elicitation/request' },
+        }, () => prepareMcpElicitationRequest(requestParams, message));
+        return await respond();
     };
 
     const finishPendingTurn = async (options?: Readonly<{
@@ -3920,8 +3955,8 @@ export function createCodexAppServerRuntime(params: Readonly<{
                             const requestKey = providerRequestKey(message.id);
                             const pending = historyBoundary.onRequest(
                                 { method, params: requestParams },
-                                () => runBridgeWork({ operation: 'provider-request-history', details: { method } }, () => handleServerRequest(method, requestParams, { allowProviderEffects: false, providerRequestKey: requestKey })),
-                                () => runBridgeWork({ operation: 'provider-request', details: { method } }, () => handleServerRequest(method, requestParams, { providerRequestKey: requestKey })),
+                                () => handleServerRequest(method, requestParams, { allowProviderEffects: false, providerRequestKey: requestKey }),
+                                () => handleServerRequest(method, requestParams, { providerRequestKey: requestKey }),
                             );
                             return Promise.resolve(pending).finally(() => {
                                 if (requestKey) {
@@ -3940,10 +3975,7 @@ export function createCodexAppServerRuntime(params: Readonly<{
                         const pending = historyBoundary.onRequest(
                             { method: 'mcpServer/elicitation/request', params: requestParams },
                             () => mapMcpElicitationResponse({ decision: 'denied' }),
-                            () => runBridgeWork({
-                                operation: 'provider-request',
-                                details: { method: 'mcpServer/elicitation/request' },
-                            }, () => handleMcpElicitationRequest(requestParams, message)),
+                            () => handleMcpElicitationRequest(requestParams, message),
                         );
                         return Promise.resolve(pending).finally(() => {
                             if (requestKey) {
@@ -3953,10 +3985,7 @@ export function createCodexAppServerRuntime(params: Readonly<{
                         });
                     });
                     client.registerRequestHandler('account/chatgptAuthTokens/refresh', (requestParams) => {
-                        return runBridgeWork({
-                            operation: 'provider-request',
-                            details: { method: 'account/chatgptAuthTokens/refresh' },
-                        }, async () => {
+                        return (async () => {
                             if (typeof params.onChatGptAuthTokensRefresh !== 'function') {
                                 throw new Error('connected_service_chatgpt_refresh_unavailable');
                             }
@@ -3978,7 +4007,7 @@ export function createCodexAppServerRuntime(params: Readonly<{
                                 };
                             }
                             return refreshed;
-                        });
+                        })();
                     });
                     const registerTerminalHandler = (method: string): void => {
                         client.registerNotificationHandler(method, async (notificationParams) => {
