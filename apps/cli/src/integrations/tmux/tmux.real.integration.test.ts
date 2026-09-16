@@ -81,7 +81,9 @@ function writeDumpScript(dir: string): string {
             '    TMUX_TMPDIR: process.env.TMUX_TMPDIR,',
             '  },',
             '};',
-            'fs.writeFileSync(outFile, JSON.stringify(payload));',
+            "const pendingOutFile = `${outFile}.${process.pid}.tmp`;",
+            'fs.writeFileSync(pendingOutFile, JSON.stringify(payload));',
+            'fs.renameSync(pendingOutFile, outFile);',
             'if (keepAliveMs > 0) setTimeout(() => {}, keepAliveMs);',
             '',
         ].join('\n'),
@@ -171,6 +173,13 @@ function killIsolatedTmuxServer(socketPath: string): void {
     }
 }
 
+function removeIsolatedTmuxTempDir(dir: string): void {
+    // tmux kill-server can return while its pane processes are still retiring.
+    // Let Node retry the transient ENOTEMPTY/EBUSY cleanup race instead of
+    // turning a successful integration scenario into a teardown failure.
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+}
+
 describe.skipIf(!shouldRunTmuxIntegration())('tmux (real) integration tests (opt-in)', { timeout: 20_000 }, () => {
     it('spawnInTmux can start many windows concurrently without index-conflict failures', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'happier-cli-tmux-it-'));
@@ -196,7 +205,7 @@ describe.skipIf(!shouldRunTmuxIntegration())('tmux (real) integration tests (opt
             expect(results.every((r) => r.success)).toBe(true);
         } finally {
             killIsolatedTmuxServer(socketPath);
-            rmSync(dir, { recursive: true, force: true });
+            removeIsolatedTmuxTempDir(dir);
         }
     });
 
@@ -245,7 +254,7 @@ describe.skipIf(!shouldRunTmuxIntegration())('tmux (real) integration tests (opt
         } finally {
             // Kill only the isolated server (never touch the user's default tmux server).
             killIsolatedTmuxServer(socketPath);
-            rmSync(dir, { recursive: true, force: true });
+            removeIsolatedTmuxTempDir(dir);
         }
     });
 
@@ -304,7 +313,7 @@ describe.skipIf(!shouldRunTmuxIntegration())('tmux (real) integration tests (opt
             if (runTmux(['-S', socketPath, 'list-sessions']).status === 0) {
                 killIsolatedTmuxServer(socketPath);
             }
-            rmSync(dir, { recursive: true, force: true });
+            removeIsolatedTmuxTempDir(dir);
         }
     });
 
@@ -340,7 +349,7 @@ describe.skipIf(!shouldRunTmuxIntegration())('tmux (real) integration tests (opt
             expect(payload.env?.BAR).toBe(env.BAR);
         } finally {
             killIsolatedTmuxServer(socketPath);
-            rmSync(dir, { recursive: true, force: true });
+            removeIsolatedTmuxTempDir(dir);
         }
     });
 
@@ -377,7 +386,7 @@ describe.skipIf(!shouldRunTmuxIntegration())('tmux (real) integration tests (opt
             expect(existsSync(sentinelFile)).toBe(false);
         } finally {
             killIsolatedTmuxServer(socketPath);
-            rmSync(dir, { recursive: true, force: true });
+            removeIsolatedTmuxTempDir(dir);
         }
     });
 
@@ -431,8 +440,8 @@ describe.skipIf(!shouldRunTmuxIntegration())('tmux (real) integration tests (opt
                     error: result.error?.message,
                 });
             }
-            rmSync(tmuxTmpDir, { recursive: true, force: true });
-            rmSync(dir, { recursive: true, force: true });
+            removeIsolatedTmuxTempDir(tmuxTmpDir);
+            removeIsolatedTmuxTempDir(dir);
         }
     });
 });
