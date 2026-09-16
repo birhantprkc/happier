@@ -976,6 +976,8 @@ describe('SessionView (transcript rendering for seq-only sessions)', () => {
                 await vi.runOnlyPendingTimersAsync();
             });
             chatListRenderSpy.mockClear();
+            surfaceMountSpy.mockClear();
+            surfaceUnmountSpy.mockClear();
             shouldRenderChatTimelineForSessionMock.mockClear();
             fetchPendingMessagesSpy.mockClear();
 
@@ -993,7 +995,8 @@ describe('SessionView (transcript rendering for seq-only sessions)', () => {
                 await vi.runOnlyPendingTimersAsync();
             });
 
-            expect(chatListRenderSpy).not.toHaveBeenCalled();
+            expect(surfaceMountSpy).not.toHaveBeenCalled();
+            expect(surfaceUnmountSpy).not.toHaveBeenCalled();
             expect(shouldRenderChatTimelineForSessionMock).not.toHaveBeenCalled();
             expect(fetchPendingMessagesSpy).toHaveBeenCalledWith('s1');
 

@@ -853,6 +853,7 @@ export const PierreDiffViewer = React.memo<DiffViewerProps>((props) => {
         </Virtualizer>
     ) : (
         <FileDiff
+            key={fileDiff.cacheKey}
             fileDiff={fileDiff}
             options={(interactiveOptions ?? options) as any}
             lineAnnotations={lineAnnotations as any}

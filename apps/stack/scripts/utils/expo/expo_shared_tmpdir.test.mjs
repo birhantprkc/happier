@@ -46,7 +46,8 @@ test('ensureExpoIsolationEnv removes stale tsx sockets without touching live one
     const stateDir = join(root, 'state');
     const expoHomeDir = join(stateDir, 'expo-home');
     const isolatedTmpDir = join(stateDir, 'tmp');
-    const tsxDir = join(isolatedTmpDir, 'tsx-501');
+    const tsxOwner = typeof process.geteuid === 'function' ? process.geteuid() : process.env.USER;
+    const tsxDir = join(isolatedTmpDir, `tsx-${tsxOwner}`);
     const staleSocket = join(tsxDir, '41001.pipe');
     const liveSocket = join(tsxDir, '41002.pipe');
     await mkdir(tsxDir, { recursive: true });

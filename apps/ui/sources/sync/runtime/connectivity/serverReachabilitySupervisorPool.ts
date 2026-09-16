@@ -496,23 +496,25 @@ export function reportServerRestarting(serverUrl: string, retryAfterMs?: number)
     const entry = entriesByServerUrl.get(canonicalizeServerUrl(serverUrl));
     if (!entry) return;
     if (typeof entry.supervisor.reportProbeResult !== 'function') return;
+    const probeReportScope = entry.supervisor.captureProbeReportScope?.();
     entry.supervisor.reportProbeResult({
         status: 'retry_later',
         retryAfterMs: normalizeServerRestartingRetryAfterMs(retryAfterMs),
         reason: 'server_restarting',
         errorMessage: 'Server restart in progress',
-    });
+    }, probeReportScope);
 }
 
 export function reportServerAuthFailed(serverUrl: string, statusCode: 401 | 403): void {
     const entry = entriesByServerUrl.get(canonicalizeServerUrl(serverUrl));
     if (!entry) return;
     if (typeof entry.supervisor.reportProbeResult !== 'function') return;
+    const probeReportScope = entry.supervisor.captureProbeReportScope?.();
     entry.supervisor.reportProbeResult({
         status: 'auth_failed',
         statusCode,
         errorMessage: `HTTP ${statusCode}`,
-    });
+    }, probeReportScope);
 }
 
 export function assertServerReachabilityAuthenticated(serverUrl: string): void {

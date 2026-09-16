@@ -6,7 +6,6 @@ import type { ActionOperationSnapshotV1 } from '@happier-dev/protocol';
 import { renderScreen, standardCleanup } from '@/dev/testkit';
 import { actionOperationStore } from '@/sync/domains/actionOperations/actionOperationStore';
 import { actionOperationReentry } from '@/sync/domains/actionOperations/actionOperationReentry';
-import { Item } from '@/components/ui/lists/Item';
 import { ItemGroupRowPositionProvider } from '@/components/ui/lists/ItemGroupRowPosition';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -87,7 +86,15 @@ describe('ActionOperationLedger', () => {
             </ItemGroupRowPositionProvider>,
         );
 
-        expect(screen.tree.root.findAllByType(Item).map((node) => node.props.showDivider)).toEqual([true, false]);
+        const itemDividers = screen.tree.root.findAll((node) => {
+            const props = node.props as Record<string, unknown> | undefined;
+            return props != null
+                && typeof props.testID === 'string'
+                && props.testID.startsWith('action-operation-row-')
+                && 'subtitleLines' in props
+                && 'showDivider' in props;
+        }).map((node) => node.props.showDivider);
+        expect(itemDividers).toEqual([true, false]);
         expect(screen.tree.root.findAllByType(ItemGroupRowPositionProvider).map((node) => node.props.value)).toEqual([
             { isFirst: true, isLast: true },
             { isFirst: true, isLast: false },

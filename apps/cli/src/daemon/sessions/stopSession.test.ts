@@ -920,7 +920,7 @@ describe('createStopSession', () => {
           createOrAttachHost: vi.fn(),
           injectUserPrompt: vi.fn(),
           interruptTurn: vi.fn(),
-          evaluateLiveness: vi.fn(),
+          evaluateLiveness: vi.fn(async () => ({ paneAlive: true, observedAt: 1 })),
           dispose: vi.fn(async () => { throw new Error('destroy failed'); }),
         } as any,
       },

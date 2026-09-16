@@ -29,5 +29,5 @@ export const DROID_CORE: AgentCoreConfig = {
     toolRendering: { hideUnknownToolsByDefault: false },
     tools: buildAgentToolsUiConfig({ agentId: 'droid' }),
     sessionStorage: buildAgentSessionStorageUiConfig({ agentId: 'droid' }),
-    ui: { agentPickerIconName: 'hardware-chip-outline', cliGlyphScale: 1, profileCompatibilityGlyphScale: 1 },
+    ui: { agentPickerIconName: 'cpu', cliGlyphScale: 1, profileCompatibilityGlyphScale: 1 },
 };

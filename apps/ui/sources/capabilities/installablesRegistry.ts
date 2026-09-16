@@ -96,7 +96,7 @@ export function getInstallablesRegistryEntries(): readonly InstallableRegistryEn
         [INSTALLABLE_KEYS.AGY_ACP_SERVER]: {
             enabledWhen: () => true,
             title: t('deps.installable.agyAcpServer.title'),
-            iconName: 'hardware-chip-outline',
+            iconName: 'cpu',
             groupTitleKey: 'newSession.agyAcpBanner.title',
             supportsManagedOverrideInstall: false,
             installLabels: {

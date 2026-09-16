@@ -79,6 +79,7 @@ test('build smoke owns the four production build surfaces with a final result co
   assert.equal(job['runs-on'], '${{ needs.trusted_ref_guard.outputs.ubuntu_2404 }}');
   assert.equal(job['timeout-minutes'], 120);
   assert.equal(job.env.VITE_POSTHOG_KEY, '');
+  assert.equal(job.env.NEXT_PUBLIC_POSTHOG_KEY, '');
   const commands = job.steps.map((step) => String(step.run ?? '')).join('\n');
   assert.match(commands, /self_host_binary_smoke\.integration\.test\.mjs/u);
   assert.match(commands, /release-build-ui-web-bundle --secrets-source env --channel preview/u);

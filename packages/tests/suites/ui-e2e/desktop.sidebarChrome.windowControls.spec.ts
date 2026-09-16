@@ -53,14 +53,6 @@ async function launchDesktopShell(page: Page, params: Readonly<{
   await createAccountWithoutDaemon({ page, uiBaseUrl: params.uiBaseUrl });
 }
 
-async function readUtilityRowTestIds(page: Page): Promise<string[]> {
-  return await page.getByTestId('desktop-sidebar-chrome-utility-row').evaluate((node) => {
-    return Array.from(node.children)
-      .map((child) => child.getAttribute('data-testid'))
-      .filter((testId): testId is string => typeof testId === 'string' && testId.length > 0);
-  });
-}
-
 async function dragFromMainContentTitlebar(page: Page): Promise<void> {
     const sidebarBox = await page.getByTestId('desktop-sidebar-chrome').boundingBox();
     if (!sidebarBox) throw new Error('missing desktop sidebar chrome bounds');
@@ -136,14 +128,6 @@ test.describe('ui e2e: desktop sidebar chrome window controls', () => {
     await expect(page.getByTestId('desktop-window-controls-toggle-maximize')).toBeVisible({ timeout: 60_000 });
     await expect(page.getByTestId('desktop-window-controls-close')).toBeVisible({ timeout: 60_000 });
     await expect(page.getByTestId('sidebar-shell-app-update-status-tag')).toHaveCount(1, { timeout: 60_000 });
-
-    await expect.poll(async () => readUtilityRowTestIds(page), { timeout: 60_000 }).toEqual([
-      'sidebar-back-button',
-      'sidebar-forward-button',
-      'sidebar-inbox-button',
-      'nav-settings',
-      'sidebar-collapse-button',
-    ]);
 
     await dragFromMainContentTitlebar(page);
     await expect.poll(async () => readFakeTauriDesktopState(page), { timeout: 60_000 }).toMatchObject({

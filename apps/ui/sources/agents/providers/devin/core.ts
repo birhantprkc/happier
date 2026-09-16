@@ -33,7 +33,7 @@ export const DEVIN_CORE: AgentCoreConfig = {
     tools: buildAgentToolsUiConfig({ agentId: 'devin' }),
     sessionStorage: buildAgentSessionStorageUiConfig({ agentId: 'devin' }),
     ui: {
-        agentPickerIconName: 'hardware-chip-outline',
+        agentPickerIconName: 'cpu',
         cliGlyphScale: 1.0,
         profileCompatibilityGlyphScale: 1.0,
     },

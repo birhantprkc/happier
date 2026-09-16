@@ -1361,6 +1361,7 @@ jobs:
       HAPPIER_UI_VENDOR_WEB_ASSETS: "1"
       # Build-smoke verifies production compilation, not analytics delivery.
       VITE_POSTHOG_KEY: ""
+      NEXT_PUBLIC_POSTHOG_KEY: ""
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
