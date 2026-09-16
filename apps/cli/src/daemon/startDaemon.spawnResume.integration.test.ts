@@ -256,6 +256,7 @@ const harness = vi.hoisted(() => {
     terminalStatus?: string;
   }) => Promise<unknown>) | null = null;
   let resolveSpawnSessionByNonceRef: ((spawnNonce: string) => Promise<unknown> | unknown) | null = null;
+  let sessionRunnerStatusHandlerRef: ((input: { sessionId: string }) => Promise<any>) | null = null;
   let pendingSessionActivationHintListenerRef: ((hint: {
     sessionId: string;
     requestId: string;
@@ -315,6 +316,10 @@ const harness = vi.hoisted(() => {
       resolveSpawnSessionByNonceRef = fn;
     },
     getResolveSpawnSessionByNonce: () => resolveSpawnSessionByNonceRef,
+    setSessionRunnerStatusHandler: (fn: (input: { sessionId: string }) => Promise<any>) => {
+      sessionRunnerStatusHandlerRef = fn;
+    },
+    getSessionRunnerStatusHandler: () => sessionRunnerStatusHandlerRef,
     setStopSession: (fn: (sessionId: string) => Promise<import('./sessions/stopSessionContract').StopSessionResult>) => {
       stopSessionRef = fn;
     },
@@ -353,6 +358,7 @@ const harness = vi.hoisted(() => {
       isShuttingDownRef = null;
       turnLifecycleHandlerRef = null;
       resolveSpawnSessionByNonceRef = null;
+      sessionRunnerStatusHandlerRef = null;
       pendingSessionActivationHintListenerRef = null;
     },
   };
@@ -699,6 +705,7 @@ vi.mock('./controlServer', () => ({
     isShuttingDown,
     handleConnectedServiceTurnLifecycle,
     resolveSpawnSessionByNonce,
+    handleSessionRunnerStatusGet,
   }: {
     spawnSession: (options: any) => Promise<any>;
     stopSession: (sessionId: string) => Promise<import('./sessions/stopSessionContract').StopSessionResult>;
@@ -711,6 +718,7 @@ vi.mock('./controlServer', () => ({
       terminalStatus?: string;
     }) => Promise<unknown>;
     resolveSpawnSessionByNonce?: (spawnNonce: string) => Promise<unknown> | unknown;
+    handleSessionRunnerStatusGet?: (input: { sessionId: string }) => Promise<any>;
   }) => {
     harness.setSpawnSession(spawnSession);
     harness.setStopSession(stopSession);
@@ -728,6 +736,9 @@ vi.mock('./controlServer', () => ({
     }
     if (resolveSpawnSessionByNonce) {
       harness.setResolveSpawnSessionByNonce(resolveSpawnSessionByNonce);
+    }
+    if (handleSessionRunnerStatusGet) {
+      harness.setSessionRunnerStatusHandler(handleSessionRunnerStatusGet);
     }
     return {
       port: 43210,
@@ -3391,7 +3402,7 @@ describe('startDaemon spawn resume wiring (integration)', () => {
     }
   });
 
-  it('applies persisted runtime state when a resume request targets an already running session', async () => {
+  it('refreshes persisted runtime state before status reads and already-running resume requests', async () => {
     const explicitRecoveryCheckSpy = vi.spyOn(UsageLimitRecoveryScheduler.prototype, 'checkNow')
       .mockRejectedValueOnce(new Error('recovery check temporarily unavailable'));
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
@@ -3448,11 +3459,7 @@ describe('startDaemon spawn resume wiring (integration)', () => {
     try {
       const onHappySessionWebhookModule = await import('./sessions/onHappySessionWebhook');
       const trackedSessionCapture: {
-        current: Map<number, {
-          happySessionId?: string;
-          spawnOptions?: Record<string, unknown>;
-          vendorResumeId?: string;
-        }> | null;
+        current: Map<number, import('./types').TrackedSession> | null;
       } = { current: null };
       vi.mocked(onHappySessionWebhookModule.createOnHappySessionWebhook).mockImplementation(({ pidToTrackedSession }) => {
         trackedSessionCapture.current = pidToTrackedSession as typeof trackedSessionCapture.current;
@@ -3473,12 +3480,15 @@ describe('startDaemon spawn resume wiring (integration)', () => {
         throw new Error('Expected tracked session map from webhook wiring');
       }
       trackedSessionCapture.current.set(12345, {
+        pid: 12345,
+        startedBy: 'daemon',
         happySessionId: 'sess_already_running',
+        processCommandHash: 'hash-stale-runner',
+        processCommand:
+          'node /tmp/happier/versions/0.2.10/package-dist/index.mjs codex --happy-starting-mode remote --started-by daemon',
         spawnOptions: {
           directory: '/tmp',
           backendTarget: { kind: 'builtInAgent', agentId: 'codex' },
-          existingSessionId: 'sess_already_running',
-          resume: 'vendor-codex-stale',
           permissionMode: 'default',
           permissionModeUpdatedAt: 100,
           agentModeId: 'chat',
@@ -3488,8 +3498,17 @@ describe('startDaemon spawn resume wiring (integration)', () => {
           connectedServices: { v: 1, bindingsByServiceId: {} },
           connectedServicesUpdatedAt: 103,
         },
-        vendorResumeId: 'vendor-codex-stale',
       });
+
+      const sessionRunnerStatusHandler = harness.getSessionRunnerStatusHandler();
+      if (!sessionRunnerStatusHandler) {
+        throw new Error('Expected session runner status handler to be registered');
+      }
+      const runtimeStatus = await sessionRunnerStatusHandler({
+        sessionId: 'sess_already_running',
+      });
+      expect(runtimeStatus.plannedRestart.disabledReason).not.toBe('missing_resume_identity');
+      expect(trackedSessionCapture.current.get(12345)?.vendorResumeId).toBe('vendor-codex-fresh');
 
       const result = await spawnSession({
         directory: '/tmp',

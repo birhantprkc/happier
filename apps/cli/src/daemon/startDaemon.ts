@@ -383,6 +383,7 @@ import {
   type RestartSessionRunnerCompletion,
 } from './plannedRunnerRestart/restartSessionRunnerOnCurrentRuntime';
 import { resolveCurrentSessionRunnerLaunchIdentity } from './sessionRunnerRuntime/resolveRunnerEntrypointIdentity';
+import { shouldRefreshSessionRunnerResumeIdentity } from './sessionRunnerRuntime/resolveRestartEligibility';
 import { resolveSessionRunnerRuntimeState } from './sessionRunnerRuntime/resolveRuntimeState';
 import { resolveSessionRunnerActivityDisabledReason as resolveSessionRunnerActivityDisabledReasonFromReaders } from './sessionRunnerRuntime/resolveActivityDisabledReason';
 import { setOpenCodeConnectedServiceInFlightTurnProvider } from './connectedServices/sessionAuthSwitch/openCodeConnectedServiceInFlightTurnRegistry';
@@ -1320,13 +1321,13 @@ function resolveCliSubcommandFromBackendTarget(target: BackendTargetRefV1 | unde
   return resolveAgentCliSubcommand(readBuiltInCatalogAgentIdFromBackendTarget(target));
 }
 
-async function applyAlreadyRunningExistingSessionRuntimeSnapshot(params: Readonly<{
+async function refreshTrackedSessionsRuntimeSnapshot(params: Readonly<{
   sessionId: string;
   incomingOptions: SpawnSessionOptions;
-  pidToTrackedSession: Map<number, TrackedSession>;
+  trackedSessions: ReadonlyArray<TrackedSession>;
   credentials: Credentials;
 }>): Promise<void> {
-  const trackedSessions = Array.from(params.pidToTrackedSession.values())
+  const trackedSessions = params.trackedSessions
     .filter((tracked) => tracked.happySessionId === params.sessionId);
 
   if (trackedSessions.length < 1) return;
@@ -3066,10 +3067,10 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
                       .map((tracked) => tracked.spawnOptions?.spawnNonce),
                   });
                   logger.debug(`[DAEMON RUN] Resume requested for ${normalizedExistingSessionId}, but session is already running`);
-                  await applyAlreadyRunningExistingSessionRuntimeSnapshot({
+                  await refreshTrackedSessionsRuntimeSnapshot({
                     sessionId: normalizedExistingSessionId,
                     incomingOptions: normalizedOptions,
-                    pidToTrackedSession,
+                    trackedSessions: Array.from(pidToTrackedSession.values()),
                     credentials,
                   });
                   pendingSessionMachineAccessBindingIds.add(normalizedExistingSessionId);
@@ -6455,6 +6456,26 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
       return agentId as CatalogAgentId;
     };
 
+    const refreshTrackedSessionRuntimeSnapshotForPlannedRestart = async (input: Readonly<{
+      sessionId: string;
+      tracked: TrackedSession;
+    }>): Promise<void> => {
+      if (!input.tracked.spawnOptions) return;
+      try {
+        await refreshTrackedSessionsRuntimeSnapshot({
+          sessionId: input.sessionId,
+          incomingOptions: input.tracked.spawnOptions,
+          trackedSessions: [input.tracked],
+          credentials,
+        });
+      } catch (error) {
+        logger.warn('[DAEMON RUN] Failed to refresh session runtime snapshot before planned restart', {
+          sessionId: input.sessionId,
+          error,
+        });
+      }
+    };
+
     // Start control server
     const { port: controlPort, stop: stopControlServer } = await startDaemonControlServer({
       getChildren: getCurrentChildren,
@@ -6495,6 +6516,7 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
             currentIdentity: resolveCurrentSessionRunnerLaunchIdentity(),
             requestRestart: requestVersionRuntimeRefreshWithDeferral,
             resolveActivityDisabledReason: resolveSessionRunnerActivityDisabledReason,
+            refreshTrackedSessionRuntimeSnapshot: refreshTrackedSessionRuntimeSnapshotForPlannedRestart,
           });
         return RestartSessionRunnerResultV1Schema.parse(result);
       },
@@ -6507,11 +6529,18 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
           trackedSessions: getCurrentChildren(),
           requestRestart: requestVersionRuntimeRefreshWithDeferral,
           resolveActivityDisabledReason: resolveSessionRunnerActivityDisabledReason,
+          refreshTrackedSessionRuntimeSnapshot: refreshTrackedSessionRuntimeSnapshotForPlannedRestart,
         });
         return RestartAllSessionRunnersResultV1Schema.parse(result);
       },
       handleSessionRunnerStatusGet: async (request) => {
         const tracked = getCurrentChildren().find((child) => child.happySessionId === request.sessionId) ?? null;
+        if (shouldRefreshSessionRunnerResumeIdentity(tracked)) {
+          await refreshTrackedSessionRuntimeSnapshotForPlannedRestart({
+            sessionId: request.sessionId,
+            tracked,
+          });
+        }
         return resolveSessionRunnerRuntimeState({
           sessionId: request.sessionId,
           tracked,
