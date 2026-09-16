@@ -36,7 +36,10 @@ import { setActiveAccountSettingsSnapshot } from '@/settings/accountSettings/act
 import { HAPPIER_SPAWN_EXPLICIT_ENV_KEYS_JSON_ENV_VAR } from '@/daemon/spawn/spawnExplicitEnvKeysMarker';
 import { logger } from '@/ui/logger';
 
-import { createCodexAppServerRuntime, writeUsageLimitRecoveryIntentToMetadata } from './runtime';
+import {
+    createCodexAppServerRuntime as createCodexAppServerRuntimeProduction,
+    writeUsageLimitRecoveryIntentToMetadata,
+} from './runtime';
 import { createCodexAppServerProcessEnv, createCodexAppServerTestEnvScope } from './testkit/fakeCodexAppServer';
 
 type CommittedSnapshotBody = Readonly<{
@@ -1644,8 +1647,22 @@ async function writeFakeCodexAppServerScript(params: Readonly<{
 describe('createCodexAppServerRuntime', () => {
     let envScope = createCodexAppServerTestEnvScope();
     const tempRoots = new Set<string>();
+    const activeRuntimes = new Set<ReturnType<typeof createCodexAppServerRuntimeProduction>>();
+
+    function createCodexAppServerRuntime(
+        ...args: Parameters<typeof createCodexAppServerRuntimeProduction>
+    ): ReturnType<typeof createCodexAppServerRuntimeProduction> {
+        const runtime = createCodexAppServerRuntimeProduction(...args);
+        activeRuntimes.add(runtime);
+        return runtime;
+    }
 
     afterEach(async () => {
+        const runtimes = [...activeRuntimes];
+        activeRuntimes.clear();
+        await Promise.all(runtimes.map(async (runtime) => {
+            await runtime.reset();
+        }));
         setActiveAccountSettingsSnapshot({
             source: 'none',
             settings: {} as AccountSettings,

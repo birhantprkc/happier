@@ -286,9 +286,9 @@ test.describe('ui e2e: tmux spawn → attach', () => {
         // Assert tmux now has the target window active.
         const parts = target.split(':');
         expect(parts.length).toBeGreaterThanOrEqual(2);
-        const windowName = parts[1];
-        expect(windowName.length).toBeGreaterThan(0);
-        const windows = spawnSync('tmux', ['list-windows', '-t', tmuxSessionName, '-F', '#{window_active} #{window_name}'], {
+        const windowId = parts[1];
+        expect(windowId).toMatch(/^@\d+$/);
+        const windows = spawnSync('tmux', ['list-windows', '-t', tmuxSessionName, '-F', '#{window_active} #{window_id}'], {
             env: { ...process.env, TMUX_TMPDIR: tmuxTmpDir, TMUX: `${socketPath},0,0` },
             encoding: 'utf8',
         });
@@ -298,6 +298,6 @@ test.describe('ui e2e: tmux spawn → attach', () => {
             .map((l) => l.trim())
             .filter(Boolean)
             .find((l) => l.startsWith('1 '));
-        expect(active).toBe(`1 ${windowName}`);
+        expect(active).toBe(`1 ${windowId}`);
     });
 });
