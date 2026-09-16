@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const loggingMocks = vi.hoisted(() => ({ log: vi.fn() }));
+vi.mock("@/utils/logging/log", () => loggingMocks);
+
 import type { PrismaClientType } from "@/storage/prisma";
 import {
     checkpointSqliteWal,
@@ -163,6 +166,7 @@ describe("incrementalVacuumSqlite", () => {
 
 describe("startSqliteWalCheckpointWorker", () => {
     afterEach(() => {
+        loggingMocks.log.mockReset();
         vi.useRealTimers();
     });
 
@@ -191,6 +195,71 @@ describe("startSqliteWalCheckpointWorker", () => {
         await handle!.stop();
         await vi.advanceTimersByTimeAsync(5000);
         expect(calls).toBe(2);
+    });
+
+    it("reports whether a busy checkpoint only deferred the WAL reset or left frames uncheckpointed", async () => {
+        vi.useFakeTimers();
+        const results: SqliteWalCheckpointResult[] = [
+            { busy: 1, logFrames: 12, checkpointedFrames: 12 },
+            { busy: 1, logFrames: 12, checkpointedFrames: 5 },
+            ok,
+            { busy: 1, logFrames: 3, checkpointedFrames: 3 },
+        ];
+        const handle = startSqliteWalCheckpointWorker({
+            client,
+            intervalMs: 1000,
+            runCheckpoint: async () => results.shift() ?? ok,
+        });
+
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(loggingMocks.log).toHaveBeenLastCalledWith(
+            {
+                module: "storage",
+                event: "sqlite-wal-checkpoint-busy",
+                sqliteWalCheckpoint: {
+                    busy: 1,
+                    logFrames: 12,
+                    checkpointedFrames: 12,
+                    outcome: "wal-reset-deferred",
+                    durationMs: 0,
+                    retryIntervalMs: 1000,
+                    consecutiveBusyCount: 1,
+                },
+            },
+            expect.any(String),
+        );
+
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(loggingMocks.log).toHaveBeenLastCalledWith(
+            {
+                module: "storage",
+                event: "sqlite-wal-checkpoint-busy",
+                sqliteWalCheckpoint: {
+                    busy: 1,
+                    logFrames: 12,
+                    checkpointedFrames: 5,
+                    outcome: "checkpoint-incomplete",
+                    durationMs: 0,
+                    retryIntervalMs: 1000,
+                    consecutiveBusyCount: 2,
+                },
+            },
+            expect.any(String),
+        );
+
+        await vi.advanceTimersByTimeAsync(1000);
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(loggingMocks.log).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                sqliteWalCheckpoint: expect.objectContaining({
+                    outcome: "wal-reset-deferred",
+                    consecutiveBusyCount: 1,
+                }),
+            }),
+            expect.any(String),
+        );
+
+        await handle!.stop();
     });
 
     it("does not overlap checkpoints when one is slower than the interval", async () => {
