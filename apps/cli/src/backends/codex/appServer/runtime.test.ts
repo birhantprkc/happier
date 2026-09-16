@@ -1436,6 +1436,21 @@ async function writeFakeCodexAppServerScript(params: Readonly<{
         '            }, 24);',
         '            continue;',
         '        }',
+        '        if (text === "bridge-pending-approval") {',
+        '            setTimeout(() => {',
+        '                process.stdout.write(JSON.stringify({ method: "item/started", params: { threadId: msg.params?.threadId ?? null, turnId, item: { id: "cmd_pending", type: "commandExecution", command: "echo pending", cwd: "/repo" } } }) + "\\n");',
+        '            }, 5);',
+        '            setTimeout(() => {',
+        '                process.stdout.write(JSON.stringify({ id: "approval-pending", method: "item/commandExecution/requestApproval", params: { threadId: msg.params?.threadId ?? null, turnId, itemId: "cmd_pending", reason: "Needs approval" } }) + "\\n");',
+        '            }, 6);',
+        '            setTimeout(() => {',
+        '                process.stdout.write(JSON.stringify({ id: "refresh-during-approval", method: "account/chatgptAuthTokens/refresh", params: { chatgptPlanType: "plus" } }) + "\\n");',
+        '            }, 9);',
+        '            setTimeout(() => {',
+        '                process.stdout.write(JSON.stringify({ method: "turn/completed", params: { threadId: msg.params?.threadId ?? null, turn: { id: turnId } } }) + "\\n");',
+        '            }, 14);',
+        '            continue;',
+        '        }',
         '        if (text === "bridge-external-approval-resolution") {',
         '            setTimeout(() => {',
         '                process.stdout.write(JSON.stringify({ method: "item/started", params: { threadId: msg.params?.threadId ?? null, turnId, item: { id: "cmd_external", type: "commandExecution", command: "git fetch origin", cwd: "/repo" } } }) + "\\n");',
@@ -6613,12 +6628,69 @@ describe('createCodexAppServerRuntime', () => {
         );
     });
 
+    it('does not let a pending approval block provider completion or credential refresh', async () => {
+        const { root, requestLogPath } = await createRuntimeFixture(
+            'happier-codex-app-server-runtime-pending-approval-',
+        );
+        let resolvePermission!: (value: { decision: 'denied' }) => void;
+        const pendingPermission = new Promise<{ decision: 'denied' }>((resolve) => {
+            resolvePermission = resolve;
+        });
+        const permissionHandler = {
+            handleToolCall: vi.fn(async () => await pendingPermission),
+        };
+        const onChatGptAuthTokensRefresh = vi.fn(async () => ({
+            accessToken: 'fresh-access',
+            chatgptAccountId: 'acct_123',
+            chatgptPlanType: 'plus',
+        }));
+        const runtime = createCodexAppServerRuntime({
+            directory: root,
+            onThinkingChange: vi.fn(),
+            session: {
+                updateMetadata: vi.fn(),
+                sendAgentMessageCommitted: vi.fn(async () => {}),
+                sendCodexMessage: vi.fn(),
+            } as any,
+            permissionHandler: permissionHandler as any,
+            onChatGptAuthTokensRefresh,
+        } as any);
+
+        await runtime.startOrLoad({});
+        try {
+            const prompt = runtime.sendPrompt('bridge-pending-approval');
+            await waitForCondition(() => permissionHandler.handleToolCall.mock.calls.length === 1, {
+                timeoutMs: 500,
+                intervalMs: 5,
+                label: 'pending approval reaches permission handler',
+            });
+            await Promise.race([
+                prompt,
+                new Promise<never>((_, reject) => {
+                    setTimeout(() => reject(new Error('provider completion was blocked by pending approval')), 500);
+                }),
+            ]);
+            expect(runtime.isTurnInFlight()).toBe(false);
+            await waitForCondition(async () => {
+                const entries = await readRequestLog(requestLogPath);
+                return entries.some((entry) => entry.id === 'refresh-during-approval' && entry.result);
+            }, {
+                timeoutMs: 500,
+                intervalMs: 5,
+                label: 'credential refresh during pending approval',
+            });
+            expect(onChatGptAuthTokensRefresh).toHaveBeenCalledWith({ chatgptPlanType: 'plus' });
+        } finally {
+            resolvePermission({ decision: 'denied' });
+            await runtime.reset();
+        }
+    });
+
     it('dismisses the exact pending approval when another Codex client resolves it', async () => {
         const { root } = await createRuntimeFixture('happier-codex-app-server-runtime-external-approval-resolution-');
         let resolvePermission!: (result: { decision: 'abort' }) => void;
         const permission = new Promise<{ decision: 'abort' }>((resolve) => {
             resolvePermission = resolve;
-            setTimeout(() => resolve({ decision: 'abort' }), 100);
         });
         const permissionHandler = {
             handleToolCall: vi.fn(async () => await permission),
