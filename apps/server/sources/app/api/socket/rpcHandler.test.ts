@@ -10,7 +10,7 @@ const resolveRpcMethodAvailabilityGraceMsMock = vi.fn<(method: string) => number
 const resolveRpcMethodAvailabilityPollMsMock = vi.fn<() => number>(() => 1);
 const checkSessionAccessMock = vi.hoisted(() => vi.fn());
 const requireAccessLevelMock = vi.hoisted(() => vi.fn());
-const resolveRpcForwardTimeoutMsMock = vi.hoisted(() => vi.fn(() => 50));
+const resolveRpcForwardTimeoutMsMock = vi.hoisted(() => vi.fn<(method: string, requestedTimeoutMs?: unknown) => number>(() => 50));
 const dbMockFns = vi.hoisted(() => ({
     machineFindFirst: vi.fn(async (): Promise<{ revokedAt: Date | null; replacedByMachineId: string | null }> => ({
         revokedAt: null,
@@ -24,7 +24,8 @@ vi.mock("@/utils/logging/log", () => ({
 }));
 
 vi.mock("./rpcForwardTimeout", () => ({
-    resolveRpcForwardTimeoutMs: (...args: unknown[]) => resolveRpcForwardTimeoutMsMock(...args),
+    resolveRpcForwardTimeoutMs: (method: string, requestedTimeoutMs?: unknown) =>
+        resolveRpcForwardTimeoutMsMock(method, requestedTimeoutMs),
 }));
 
 vi.mock("./rpcMethodAvailabilityGrace", () => ({

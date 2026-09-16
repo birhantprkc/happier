@@ -1634,6 +1634,7 @@ describe('createCliActionDeps session controls', () => {
       credentials,
       machineId: 'machine-local',
       method: RPC_METHODS.SPAWN_HAPPY_SESSION,
+      timeoutMs: 300_000,
       request: expect.objectContaining({
         type: 'resume-session',
         sessionId: 'sess_stale',
