@@ -75,7 +75,7 @@ export const ACP_SDK_AGENT_METHOD_DISPOSITION = {
   'session/cancel': 'integrated',
   'mcp/message': 'supported_not_advertised',
   'session/list': 'integrated',
-  'session/delete': 'supported_not_advertised',
+  'session/delete': 'integrated',
   'session/fork': 'integrated',
   'session/resume': 'supported_not_advertised',
   'session/close': 'integrated',

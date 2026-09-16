@@ -61,7 +61,7 @@ happier kimi
 ## Notes
 
 - Kimi advertises list, load, fork, close, delete, and cancellation in its [ACP capability reference](https://moonshotai.github.io/kimi-code/en/reference/kimi-acp). Happier consumes supported methods through its shared ACP runtime; advertised vendor methods do not imply a dedicated control in every Happier client.
-- When creating a new session, the **Resume** field can browse session IDs reported by `kimi acp` through ACP `session/list`, filtered to the selected directory, and use one as the session to resume. Those entries are resume-only. Listing them does not establish that Kimi's interactive terminal uses the same IDs, and Happier does not provide live takeover, writer safety, transcript following or import, terminal attachment, or deletion for them.
+- When creating a new session, the **Resume** field can browse session IDs reported by `kimi acp` through ACP `session/list`, filtered to the selected directory, and use one as the session to resume. Those entries are resume-only. Listing them does not establish that Kimi's interactive terminal uses the same IDs, and Happier does not provide live takeover, writer safety, transcript following or import, or terminal attachment for them. When the live Kimi ACP connection also advertises `session/delete`, the resume picker offers a confirmed delete action for the provider-owned candidate. This does not delete a persisted Happier session.
 - Models come from the active ACP session. Happier does not translate them into top-level Kimi flags.
 - MCP servers use standard ACP descriptors, including stdio, HTTP, and SSE transports supported by Kimi.
 - Permission-mode mappings are not advertised until they have authenticated live proof.

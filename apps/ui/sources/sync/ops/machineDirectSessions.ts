@@ -1,6 +1,8 @@
 import {
     DirectSessionLinkEnsureRequestSchema,
     DirectSessionLinkEnsureResponseSchema,
+    DirectSessionCandidateDeleteRequestSchema,
+    DirectSessionCandidateDeleteResponseSchema,
     DirectSessionStatusGetRequestSchema,
     DirectSessionStatusGetResponseSchema,
     DirectSessionTakeoverPersistRequestSchema,
@@ -15,6 +17,8 @@ import {
     DirectTranscriptReadAfterResponseSchema,
     type DirectSessionLinkEnsureRequest,
     type DirectSessionLinkEnsureResponse,
+    type DirectSessionCandidateDeleteRequest,
+    type DirectSessionCandidateDeleteResponse,
     type DirectSessionStatusGetRequest,
     type DirectSessionStatusGetResponse,
     type DirectSessionTakeoverPersistRequest,
@@ -80,6 +84,20 @@ export async function machineDirectSessionsCandidatesList(
         input,
         requestSchema: DirectSessionsCandidatesListRequestSchema,
         responseSchema: DirectSessionsCandidatesListResponseSchema,
+        opts,
+    });
+}
+
+export async function machineDirectSessionCandidateDelete(
+    input: DirectSessionCandidateDeleteRequest,
+    opts?: MachineDirectSessionsOpts,
+): Promise<DirectSessionCandidateDeleteResponse> {
+    return callDirectSessionMachineRpc({
+        machineId: input.machineId,
+        method: RPC_METHODS.DAEMON_DIRECT_SESSION_CANDIDATE_DELETE,
+        input,
+        requestSchema: DirectSessionCandidateDeleteRequestSchema,
+        responseSchema: DirectSessionCandidateDeleteResponseSchema,
         opts,
     });
 }

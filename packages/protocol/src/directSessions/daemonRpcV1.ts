@@ -104,6 +104,9 @@ export const DirectSessionsCandidatesListResponseSchema = z.union([
       candidates: z.array(z.lazy(() => DirectSessionCandidateV1Schema)),
       nextCursor: z.string().min(1).nullish(),
       searchIncomplete: z.boolean().optional(),
+      capabilities: z.object({
+        deleteCandidate: z.boolean(),
+      }).optional(),
     })
     .passthrough(),
   z
@@ -115,6 +118,26 @@ export const DirectSessionsCandidatesListResponseSchema = z.union([
     .passthrough(),
 ]);
 export type DirectSessionsCandidatesListResponse = z.infer<typeof DirectSessionsCandidatesListResponseSchema>;
+
+export const DirectSessionCandidateDeleteRequestSchema = z
+  .object({
+    machineId: z.string().min(1),
+    providerId: DirectSessionsProviderIdSchema,
+    source: DirectSessionsSourceSchema,
+    remoteSessionId: z.string().min(1).max(2000),
+  })
+  .passthrough();
+export type DirectSessionCandidateDeleteRequest = z.infer<typeof DirectSessionCandidateDeleteRequestSchema>;
+
+export const DirectSessionCandidateDeleteResponseSchema = z.union([
+  z.object({ ok: z.literal(true), deleted: z.literal(true) }).passthrough(),
+  z.object({
+    ok: z.literal(false),
+    errorCode: z.enum(['invalid_request', 'machine_offline', 'provider_unavailable', 'internal_error']),
+    error: z.string().min(1),
+  }).passthrough(),
+]);
+export type DirectSessionCandidateDeleteResponse = z.infer<typeof DirectSessionCandidateDeleteResponseSchema>;
 
 export const DirectSessionLinkEnsureRequestSchema = z
   .object({

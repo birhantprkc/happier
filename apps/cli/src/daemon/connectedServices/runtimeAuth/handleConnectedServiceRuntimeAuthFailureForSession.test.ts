@@ -439,6 +439,77 @@ describe('handleConnectedServiceRuntimeAuthFailureForSession', () => {
     expect(resolveCurrentRuntimeAuthFailureSource).not.toHaveBeenCalled();
   });
 
+  it('continues the interrupted origin when an exact newer group target is already adopted', async () => {
+    const tracked = {
+      startedBy: 'daemon' as const,
+      happySessionId: 'sess_adopted_newer_target',
+      pid: 123,
+      spawnOptions: { directory: '/tmp/project' },
+    } satisfies TrackedSession;
+    const switchAfterClassifiedFailure = vi.fn();
+    const continueAfterRuntimeAuthSwitch = vi.fn(async () => {});
+
+    await expect(handleConnectedServiceRuntimeAuthFailureForSession({
+      getChildren: () => [tracked],
+      sessionId: tracked.happySessionId,
+      switchesThisTurn: 0,
+      classification: {
+        kind: 'usage_limit',
+        serviceId: 'openai-codex',
+        profileId: 'exhausted',
+        groupId: 'main',
+        groupGeneration: 7,
+        credentialRevision: 'csr_aaaaaaaaaaaaaaaaaaaaaa',
+        resetsAtMs: null,
+        planType: null,
+        rateLimits: null,
+        source: 'structured_provider_error',
+        recoveryAction: { kind: 'quota_recovery_required' },
+      },
+      resolveRegisteredRuntimeAuthFailureSource: () => ({
+        serviceId: 'openai-codex',
+        groupId: 'main',
+        profileId: 'replacement',
+        generation: 8,
+        credentialRevision: 'csr_bbbbbbbbbbbbbbbbbbbbbb',
+      }),
+      runtimeAuthApply: exactLiveRuntimeIdentityCapability,
+      switchCoordinator: { switchAfterClassifiedFailure },
+      continueAfterRuntimeAuthSwitch,
+    })).resolves.toEqual({
+      status: 'recovery_superseded',
+      reason: 'source_tuple_mismatch',
+      serviceId: 'openai-codex',
+      groupId: 'main',
+      profileId: 'exhausted',
+    });
+
+    expect(switchAfterClassifiedFailure).not.toHaveBeenCalled();
+    expect(continueAfterRuntimeAuthSwitch).toHaveBeenCalledOnce();
+    expect(continueAfterRuntimeAuthSwitch).toHaveBeenCalledWith(expect.objectContaining({
+      tracked,
+      sessionId: tracked.happySessionId,
+      action: 'hot_applied',
+      normalizedBindings: {
+        v: 1,
+        bindingsByServiceId: {
+          'openai-codex': {
+            source: 'connected',
+            selection: 'group',
+            groupId: 'main',
+            profileId: 'replacement',
+          },
+        },
+      },
+      target: {
+        serviceId: 'openai-codex',
+        groupId: 'main',
+        profileId: 'replacement',
+        generation: 8,
+      },
+    }));
+  });
+
   it('continues a scheduled recovery on the refreshed revision of the same profile without attributing the old failure to it', async () => {
     const tracked = {
       startedBy: 'daemon' as const,
@@ -1057,6 +1128,7 @@ describe('handleConnectedServiceRuntimeAuthFailureForSession', () => {
     const switchAfterClassifiedFailure = vi.fn();
     const refreshConnectedServiceCredentialForRuntimeAuthFailure = vi.fn();
     const onRuntimeAuthRecoverySuccess = vi.fn();
+    const continueAfterRuntimeAuthSwitch = vi.fn();
 
     await expect(handleConnectedServiceRuntimeAuthFailureForSession({
       getChildren: () => [tracked],
@@ -1093,6 +1165,7 @@ describe('handleConnectedServiceRuntimeAuthFailureForSession', () => {
       switchCoordinator: { switchAfterClassifiedFailure },
       credentialRefreshService: { refreshConnectedServiceCredentialForRuntimeAuthFailure },
       onRuntimeAuthRecoverySuccess,
+      continueAfterRuntimeAuthSwitch,
     })).resolves.toMatchObject({
       status: 'recovery_superseded',
       reason: 'source_tuple_mismatch',
@@ -1100,6 +1173,7 @@ describe('handleConnectedServiceRuntimeAuthFailureForSession', () => {
     expect(switchAfterClassifiedFailure).not.toHaveBeenCalled();
     expect(refreshConnectedServiceCredentialForRuntimeAuthFailure).not.toHaveBeenCalled();
     expect(onRuntimeAuthRecoverySuccess).not.toHaveBeenCalled();
+    expect(continueAfterRuntimeAuthSwitch).not.toHaveBeenCalled();
   });
 
   it('keeps predecessor verification capability-scoped and registry-only providers ungated', async () => {
@@ -1176,12 +1250,21 @@ describe('handleConnectedServiceRuntimeAuthFailureForSession', () => {
       }),
       resolveCurrentRuntimeAuthFailureSource,
       runtimeAuthApply: providerOwnedBrokerRuntimeAuthCapability,
-    })).resolves.toEqual({
+    })).resolves.toMatchObject({
       status: 'recovery_superseded',
       reason: 'source_tuple_mismatch',
       serviceId: 'openai-codex',
       groupId: 'main',
       profileId: 'effective-broker-profile',
+      adoptedTarget: {
+        sourceBinding: {
+          serviceId: 'openai-codex',
+          groupId: 'main',
+          profileId: 'current-group-profile',
+          generation: 8,
+          credentialRevision: 'csr_cccccccccccccccccccccc',
+        },
+      },
     });
     expect(resolveCurrentRuntimeAuthFailureSource).toHaveBeenCalledOnce();
   });

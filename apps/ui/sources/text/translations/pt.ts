@@ -6450,6 +6450,10 @@ export const pt: TranslationStructure = {
     browseLoadMore: "Carregar mais sessões",
     browseFailedToLoad: "Falha ao carregar sessões do provedor.",
     browseLinkFailed: "Falha ao vincular a sessão do provedor selecionada.",
+    deleteCandidateActionsAccessibilityLabel: ({ title }: { title: string }) => `Mais ações para ${title}`,
+    deleteCandidateConfirmTitle: "Excluir sessão do provedor?",
+    deleteCandidateConfirmMessage: ({ title, provider }: { title: string; provider: string }) => `Excluir “${title}” de ${provider}? Esta ação não pode ser desfeita.`,
+    deleteCandidateFailed: "Não foi possível excluir a sessão do provedor.",
   },
 
     workspacePresentation: {

@@ -1,4 +1,4 @@
-import { getAgentLocalControlCapability, type AgentId } from '@happier-dev/agents';
+import { getAgentLocalControlCapabilityForSession, type AgentId } from '@happier-dev/agents';
 import { compareMachineHosts } from '@happier-dev/protocol';
 import type { AccountSettings } from '@happier-dev/protocol';
 
@@ -71,9 +71,15 @@ function readMetadataString(metadata: Record<string, unknown> | null, key: strin
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
-function resolveAgentAttachStrategy(agentId: AgentId | string | null | undefined): AgentAttachStrategyForExplainer {
+function resolveAgentAttachStrategy(
+  agentId: AgentId | string | null | undefined,
+  metadata: Record<string, unknown> | null,
+): AgentAttachStrategyForExplainer {
   if (!agentId) return null;
-  const capability = getAgentLocalControlCapability(agentId as AgentId);
+  const capability = getAgentLocalControlCapabilityForSession({
+    agentId: agentId as AgentId,
+    metadata,
+  });
   if (!capability) return 'unsupported';
   return capability.attachStrategy;
 }
@@ -150,7 +156,7 @@ export async function buildAttachSelectionModel(params: Readonly<{
     const metadata = eligibility.metadata ?? null;
     const metadataMachineId = readMetadataString(metadata, 'machineId');
     const metadataHost = readMetadataString(metadata, 'host');
-    const agentAttachStrategy = resolveAgentAttachStrategy(rowModel.agentId);
+    const agentAttachStrategy = resolveAgentAttachStrategy(rowModel.agentId, metadata);
 
     const include = shouldIncludeRowInSelector({
       hasLocalInfo: localInfo !== null,

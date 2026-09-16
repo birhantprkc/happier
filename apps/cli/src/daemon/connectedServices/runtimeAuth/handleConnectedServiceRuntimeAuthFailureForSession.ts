@@ -163,6 +163,17 @@ export type RuntimeAuthFailureSourceAuthorization =
       tracked: TrackedSession;
       sourceBinding: RuntimeAuthFailureSourceBinding;
     }>
+  | (Extract<RuntimeAuthRecoverySuperseded, Readonly<{
+      reason: 'source_tuple_unavailable' | 'source_tuple_mismatch';
+    }>> & Readonly<{
+      adoptedTarget: Readonly<{
+        tracked: TrackedSession;
+        sourceBinding: RuntimeAuthFailureSourceBinding & Readonly<{
+          groupId: string;
+          generation: number;
+        }>;
+      }>;
+    }>)
   | RuntimeAuthRecoverySuperseded;
 
 export function applyAuthorizedRuntimeAuthFailureSourceBinding(
@@ -448,12 +459,26 @@ export async function authorizeConnectedServiceRuntimeAuthFailureSource(input: R
       // registry itself authoritatively supersedes the report without an additional live probe.
       // A generation-only advance retains the failure because it still describes the exact
       // current credential.
-      return {
+      const supersededResult = {
         status: 'recovery_superseded',
         reason: 'source_tuple_mismatch',
         serviceId: classification.serviceId,
         groupId: classification.groupId,
         profileId: classification.profileId,
+      } as const;
+      if (input.recoveryInvocationSource === 'scheduler_retry') {
+        return supersededResult;
+      }
+      return {
+        ...supersededResult,
+        adoptedTarget: {
+          tracked,
+          sourceBinding: {
+            ...exactRegisteredBinding,
+            groupId: registeredGroupId,
+            generation: registeredGeneration,
+          },
+        },
       };
     }
     const reportClaimsUnsettledNewerGroupGeneration =
@@ -1012,11 +1037,12 @@ function requestCredentialRefreshRelaunch(input: Readonly<{
   return true;
 }
 
-async function maybeContinueAfterCredentialRefresh(input: Readonly<{
+async function maybeContinueAfterRuntimeAuthTargetAdoption(input: Readonly<{
   tracked: TrackedSession;
   sessionId: string;
   selection: RuntimeRecoverySelection;
   profileId: string;
+  generation?: number | null;
   continueAfterRuntimeAuthSwitch?: RuntimeAuthSwitchContinuation | null;
 }>): Promise<void> {
   if (!input.continueAfterRuntimeAuthSwitch) return;
@@ -1047,11 +1073,24 @@ async function maybeContinueAfterCredentialRefresh(input: Readonly<{
       action: 'hot_applied',
       serviceIds,
       normalizedBindings,
+      ...(input.selection.kind === 'group' && typeof input.generation === 'number'
+        ? { expectedGroupGenerationByServiceId: { [serviceId]: input.generation } }
+        : {}),
     }),
     normalizedBindings,
     serviceIds,
     action: 'hot_applied',
     switchReason: 'automatic_runtime_failure',
+    ...(input.selection.kind === 'group' && typeof input.generation === 'number'
+      ? {
+          target: {
+            serviceId,
+            groupId: input.selection.groupId,
+            profileId: input.profileId,
+            generation: input.generation,
+          },
+        }
+      : {}),
   });
 }
 
@@ -1141,7 +1180,7 @@ async function maybeRefreshCredentialBeforeRuntimeRecovery(input: Readonly<{
         restartRequested: true,
       };
     }
-    await maybeContinueAfterCredentialRefresh({
+    await maybeContinueAfterRuntimeAuthTargetAdoption({
       tracked: input.tracked,
       sessionId: input.sessionId,
       selection: input.selection,
@@ -1226,6 +1265,25 @@ export async function handleConnectedServiceRuntimeAuthFailureForSession(input: 
     }>
 > {
   const sourceAuthorization = input.sourceAuthorization ?? await authorizeConnectedServiceRuntimeAuthFailureSource(input);
+  if (sourceAuthorization.status === 'recovery_superseded' && 'adoptedTarget' in sourceAuthorization) {
+    const sourceBinding = sourceAuthorization.adoptedTarget.sourceBinding;
+    await maybeContinueAfterRuntimeAuthTargetAdoption({
+      tracked: sourceAuthorization.adoptedTarget.tracked,
+      sessionId: input.sessionId,
+      selection: {
+        kind: 'group',
+        serviceId: sourceBinding.serviceId,
+        groupId: sourceBinding.groupId,
+        activeProfileId: sourceBinding.profileId,
+        fallbackProfileId: sourceBinding.profileId,
+      },
+      profileId: sourceBinding.profileId,
+      generation: sourceBinding.generation,
+      continueAfterRuntimeAuthSwitch: input.continueAfterRuntimeAuthSwitch ?? null,
+    });
+    const { adoptedTarget: _adoptedTarget, ...supersededResult } = sourceAuthorization;
+    return supersededResult;
+  }
   if (sourceAuthorization.status === 'current_credential_revision') {
     const sourceBinding = sourceAuthorization.sourceBinding;
     const selection: RuntimeRecoverySelection = sourceBinding.groupId
@@ -1241,7 +1299,7 @@ export async function handleConnectedServiceRuntimeAuthFailureForSession(input: 
           serviceId: sourceBinding.serviceId,
           profileId: sourceBinding.profileId,
         };
-    await maybeContinueAfterCredentialRefresh({
+    await maybeContinueAfterRuntimeAuthTargetAdoption({
       tracked: sourceAuthorization.tracked,
       sessionId: input.sessionId,
       selection,

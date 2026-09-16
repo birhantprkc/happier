@@ -26,6 +26,7 @@ type ToolContext = Readonly<{
 }>;
 
 export type CodexAppServerStreamUpdate =
+    | Readonly<{ type: 'provider-user-text'; itemId: string; clientId: string | null; text: string }>
     | Readonly<{ type: 'assistant-text-delta'; itemId: string; text: string }>
     | Readonly<{ type: 'assistant-text-final'; itemId: string; text: string }>
     | Readonly<{ type: 'assistant-raw-final'; itemId: string | null; text: string }>
@@ -247,6 +248,18 @@ export function createCodexAppServerStreamEventBridge(): Readonly<{
             if (notification.method === 'item/started') {
                 const item = readItem(params);
                 if (item) {
+                    if (readItemType(item) === 'usermessage') {
+                        const itemId = readItemId(item);
+                        const text = readCodexMessageContentText(item.content);
+                        if (itemId && text) {
+                            return [{
+                                type: 'provider-user-text',
+                                itemId,
+                                clientId: readString(item.clientId) ?? readString(item.client_id),
+                                text,
+                            }];
+                        }
+                    }
                     const reviewModeUpdate = readReviewModeUpdate(item, 'started');
                     if (reviewModeUpdate) return [reviewModeUpdate];
 

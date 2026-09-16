@@ -225,6 +225,75 @@ describe('evaluateCliSessionAttachEligibility', () => {
     });
   });
 
+  it.each(['devin', 'kimi'] as const)(
+    'accepts tmux-backed %s terminal attach through the shared local-control policy',
+    async (agentId) => {
+      const rawSession = createSessionRecordFixture({
+        id: `sid_local_${agentId}_tmux_1`,
+        active: true,
+        encryptionMode: 'plain',
+        metadata: JSON.stringify({
+          machineId: 'machine-local',
+          flavor: agentId,
+          host: 'leeroy-mbp',
+          path: '/tmp/workspace',
+          terminal: {
+            mode: 'tmux',
+            requested: 'tmux',
+            tmux: { target: `happy:${agentId}-session-1` },
+          },
+        }),
+      });
+
+      await expect(evaluateCliSessionAttachEligibility({
+        credentials,
+        rawSession,
+        currentMachineId: 'machine-local',
+        currentMachineHost: 'leeroy-mbp.local',
+        localAttachmentInfo: null,
+        insideTmux: false,
+      })).resolves.toMatchObject({
+        eligible: true,
+        attachStrategy: 'terminal_host',
+        agentId,
+        attachScope: 'local',
+        plan: expect.objectContaining({ type: 'tmux', target: `happy:${agentId}-session-1` }),
+      });
+    },
+  );
+
+  it('keeps terminal attach unavailable for an unsupported provider', async () => {
+    const rawSession = createSessionRecordFixture({
+      id: 'sid_local_gemini_tmux_1',
+      active: true,
+      encryptionMode: 'plain',
+      metadata: JSON.stringify({
+        machineId: 'machine-local',
+        flavor: 'gemini',
+        host: 'leeroy-mbp',
+        path: '/tmp/workspace',
+        terminal: {
+          mode: 'tmux',
+          requested: 'tmux',
+          tmux: { target: 'happy:gemini-session-1' },
+        },
+      }),
+    });
+
+    await expect(evaluateCliSessionAttachEligibility({
+      credentials,
+      rawSession,
+      currentMachineId: 'machine-local',
+      currentMachineHost: 'leeroy-mbp.local',
+      localAttachmentInfo: null,
+      insideTmux: false,
+    })).resolves.toMatchObject({
+      eligible: false,
+      agentId: 'gemini',
+      reasonCode: 'local_control_unsupported',
+    });
+  });
+
   it('accepts provider-attach sessions on the current machine without local terminal attachment state', async () => {
     const rawSession = createSessionRecordFixture({
       id: 'sid_local_opencode_1',

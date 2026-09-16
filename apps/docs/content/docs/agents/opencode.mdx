@@ -91,7 +91,7 @@ Using it:
 
 - switches the session back to **remote** control,
 - keeps the same session id and transcript,
-- leaves the existing terminal open in a read-only/logs-only state until you attach again.
+- closes the attached OpenCode TUI while the Happier session keeps running.
 
 You can later run `happier attach <session-id>` from a terminal on the same machine to get back into the OpenCode TUI.
 
@@ -127,7 +127,7 @@ That means:
 - **Local mode**: you use the OpenCode TUI in a terminal
 - the transcript stays shared in both modes
 - the session stays writable from the app even when a terminal is attached
-- app messages do not need the same exclusive pending-queue handoff used by Claude and Codex local control
+- app messages do not need the pending-queue handoff used by exclusive local-control paths
 
 In practice, you can:
 

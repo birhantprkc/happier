@@ -7,6 +7,51 @@ import { describe, expect, it } from 'vitest';
 import { createCodexAppServerStreamEventBridge } from './streamEventBridge';
 
 describe('createCodexAppServerStreamEventBridge', () => {
+    it('maps provider-native user messages while preserving Happier correlation', () => {
+        const bridge = createCodexAppServerStreamEventBridge();
+
+        expect(
+            bridge.onNotification({
+                method: 'item/started',
+                params: {
+                    item: {
+                        id: 'native_user_1',
+                        type: 'userMessage',
+                        content: [
+                            { type: 'text', text: 'hello from Codex TUI' },
+                            { type: 'mention', name: 'README.md', path: '/repo/README.md' },
+                            { type: 'text', text: 'second paragraph' },
+                        ],
+                    },
+                },
+            }),
+        ).toEqual([{
+            type: 'provider-user-text',
+            itemId: 'native_user_1',
+            clientId: null,
+            text: 'hello from Codex TUI\nsecond paragraph',
+        }]);
+
+        expect(
+            bridge.onNotification({
+                method: 'item/started',
+                params: {
+                    item: {
+                        id: 'happier_user_1',
+                        type: 'userMessage',
+                        clientId: 'happier-local-1',
+                        content: [{ type: 'text', text: 'hello from Happier' }],
+                    },
+                },
+            }),
+        ).toEqual([{
+            type: 'provider-user-text',
+            itemId: 'happier_user_1',
+            clientId: 'happier-local-1',
+            text: 'hello from Happier',
+        }]);
+    });
+
     it('maps app-server v2 agent message, plan, and reasoning notifications', () => {
         const bridge = createCodexAppServerStreamEventBridge();
 

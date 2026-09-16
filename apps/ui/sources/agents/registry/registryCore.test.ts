@@ -119,6 +119,18 @@ describe('agents/registryCore', () => {
         });
     });
 
+    it.each(['devin', 'kimi'] as const)('projects shared tmux-backed local control for %s', (agentId) => {
+        expect(getAgentCore(agentId).localControl).toEqual({
+            supported: true,
+            topology: 'exclusive',
+            attachStrategy: 'tmux',
+        });
+    });
+
+    it('keeps local control unavailable for an unsupported provider', () => {
+        expect(getAgentCore('gemini').localControl).toBeUndefined();
+    });
+
     it.each([
         ['fx', 'fx', 'fxSessionId'],
         ['droid', 'droid', 'droidSessionId'],

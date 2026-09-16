@@ -5971,6 +5971,10 @@ export const de: TranslationStructure = {
         browseLoadMore: 'Mehr Sessions laden',
         browseFailedToLoad: 'Die Provider-Sessions ließen sich nicht laden.',
         browseLinkFailed: 'Die gewählte Provider-Session ließ sich nicht verknüpfen.',
+        deleteCandidateActionsAccessibilityLabel: ({ title }: { title: string }) => `Weitere Aktionen für ${title}`,
+        deleteCandidateConfirmTitle: 'Provider-Session löschen?',
+        deleteCandidateConfirmMessage: ({ title, provider }: { title: string; provider: string }) => `„${title}“ aus ${provider} löschen? Dies kann nicht rückgängig gemacht werden.`,
+        deleteCandidateFailed: 'Die Provider-Session konnte nicht gelöscht werden.',
     },
 
 	    sessionInfo: {

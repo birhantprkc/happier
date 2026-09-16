@@ -328,6 +328,43 @@ vi.mock('./localControl/createLocalControlSupportResolver', () => ({
   createCodexLocalControlSupportResolver: vi.fn(() => async () => ({ ok: false as const, reason: 'test' })),
 }));
 
+const resolveCodexSharedControlSupportSpy = vi.fn<(...args: any[]) => Promise<any>>(async () => ({
+  ok: false as const,
+  reason: 'unsupported-version' as const,
+}));
+vi.mock('./localControl/resolveCodexSharedControlSupport', () => ({
+  resolveCodexSharedControlSupport: (params: unknown) => resolveCodexSharedControlSupportSpy(params),
+}));
+
+const sharedAppServerDisposeSpy = vi.fn(async () => {});
+const createCodexSharedAppServerSpy = vi.fn<(...args: any[]) => Promise<any>>(async () => ({
+  endpoint: 'unix:///tmp/happier-codex-test/private/app-server.sock',
+  createClient: vi.fn(),
+  dispose: sharedAppServerDisposeSpy,
+}));
+vi.mock('./appServer/createCodexSharedAppServer', () => ({
+  createCodexSharedAppServer: (params: unknown) => createCodexSharedAppServerSpy(params),
+}));
+
+const sharedLocalControlDisposeSpy = vi.fn(async () => {});
+const createCodexSharedLocalControlSpy = vi.fn<(...args: any[]) => any>(() => ({
+  onAfterStart: vi.fn(async () => {}),
+  onSessionSwap: vi.fn(async () => {}),
+  resolveKeepAliveMode: vi.fn(() => 'remote'),
+  switchToLocal: vi.fn(async () => true),
+  dispose: sharedLocalControlDisposeSpy,
+}));
+vi.mock('./localControl/createCodexSharedLocalControl', () => ({
+  createCodexSharedLocalControl: (...args: any[]) => createCodexSharedLocalControlSpy(...args),
+}));
+
+const writeCodexSharedControlEndpointSpy = vi.fn(async (_params: unknown) => {});
+const removeCodexSharedControlEndpointSpy = vi.fn(async (_params: unknown) => true);
+vi.mock('./localControl/codexSharedControlEndpoint', () => ({
+  writeCodexSharedControlEndpoint: (params: unknown) => writeCodexSharedControlEndpointSpy(params),
+  removeCodexSharedControlEndpoint: (params: unknown) => removeCodexSharedControlEndpointSpy(params),
+}));
+
 let codexLocalLauncherImpl: ((opts: any) => Promise<any>) | null = null;
 const codexLocalLauncherSpy = vi.fn<(...args: any[]) => Promise<any>>(async (opts: any) => {
   if (codexLocalLauncherImpl) return await codexLocalLauncherImpl(opts);
@@ -500,6 +537,17 @@ describe('runCodex CodexACP resume behavior', () => {
     sessionModeSyncFlushPendingAfterStartSpy.mockClear();
     configOptionSyncFlushPendingAfterStartSpy.mockClear();
     registerRemoteSwitchHandlerSpy.mockClear();
+    resolveCodexSharedControlSupportSpy.mockReset();
+    resolveCodexSharedControlSupportSpy.mockResolvedValue({
+      ok: false as const,
+      reason: 'unsupported-version' as const,
+    });
+    createCodexSharedAppServerSpy.mockClear();
+    createCodexSharedLocalControlSpy.mockClear();
+    sharedAppServerDisposeSpy.mockClear();
+    sharedLocalControlDisposeSpy.mockClear();
+    writeCodexSharedControlEndpointSpy.mockClear();
+    removeCodexSharedControlEndpointSpy.mockClear();
     refreshDaemonOpenAiCodexChatGptAuthTokensForBridgeSpy.mockReset();
     refreshDaemonOpenAiCodexChatGptAuthTokensForBridgeSpy.mockImplementation(async () => ({
       accessToken: 'fresh-access',
@@ -1014,12 +1062,12 @@ describe('runCodex CodexACP resume behavior', () => {
     expect(resolveRunnerMcpServersSpy).toHaveBeenCalledTimes(1);
     expect(createCodexAppServerRuntimeSpy).toHaveBeenCalledTimes(1);
     expect(createCodexAppServerRuntimeSpy).toHaveBeenCalledWith(expect.objectContaining({
-      configOverrides: [
+      configOverrides: expect.arrayContaining([
         'shell_environment_policy.set.HAPPIER_SESSION_ID="sess_1"',
         'mcp_servers.happier.command="/tmp/happier-mcp-bridge"',
         'mcp_servers.happier.args=["--url","http://127.0.0.1:0"]',
         'mcp_servers.happier.enabled=true',
-      ],
+      ]),
     }));
     const runtimeArgs = createCodexAppServerRuntimeSpy.mock.calls[0]?.[0] as {
       processEnv?: NodeJS.ProcessEnv;
@@ -1032,12 +1080,12 @@ describe('runCodex CodexACP resume behavior', () => {
       HAPPIER_SESSION_ID: 'sess_1',
     }));
     expect(runtimeArgs?.transcriptSession?.sendAgentMessageEphemeral).toBeTypeOf('function');
-    expect(runtimeArgs?.configOverrides).toEqual([
+    expect(runtimeArgs?.configOverrides).toEqual(expect.arrayContaining([
       'shell_environment_policy.set.HAPPIER_SESSION_ID="sess_1"',
       'mcp_servers.happier.command="/tmp/happier-mcp-bridge"',
       'mcp_servers.happier.args=["--url","http://127.0.0.1:0"]',
       'mcp_servers.happier.enabled=true',
-    ]);
+    ]));
     const createdRuntime = createCodexAppServerRuntimeSpy.mock.results[0]?.value as any;
     const startOrLoad = createdRuntime?.startOrLoad as ReturnType<typeof vi.fn> | undefined;
     expect(startOrLoad?.mock.calls[0]?.[0]).toMatchObject({
@@ -1240,6 +1288,32 @@ describe('runCodex CodexACP resume behavior', () => {
     const createdRuntime = createCodexAppServerRuntimeSpy.mock.results[0]?.value as any;
     expect(createdRuntime.startOrLoad).not.toHaveBeenCalled();
     expect(outcome).toMatchObject({ ok: false });
+  });
+
+  it('enables supported shared app-server control for daemon sessions without a launch TTY', async () => {
+    resolveCodexSharedControlSupportSpy.mockResolvedValueOnce({ ok: true as const, version: '0.153.4' });
+    resolveRunnerMcpServersSpy.mockResolvedValueOnce({
+      happierMcpServer: { url: 'http://127.0.0.1:0', stop: vi.fn() },
+      mcpServers: {},
+    });
+    sessionInputConsumerWaitForNextInputImpl = async () => {
+      throw new Error('stop-after-shared-server-start');
+    };
+
+    const { runCodex } = await import('./runCodex');
+    await runCodex({
+      credentials: { token: 'test' } as Credentials,
+      startedBy: 'daemon',
+      startingMode: 'remote',
+      codexBackendMode: 'appServer',
+    } as any).catch(() => undefined);
+
+    expect(resolveCodexSharedControlSupportSpy).toHaveBeenCalledOnce();
+    expect(createCodexSharedAppServerSpy).toHaveBeenCalledOnce();
+    expect(writeCodexSharedControlEndpointSpy).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'sess_1',
+      endpoint: 'unix:///tmp/happier-codex-test/private/app-server.sock',
+    }));
   });
 
   it('routes Codex ChatGPT refresh bridge requests for connected-service profile selections to the daemon', async () => {

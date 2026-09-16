@@ -1,6 +1,7 @@
 import { RPC_METHODS } from '@happier-dev/protocol/rpc';
 import {
   DirectSessionAttachRequestSchema,
+  DirectSessionCandidateDeleteRequestSchema,
   DirectSessionDetachRequestSchema,
   DirectSessionFollowPolicySetRequestSchema,
   DirectSessionLinkEnsureRequestSchema,
@@ -12,6 +13,7 @@ import {
   DirectTranscriptReadAfterRequestSchema,
   normalizeCodexBackendMode,
   type DirectSessionAttachResponse,
+  type DirectSessionCandidateDeleteResponse,
   type DirectSessionDetachResponse,
   type DirectSessionFollowPolicySetResponse,
   type DirectSessionTranscriptDeltaEphemeral,
@@ -334,9 +336,34 @@ export function registerMachineDirectSessionsRpcHandlers(params: Readonly<{
         candidates: res.candidates,
         nextCursor: res.nextCursor,
         ...(res.searchIncomplete ? { searchIncomplete: true } : {}),
+        ...(res.capabilities ? { capabilities: res.capabilities } : {}),
       } satisfies DirectSessionsCandidatesListResponse;
     } catch (error) {
       return errFromProviderFailure(error) satisfies DirectSessionsCandidatesListResponse;
+    }
+  });
+
+  rpcHandlerManager.registerHandler(RPC_METHODS.DAEMON_DIRECT_SESSION_CANDIDATE_DELETE, async (raw: unknown) => {
+    const parsed = DirectSessionCandidateDeleteRequestSchema.safeParse(raw);
+    if (!parsed.success) return err('invalid_request') satisfies DirectSessionCandidateDeleteResponse;
+    const validatedSource = validateDirectMachineSource({
+      providerId: parsed.data.providerId,
+      source: parsed.data.source,
+      env: process.env,
+    });
+    if (!validatedSource.ok) {
+      return err('invalid_request', validatedSource.error) satisfies DirectSessionCandidateDeleteResponse;
+    }
+
+    try {
+      const providerOps = await getDirectSessionProviderOps(parsed.data.providerId);
+      await requireProviderOp(providerOps.deleteCandidate, parsed.data.providerId, 'candidate deletion')({
+        source: validatedSource.source,
+        remoteSessionId: parsed.data.remoteSessionId,
+      });
+      return { ok: true, deleted: true } satisfies DirectSessionCandidateDeleteResponse;
+    } catch (error) {
+      return errFromProviderFailure(error) satisfies DirectSessionCandidateDeleteResponse;
     }
   });
 

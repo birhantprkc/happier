@@ -4,8 +4,9 @@ description: Configure Devin CLI in Happier, including authentication, permissio
 ---
 
 Happier runs the locally installed Devin CLI through its ACP server for normal
-sessions and execution runs. In the current 0.2 runtime, execution runs do not
-yet receive a run-scoped Happier MCP bridge.
+sessions and execution runs. For execution runs, Happier lazily resolves one
+run-scoped set of Happier MCP servers and supplies it through Devin's native
+process-scoped MCP configuration when the Devin process starts.
 
 ## Requirements and authentication
 
@@ -49,17 +50,18 @@ Happier maps explicit choices to Devin's advertised modes:
 
 ## MCP tools
 
-For normal sessions, Devin supports MCP natively through its layered
+Devin supports MCP natively through its layered
 `mcp_config.json` files. Its
 ACP server currently ignores ACP's standard per-session `mcpServers` input and
 does not expose a direct MCP launch flag. Happier therefore merges the selected
-session tools with your user-level Devin MCP servers in a protected temporary
-config root, starts Devin against that root, and removes it when the process
-ends. Untouched Devin and Cognition config entries are projected into that root
-with symlinks (directory junctions on Windows); only the merged
-`mcp_config.json` is session-private. If those links cannot be created, Happier
-stops the launch instead of copying provider state into a stale snapshot. Your
-normal config files are not modified by Happier.
+session tools—or the lazily resolved, run-scoped tools for an execution run—with
+your user-level Devin MCP servers in a protected temporary config root, starts
+Devin against that root, and removes it when the process ends. Untouched Devin
+and Cognition config entries are projected into that root with symlinks
+(directory junctions on Windows); only the merged `mcp_config.json` is
+process-private. If those links cannot be created, Happier stops the launch
+instead of copying provider state into a stale snapshot. Your normal config
+files are not modified by Happier.
 
 Project and project-local Devin MCP servers still load. If one uses the same
 name as a Happier-selected session server, Happier stops before launch instead
