@@ -1,4 +1,5 @@
 import type { PrismaClientType } from "@/storage/prisma";
+import { sqliteMaintenanceDurationHistogram } from "@/app/monitoring/metrics2";
 import { log } from "@/utils/logging/log";
 
 // Active WAL checkpoint cadence for the light/sqlite server.
@@ -7,9 +8,10 @@ import { log } from "@/utils/logging/log";
 // read transactions (e.g. session-message subscriptions). When that happens the
 // WAL grows without bound, every read slows down as it scans WAL frames, and writes
 // can eventually exceed Prisma's query timeout and surface as `Socket timeout`
-// errors. An actively-driven `wal_checkpoint(TRUNCATE)` gives the server a
-// best-effort maintenance loop that truncates the WAL whenever SQLite can get a
-// reader gap.
+// errors. The maintenance loop first advances the WAL with a non-blocking PASSIVE
+// checkpoint. It requests a bounded TRUNCATE wait only when PASSIVE leaves a real
+// uncheckpointed backlog; a reset-only wait can otherwise block the sole primary
+// SQLite connection without making any additional frame progress.
 const DEFAULT_WAL_CHECKPOINT_INTERVAL_MS = 60_000;
 const DEFAULT_WAL_CHECKPOINT_BUSY_TIMEOUT_MS = 5_000;
 const DEFAULT_INCREMENTAL_VACUUM_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -135,16 +137,15 @@ export function resolveSqliteIncrementalVacuumPagesFromEnv(env: NodeJS.ProcessEn
     });
 }
 
-/**
- * Run a single TRUNCATE checkpoint, resetting the WAL file to zero bytes when it can.
- * Returns SQLite's `(busy, log, checkpointed)` triple.
- */
-export async function checkpointSqliteWal(client: PrismaClientType): Promise<SqliteWalCheckpointResult> {
-    // `PRAGMA wal_checkpoint(TRUNCATE)` returns three integer columns documented as
+async function runSqliteWalCheckpoint(
+    client: PrismaClientType,
+    mode: "PASSIVE" | "TRUNCATE",
+): Promise<SqliteWalCheckpointResult> {
+    // `PRAGMA wal_checkpoint` returns three integer columns documented as
     // (busy, log, checkpointed). Prefer SQLite's documented column names, falling back
     // to positional order, so we are robust to driver-specific result shaping either way.
     const rows = await client.$queryRawUnsafe<Array<Record<string, number | bigint>>>(
-        "PRAGMA wal_checkpoint(TRUNCATE);",
+        `PRAGMA wal_checkpoint(${mode});`,
     );
     const row = rows[0] ?? {};
     const positional = Object.values(row);
@@ -154,6 +155,27 @@ export async function checkpointSqliteWal(client: PrismaClientType): Promise<Sql
         logFrames: read("log", 1),
         checkpointedFrames: read("checkpointed", 2),
     };
+}
+
+/**
+ * Run a single TRUNCATE checkpoint, resetting the WAL file to zero bytes when it can.
+ * Returns SQLite's `(busy, log, checkpointed)` triple.
+ */
+export async function checkpointSqliteWal(client: PrismaClientType): Promise<SqliteWalCheckpointResult> {
+    return runSqliteWalCheckpoint(client, "TRUNCATE");
+}
+
+/**
+ * Advance WAL frames without invoking SQLite's busy handler first. A blocking reset
+ * is useful only when PASSIVE could not checkpoint every frame; when all frames are
+ * already checkpointed, SQLite can recycle the WAL after the reader gap on its own.
+ */
+export async function maintainSqliteWal(client: PrismaClientType): Promise<SqliteWalCheckpointResult> {
+    const passive = await runSqliteWalCheckpoint(client, "PASSIVE");
+    if (passive.logFrames <= passive.checkpointedFrames) {
+        return passive;
+    }
+    return checkpointSqliteWal(client);
 }
 
 export type SqliteWalCheckpointWorkerHandle = Readonly<{ stop: () => Promise<void> }>;
@@ -179,7 +201,7 @@ export function startSqliteWalCheckpointWorker(
     if (options.intervalMs <= 0) {
         return null;
     }
-    const runCheckpoint = options.runCheckpoint ?? checkpointSqliteWal;
+    const runCheckpoint = options.runCheckpoint ?? maintainSqliteWal;
 
     let stopped = false;
     let inFlight: Promise<void> | null = null;
@@ -189,11 +211,12 @@ export function startSqliteWalCheckpointWorker(
         if (stopped || inFlight) return;
         inFlight = (async () => {
             const startedAtMs = Date.now();
+            let outcome = "error";
             try {
                 const result = await runCheckpoint(options.client);
                 if (result.busy !== 0) {
                     consecutiveBusyCount += 1;
-                    const outcome = result.logFrames > 0 && result.logFrames === result.checkpointedFrames
+                    outcome = result.logFrames > 0 && result.logFrames === result.checkpointedFrames
                         ? "wal-reset-deferred"
                         : "checkpoint-incomplete";
                     log(
@@ -214,6 +237,7 @@ export function startSqliteWalCheckpointWorker(
                     );
                 } else {
                     consecutiveBusyCount = 0;
+                    outcome = "ok";
                 }
             } catch (error) {
                 consecutiveBusyCount = 0;
@@ -222,6 +246,10 @@ export function startSqliteWalCheckpointWorker(
                     "SQLite WAL checkpoint failed",
                 );
             } finally {
+                sqliteMaintenanceDurationHistogram.observe(
+                    { operation: "wal_checkpoint", outcome },
+                    (Date.now() - startedAtMs) / 1_000,
+                );
                 inFlight = null;
             }
         })();
@@ -284,14 +312,21 @@ export function startSqliteIncrementalVacuumWorker(
     const run = async (): Promise<void> => {
         if (stopped || inFlight) return;
         inFlight = (async () => {
+            const startedAtMs = Date.now();
+            let outcome = "error";
             try {
                 await runVacuum(options.client, options.pages);
+                outcome = "ok";
             } catch (error) {
                 log(
                     { module: "storage", event: "sqlite-incremental-vacuum-failed", error },
                     "SQLite incremental vacuum failed",
                 );
             } finally {
+                sqliteMaintenanceDurationHistogram.observe(
+                    { operation: "incremental_vacuum", outcome },
+                    (Date.now() - startedAtMs) / 1_000,
+                );
                 inFlight = null;
             }
         })();

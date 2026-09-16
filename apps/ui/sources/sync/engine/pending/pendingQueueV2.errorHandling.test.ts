@@ -223,6 +223,35 @@ describe('pendingQueueV2 error handling', () => {
         expect(storage.getState().sessions[sessionId].optimisticThinkingAt ?? null).toBeNull();
     });
 
+    it('keeps the local pending row when the server reports retryable transaction backpressure', async () => {
+        const sessionId = 's_test_enqueue_transaction_unavailable';
+        storage.getState().applySessions([buildSession({ sessionId, overrides: { encryptionMode: 'plain' } })]);
+        const encryption = await createPendingQueueEncryption({ sessionId, seedByte: 11 });
+
+        await expect(enqueuePendingMessageV2({
+            sessionId,
+            text: 'hello',
+            encryption,
+            outboxScope,
+            request: async () => new Response(
+                JSON.stringify({ error: 'transaction-unavailable', retryAfterMs: 1_000 }),
+                { status: 503, headers: { 'Retry-After': '1' } },
+            ),
+        })).resolves.toEqual({
+            accepted: false,
+            localId: expect.any(String),
+        });
+
+        expect(storage.getState().sessionPending[sessionId]?.messages ?? []).toEqual([
+            expect.objectContaining({
+                source: 'local_outbound',
+                deliveryStatus: 'queued',
+                text: 'hello',
+            }),
+        ]);
+        expect(storage.getState().sessions[sessionId].optimisticThinkingAt ?? null).toBeNull();
+    });
+
     it.each([401, 403] as const)('surfaces pending mutation auth status %s as not_authenticated', async (status) => {
         const sessionId = `s_test_mutation_auth_${status}`;
         const encryption = await createPendingQueueEncryption({ sessionId, seedByte: 8 });

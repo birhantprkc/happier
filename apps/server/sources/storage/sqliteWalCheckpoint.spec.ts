@@ -1,11 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const loggingMocks = vi.hoisted(() => ({ log: vi.fn() }));
+const monitoringMocks = vi.hoisted(() => ({ observe: vi.fn() }));
 vi.mock("@/utils/logging/log", () => loggingMocks);
+vi.mock("@/app/monitoring/metrics2", () => ({
+    sqliteMaintenanceDurationHistogram: { observe: monitoringMocks.observe },
+}));
 
 import type { PrismaClientType } from "@/storage/prisma";
 import {
     checkpointSqliteWal,
+    maintainSqliteWal,
     incrementalVacuumSqlite,
     resolveSqliteIncrementalVacuumIntervalMsFromEnv,
     resolveSqliteIncrementalVacuumPagesFromEnv,
@@ -152,6 +157,36 @@ describe("checkpointSqliteWal", () => {
     });
 });
 
+describe("maintainSqliteWal", () => {
+    it("does not request a blocking WAL reset when PASSIVE already checkpointed every frame", async () => {
+        const queryRawUnsafe = vi.fn(async () => [{ busy: 0, log: 12, checkpointed: 12 }]);
+        const fakeClient = { $queryRawUnsafe: queryRawUnsafe } as unknown as PrismaClientType;
+
+        await expect(maintainSqliteWal(fakeClient)).resolves.toEqual({
+            busy: 0,
+            logFrames: 12,
+            checkpointedFrames: 12,
+        });
+        expect(queryRawUnsafe).toHaveBeenCalledTimes(1);
+        expect(queryRawUnsafe).toHaveBeenCalledWith("PRAGMA wal_checkpoint(PASSIVE);");
+    });
+
+    it("retains the active TRUNCATE attempt when PASSIVE leaves an uncheckpointed backlog", async () => {
+        const queryRawUnsafe = vi.fn()
+            .mockResolvedValueOnce([{ busy: 0, log: 12, checkpointed: 5 }])
+            .mockResolvedValueOnce([{ busy: 1, log: 12, checkpointed: 9 }]);
+        const fakeClient = { $queryRawUnsafe: queryRawUnsafe } as unknown as PrismaClientType;
+
+        await expect(maintainSqliteWal(fakeClient)).resolves.toEqual({
+            busy: 1,
+            logFrames: 12,
+            checkpointedFrames: 9,
+        });
+        expect(queryRawUnsafe).toHaveBeenNthCalledWith(1, "PRAGMA wal_checkpoint(PASSIVE);");
+        expect(queryRawUnsafe).toHaveBeenNthCalledWith(2, "PRAGMA wal_checkpoint(TRUNCATE);");
+    });
+});
+
 describe("incrementalVacuumSqlite", () => {
     it("runs a bounded incremental vacuum batch", async () => {
         const fakeClient = {
@@ -167,6 +202,7 @@ describe("incrementalVacuumSqlite", () => {
 describe("startSqliteWalCheckpointWorker", () => {
     afterEach(() => {
         loggingMocks.log.mockReset();
+        monitoringMocks.observe.mockReset();
         vi.useRealTimers();
     });
 
@@ -189,6 +225,10 @@ describe("startSqliteWalCheckpointWorker", () => {
 
         await vi.advanceTimersByTimeAsync(1000);
         expect(calls).toBe(1);
+        expect(monitoringMocks.observe).toHaveBeenLastCalledWith(
+            { operation: "wal_checkpoint", outcome: "ok" },
+            0,
+        );
         await vi.advanceTimersByTimeAsync(1000);
         expect(calls).toBe(2);
 
@@ -326,6 +366,7 @@ describe("startSqliteWalCheckpointWorker", () => {
 
 describe("startSqliteIncrementalVacuumWorker", () => {
     afterEach(() => {
+        monitoringMocks.observe.mockReset();
         vi.useRealTimers();
     });
 
@@ -365,6 +406,24 @@ describe("startSqliteIncrementalVacuumWorker", () => {
         expect(started).toBe(2);
 
         releases.forEach((release) => release());
+        await handle!.stop();
+    });
+
+    it("records successful maintenance duration through the canonical metrics registry", async () => {
+        vi.useFakeTimers();
+        const handle = startSqliteIncrementalVacuumWorker({
+            client,
+            intervalMs: 1000,
+            pages: 100,
+            runVacuum: async () => undefined,
+        });
+
+        await vi.advanceTimersByTimeAsync(1000);
+
+        expect(monitoringMocks.observe).toHaveBeenCalledWith(
+            { operation: "incremental_vacuum", outcome: "ok" },
+            0,
+        );
         await handle!.stop();
     });
 });

@@ -32,7 +32,10 @@ import { settleReceivedSessionMessages } from '@/sync/engine/sessions/sessionMes
 import { buildOutgoingUserTextRecord } from '@/sync/domains/messages/outgoingUserMessage';
 import { resolveSentFrom } from '@/sync/domains/messages/sentFrom';
 import { throwAuthenticationResponseErrorIfNeeded } from '@/sync/runtime/connectivity/authErrors';
-import { isTransientConnectivityError } from '@/sync/runtime/connectivity/transientConnectivityErrors';
+import {
+    isTransientConnectivityError,
+    RetryableServerResponseError,
+} from '@/sync/runtime/connectivity/transientConnectivityErrors';
 import {
     normalizePendingDeliveryBlockedReason,
     parsePendingDeliveryStatusV1,
@@ -119,6 +122,9 @@ export type PendingQueueReadEncryption = Readonly<{
 function assertPendingResponseOk(response: Response, message: string): void {
     if (response.ok) return;
     throwAuthenticationResponseErrorIfNeeded(response.status);
+    if (response.status === 503) {
+        throw new RetryableServerResponseError(response.status, `${message} (${response.status})`);
+    }
     throw new Error(`${message} (${response.status})`);
 }
 
