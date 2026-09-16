@@ -251,7 +251,7 @@ describe('reattachTrackedSessionsFromMarkers', () => {
     const result = await reattachTrackedSessionsFromMarkers({
       pidToTrackedSession,
       terminalHostAdapters: { tmux: adapter },
-      hasTerminalAttachmentControlDescriptor: async () => true,
+      resolveTerminalAttachmentControlDescriptorStatus: async () => 'available',
     });
 
     expect(adapter.evaluateLiveness).not.toHaveBeenCalled();
@@ -310,16 +310,16 @@ describe('reattachTrackedSessionsFromMarkers', () => {
     vi.spyOn(process, 'kill').mockImplementation(() => {
       throw Object.assign(new Error('ESRCH'), { code: 'ESRCH' });
     });
-    const hasTerminalAttachmentControlDescriptor = vi.fn(async () => false);
+    const resolveTerminalAttachmentControlDescriptorStatus = vi.fn(async () => 'missing' as const);
 
     const result = await reattachTrackedSessionsFromMarkers({
       pidToTrackedSession: new Map<number, TrackedSession>(),
       terminalHostAdapters: {},
-      hasTerminalAttachmentControlDescriptor,
+      resolveTerminalAttachmentControlDescriptorStatus,
     });
 
-    expect(hasTerminalAttachmentControlDescriptor).toHaveBeenCalledOnce();
-    expect(hasTerminalAttachmentControlDescriptor).toHaveBeenCalledWith('claude', {
+    expect(resolveTerminalAttachmentControlDescriptorStatus).toHaveBeenCalledOnce();
+    expect(resolveTerminalAttachmentControlDescriptorStatus).toHaveBeenCalledWith('claude', {
       happyHomeDir: marker.happyHomeDir,
       sessionId: marker.happySessionId,
       attachmentId,
@@ -329,7 +329,7 @@ describe('reattachTrackedSessionsFromMarkers', () => {
         sessionId: marker.happySessionId,
         pid: marker.pid,
         attachmentId,
-        controlDescriptorAvailable: false,
+        controlDescriptorStatus: 'missing',
       }),
     ]);
     expect(result.orphanedDeadDaemonSessions).toEqual([]);

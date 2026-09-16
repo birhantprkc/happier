@@ -509,7 +509,7 @@ export class TmuxUtilities {
     args: string[],
     options: TmuxSpawnOptions = {},
     env?: Record<string, string>,
-  ): Promise<{ success: boolean; sessionId?: string; sessionName?: string; windowName?: string; pid?: number; error?: string }> {
+  ): Promise<{ success: boolean; sessionId?: string; sessionName?: string; windowName?: string; windowId?: string; pid?: number; error?: string }> {
     let spawnScriptPath: string | null = null;
     try {
       // Check if tmux is available
@@ -569,8 +569,8 @@ export class TmuxUtilities {
       // Create new window in session with command and environment variables
       // IMPORTANT: Don't manually add -t here - executeTmuxCommand handles it via parameters
       const baseCreateWindowArgs = requireNewSession
-        ? ['new-session', '-d', '-P', '-F', '#{pane_pid}', '-s', sessionName, '-n', windowName]
-        : ['new-window', '-d', '-P', '-F', '#{pane_pid}', '-n', windowName];
+        ? ['new-session', '-d', '-P', '-F', '#{pane_pid}\t#{window_id}', '-s', sessionName, '-n', windowName]
+        : ['new-window', '-d', '-P', '-F', '#{pane_pid}\t#{window_id}', '-n', windowName];
 
       // Add working directory if specified
       if (options.cwd) {
@@ -701,16 +701,21 @@ export class TmuxUtilities {
         throw new Error(`Failed to create tmux ${resourceKind} (target=${target}): ${createResult?.stderr}`);
       }
 
-      // Extract the PID from the output
-      const panePidText = createResult.stdout.trim();
+      // Capture both the runner PID and tmux's immutable window identity. Window names
+      // can be changed automatically by tmux, so they are display metadata, not ownership.
+      const [panePidText = '', windowId = ''] = createResult.stdout.trim().split('\t');
       if (!/^\d+$/.test(panePidText)) {
-        const preview = panePidText.length > 200 ? `${panePidText.slice(0, 200)}…` : panePidText;
+        const output = createResult.stdout.trim();
+        const preview = output.length > 200 ? `${output.slice(0, 200)}…` : output;
         throw new Error(`Failed to extract PID from tmux output: ${preview}`);
       }
 
       const panePid = Number.parseInt(panePidText, 10);
       if (!Number.isFinite(panePid) || panePid <= 0) {
         throw new Error(`Failed to extract PID from tmux output: ${panePidText}`);
+      }
+      if (!/^@\d+$/.test(windowId)) {
+        throw new Error(`Failed to extract immutable window id from tmux output: ${windowId || '<empty>'}`);
       }
 
       logger.debug(`[TMUX] Spawned command in tmux session ${sessionName}, window ${windowName}, PID ${panePid}`);
@@ -726,6 +731,7 @@ export class TmuxUtilities {
         sessionId: formatTmuxSessionIdentifier(sessionIdentifier),
         sessionName,
         windowName,
+        windowId,
         pid: panePid,
       };
     } catch (error) {
@@ -763,6 +769,11 @@ export class TmuxUtilities {
    */
   async killWindow(sessionIdentifier: string): Promise<boolean> {
     try {
+      const immutableWindowId = sessionIdentifier.trim();
+      if (/^@\d+$/.test(immutableWindowId)) {
+        const result = await this.executeTmuxCommand(['kill-window', '-t', immutableWindowId]);
+        return result !== null && result.returncode === 0;
+      }
       const parsed = parseTmuxSessionIdentifier(sessionIdentifier);
       if (!parsed.window) {
         throw new TmuxSessionIdentifierError(`Window identifier required: ${sessionIdentifier}`);

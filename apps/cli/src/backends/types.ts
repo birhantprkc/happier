@@ -100,6 +100,11 @@ export type ProviderTerminalAttachmentControlProbe = (params: Readonly<{
   attachmentId?: string;
 }>) => Promise<boolean>;
 
+export type TerminalAttachmentControlDescriptorStatus =
+  | 'available'
+  | 'missing'
+  | 'not_applicable';
+
 export type ProviderAttachScope = 'local' | 'remote';
 
 export type ProviderAttachEligibility =

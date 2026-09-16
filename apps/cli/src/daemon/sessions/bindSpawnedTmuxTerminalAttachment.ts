@@ -9,7 +9,7 @@ export async function bindSpawnedTmuxTerminalAttachment(params: Readonly<{
   happyHomeDir: string;
   sessionId: string;
   tmuxSessionName: string;
-  tmuxWindowName: string;
+  tmuxWindowId: string;
   tmuxTmpDir?: string;
   disposeUnboundHost: () => Promise<void>;
 }>): Promise<void> {
@@ -17,7 +17,7 @@ export async function bindSpawnedTmuxTerminalAttachment(params: Readonly<{
   const handle = createTmuxTerminalHostHandle({
     attachmentId,
     sessionName: params.tmuxSessionName,
-    windowName: params.tmuxWindowName,
+    windowId: params.tmuxWindowId,
     tmuxTmpDir: params.tmuxTmpDir,
     topology: 'shared',
   });

@@ -3952,7 +3952,7 @@ describe('startDaemon spawn resume wiring (integration)', () => {
           happyHomeDir: '/tmp/happy-home',
           attachmentId,
           handle,
-          controlDescriptorAvailable: true,
+          controlDescriptorStatus: 'available',
         }],
         connectedServiceRestartIntents: [],
       });
@@ -4061,7 +4061,7 @@ describe('startDaemon spawn resume wiring (integration)', () => {
           happyHomeDir: '/tmp/happy',
           attachmentId,
           handle,
-          controlDescriptorAvailable: false,
+          controlDescriptorStatus: 'missing',
         }],
         connectedServiceRestartIntents: [],
       });
@@ -4153,7 +4153,7 @@ describe('startDaemon spawn resume wiring (integration)', () => {
               liveProbe: 'required',
             },
           },
-          controlDescriptorAvailable: false,
+          controlDescriptorStatus: 'missing',
         }],
         connectedServiceRestartIntents: [],
       });
@@ -4378,7 +4378,7 @@ describe('startDaemon spawn resume wiring (integration)', () => {
               liveProbe: 'required',
             },
           },
-          controlDescriptorAvailable: false,
+          controlDescriptorStatus: 'missing',
         }],
         connectedServiceRestartIntents: [],
       });

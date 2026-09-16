@@ -3,7 +3,7 @@ import type { Credentials } from '@/persistence';
 import { parseOptionalBooleanEnv } from '@happier-dev/protocol';
 import { readProcessInstanceFingerprintSync } from '@happier-dev/cli-common/processInstance';
 import {
-  hasTerminalAttachmentControlDescriptorThroughCatalog,
+  resolveTerminalAttachmentControlDescriptorStatusThroughCatalog,
   resolveCatalogAgentIdForCliSubcommand,
 } from '@/backends/catalog';
 import type { AgentId } from '@/agent/core';
@@ -404,10 +404,10 @@ export async function reattachTrackedSessionsFromMarkers(params: Readonly<{
   // Retained as an ignored compatibility input for existing callers/tests. Cold
   // startup never probes or mutates terminal hosts for dead runner markers.
   terminalHostAdapters?: unknown;
-  hasTerminalAttachmentControlDescriptor?: (
+  resolveTerminalAttachmentControlDescriptorStatus?: (
     agentId: AgentId | null | undefined,
     input: Readonly<{ happyHomeDir: string; sessionId: string }>,
-  ) => Promise<boolean>;
+  ) => Promise<import('@/backends/types').TerminalAttachmentControlDescriptorStatus>;
 }>): Promise<ReattachTrackedSessionsFromMarkersResult> {
   const { pidToTrackedSession, credentials } = params;
   const orphanedDeadDaemonSessions: OrphanedDeadDaemonSession[] = [];
@@ -443,14 +443,14 @@ export async function reattachTrackedSessionsFromMarkers(params: Readonly<{
           continue;
         }
         const attachment = attachmentState.status === 'present' ? attachmentState.info : null;
-        const hasExactControlDescriptor = attachment?.version === 2
-          ? await (params.hasTerminalAttachmentControlDescriptor
-              ?? hasTerminalAttachmentControlDescriptorThroughCatalog)(markerAgentId, {
+        const controlDescriptorStatus = attachment?.version === 2
+          ? await (params.resolveTerminalAttachmentControlDescriptorStatus
+              ?? resolveTerminalAttachmentControlDescriptorStatusThroughCatalog)(markerAgentId, {
                 happyHomeDir: marker.happyHomeDir,
                 sessionId,
                 attachmentId: attachment.attachmentId,
               })
-          : false;
+          : 'not_applicable';
         if (attachment?.version === 2) {
           disconnectedTerminalHostCandidates.push({
             sessionId,
@@ -459,7 +459,7 @@ export async function reattachTrackedSessionsFromMarkers(params: Readonly<{
             happyHomeDir: marker.happyHomeDir,
             attachmentId: attachment.attachmentId,
             handle: attachment.handle,
-            controlDescriptorAvailable: hasExactControlDescriptor,
+            controlDescriptorStatus,
           });
           continue;
         }

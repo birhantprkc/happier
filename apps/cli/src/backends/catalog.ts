@@ -52,6 +52,7 @@ import {
 import type {
   ProviderTerminalAttachmentControlProbe,
   ProviderTerminalAttachmentRetirementHook,
+  TerminalAttachmentControlDescriptorStatus,
 } from './types';
 
 export type { AgentCatalogEntry, AgentChecklistContributions, CatalogAgentId, CliDetectSpec } from './types';
@@ -93,12 +94,14 @@ export const notifyTerminalAttachmentRetiredThroughCatalog: ProviderTerminalAtta
   await Promise.all(hooks.map(async (hook) => await hook(params)));
 };
 
-export async function hasTerminalAttachmentControlDescriptorThroughCatalog(
+export async function resolveTerminalAttachmentControlDescriptorStatusThroughCatalog(
   agentId: AgentId | null | undefined,
   params: Parameters<ProviderTerminalAttachmentControlProbe>[0],
-): Promise<boolean> {
+): Promise<TerminalAttachmentControlDescriptorStatus> {
   const entry = AGENTS[resolveCatalogAgentId(agentId)];
-  return await entry?.hasTerminalAttachmentControlDescriptor?.(params) ?? false;
+  const probe = entry?.hasTerminalAttachmentControlDescriptor;
+  if (!probe) return 'not_applicable';
+  return await probe(params) ? 'available' : 'missing';
 }
 
 const cachedVendorResumeSupportPromises = new Map<CatalogAgentId, Promise<VendorResumeSupportFn>>();

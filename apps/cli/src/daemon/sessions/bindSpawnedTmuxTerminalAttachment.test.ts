@@ -13,7 +13,7 @@ describe('bindSpawnedTmuxTerminalAttachment', () => {
         happyHomeDir: dir.name,
         sessionId: 'sess-daemon-tmux',
         tmuxSessionName: 'happy',
-        tmuxWindowName: 'happy-window',
+        tmuxWindowId: '@7',
         tmuxTmpDir: '/tmp/happier-tmux',
         disposeUnboundHost: vi.fn(async () => undefined),
       });
@@ -28,7 +28,7 @@ describe('bindSpawnedTmuxTerminalAttachment', () => {
           attachmentId: expect.any(String),
           kind: 'tmux',
           sessionName: 'happy',
-          paneId: 'happy-window',
+          paneId: '@7',
           socketDir: '/tmp/happier-tmux',
           attachMetadata: {
             attachStrategy: 'terminal_host',
@@ -40,7 +40,7 @@ describe('bindSpawnedTmuxTerminalAttachment', () => {
         },
         terminal: {
           mode: 'tmux',
-          tmux: { target: 'happy:happy-window', tmpDir: '/tmp/happier-tmux' },
+          tmux: { target: 'happy:@7', tmpDir: '/tmp/happier-tmux' },
         },
       });
     } finally {
@@ -56,7 +56,7 @@ describe('bindSpawnedTmuxTerminalAttachment', () => {
         happyHomeDir: invalidHome.name,
         sessionId: 'sess-bind-failure',
         tmuxSessionName: 'happy',
-        tmuxWindowName: 'failed-window',
+        tmuxWindowId: '@8',
         disposeUnboundHost,
       })).rejects.toThrow();
       expect(disposeUnboundHost).toHaveBeenCalledOnce();

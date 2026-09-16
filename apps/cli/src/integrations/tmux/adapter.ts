@@ -33,7 +33,9 @@ import { createTmuxTerminalHostHandle } from './hostHandle';
 const INPUT_STABILITY_DELAY_MS = 50;
 
 function targetFromHandle(handle: TerminalHostHandle): string {
-  return handle.paneId ? `${handle.sessionName}:${handle.paneId}` : handle.sessionName;
+  const ownedWindow = handle.paneId?.trim();
+  if (ownedWindow?.startsWith('@')) return ownedWindow;
+  return ownedWindow ? `${handle.sessionName}:${ownedWindow}` : handle.sessionName;
 }
 
 export function resolveTmuxCommandEnvironmentForHostHandle(
@@ -160,7 +162,7 @@ export function createTmuxTerminalHostAdapter(params?: Readonly<{
     return createTmuxTerminalHostHandle({
       attachmentId: randomUUID() as TerminalAttachmentId,
       sessionName: result.sessionName ?? opts.sessionName,
-      windowName: result.windowName,
+      windowId: result.windowId ?? '',
       topology: 'exclusive',
     });
   };

@@ -12,6 +12,7 @@ import * as catalog from './catalog';
 import {
   AGENTS,
   notifyTerminalAttachmentRetiredThroughCatalog,
+  resolveTerminalAttachmentControlDescriptorStatusThroughCatalog,
   getAcpForkContinuationHandler,
   getConnectedServiceMaterializer,
   getConnectedServiceStateSharingDescriptor,
@@ -29,6 +30,30 @@ import {
 import { DEFAULT_CATALOG_AGENT_ID } from './types';
 
 describe('AGENTS', () => {
+  it('distinguishes providers without attachment-bound control descriptors from missing descriptors', async () => {
+    const originalClaude = AGENTS.claude;
+    const originalCodex = AGENTS.codex;
+    const hasTerminalAttachmentControlDescriptor = vi.fn(async () => false);
+    AGENTS.claude = originalClaude ? { ...originalClaude, hasTerminalAttachmentControlDescriptor } : originalClaude;
+    AGENTS.codex = originalCodex ? { ...originalCodex, hasTerminalAttachmentControlDescriptor: undefined } : originalCodex;
+    const input = {
+      happyHomeDir: '/tmp/happier',
+      sessionId: 'session-1',
+      attachmentId: 'attachment-1' as never,
+    };
+
+    try {
+      await expect(resolveTerminalAttachmentControlDescriptorStatusThroughCatalog('codex', input))
+        .resolves.toBe('not_applicable');
+      await expect(resolveTerminalAttachmentControlDescriptorStatusThroughCatalog('claude', input))
+        .resolves.toBe('missing');
+      expect(hasTerminalAttachmentControlDescriptor).toHaveBeenCalledOnce();
+    } finally {
+      AGENTS.claude = originalClaude;
+      AGENTS.codex = originalCodex;
+    }
+  });
+
   it('fans exact terminal retirement out through provider-owned lifecycle hooks', async () => {
     const original = AGENTS.codex;
     const onTerminalAttachmentRetired = vi.fn(async () => {});

@@ -48,6 +48,7 @@ describe('disconnected terminal-host supervision', () => {
         happyHomeDir: '/tmp/happy',
         attachmentId: handle.attachmentId,
         handle,
+        controlDescriptorStatus: 'not_applicable',
       },
       terminalHostAdapters: { tmux: adapter },
       readTerminalAttachmentInfo: async () => ({
@@ -70,7 +71,7 @@ describe('disconnected terminal-host supervision', () => {
       evaluateLiveness: vi.fn(async () => ({ paneAlive: true, observedAt: 123 })), dispose: vi.fn(),
     };
     await expect(superviseDisconnectedTerminalHostCandidate({
-      candidate: { sessionId: 'session-live-1', pid: 43214, happyHomeDir: '/tmp/happy', attachmentId: handle.attachmentId, handle },
+      candidate: { sessionId: 'session-live-1', pid: 43214, happyHomeDir: '/tmp/happy', attachmentId: handle.attachmentId, handle, controlDescriptorStatus: 'available' },
       terminalHostAdapters: { tmux: adapter },
       readTerminalAttachmentInfo: async () => ({
         version: 2, attachmentId: handle.attachmentId, sessionId: 'session-live-1', handle,
@@ -96,7 +97,7 @@ describe('disconnected terminal-host supervision', () => {
         happyHomeDir: '/tmp/happy',
         attachmentId: handle.attachmentId,
         handle,
-        controlDescriptorAvailable: false,
+        controlDescriptorStatus: 'missing',
       },
       terminalHostAdapters: { tmux: adapter },
       readTerminalAttachmentInfo: async () => ({
@@ -137,6 +138,7 @@ describe('disconnected terminal-host supervision', () => {
         happyHomeDir: '/tmp/happy',
         attachmentId: handle.attachmentId,
         handle,
+        controlDescriptorStatus: 'available',
       },
       terminalHostAdapters: { tmux: adapter },
       readTerminalAttachmentInfo: async () => attachmentInfo,
@@ -176,6 +178,7 @@ describe('disconnected terminal-host supervision', () => {
         happyHomeDir: '/tmp/happy',
         attachmentId: handle.attachmentId,
         handle,
+        controlDescriptorStatus: 'available',
       },
       terminalHostAdapters: { tmux: adapter },
       readTerminalAttachmentInfo: async () => ({
@@ -215,6 +218,7 @@ describe('disconnected terminal-host supervision', () => {
         happyHomeDir: '/tmp/happy',
         attachmentId: handle.attachmentId,
         handle,
+        controlDescriptorStatus: 'available',
       },
       terminalHostAdapters: { tmux: adapter },
       readTerminalAttachmentInfo: async () => ({
@@ -248,6 +252,7 @@ describe('disconnected terminal-host supervision', () => {
         happyHomeDir: '/tmp/happy',
         attachmentId: handle.attachmentId,
         handle,
+        controlDescriptorStatus: 'available',
       },
       terminalHostAdapters: { tmux: adapter },
       readTerminalAttachmentInfo: async () => ({

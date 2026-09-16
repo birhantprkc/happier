@@ -130,6 +130,7 @@ export function createTerminalAttachPlan(params: {
     typeof tmpDir === 'string' && tmpDir.trim().length > 0 ? { TMUX_TMPDIR: tmpDir } : {};
 
   const hasTmpDir = Object.prototype.hasOwnProperty.call(tmuxCommandEnv, 'TMUX_TMPDIR');
+  const resolvedTarget = parsed.window?.startsWith('@') ? parsed.window : target;
 
   let shouldUnsetTmuxEnv = hasTmpDir;
   let shouldAttach = !params.insideTmux || shouldUnsetTmuxEnv;
@@ -157,11 +158,11 @@ export function createTerminalAttachPlan(params: {
   return {
     type: 'tmux',
     sessionName: parsed.session,
-    target,
+    target: resolvedTarget,
     shouldAttach,
     shouldUnsetTmuxEnv,
     tmuxCommandEnv,
-    selectWindowArgs: ['select-window', '-t', target],
+    selectWindowArgs: ['select-window', '-t', resolvedTarget],
     attachSessionArgs: ['attach-session', '-t', parsed.session],
   };
 }

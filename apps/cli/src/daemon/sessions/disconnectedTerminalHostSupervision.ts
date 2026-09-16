@@ -10,6 +10,7 @@ import { notifyTerminalAttachmentRetiredThroughCatalog } from '@/backends/catalo
 import { logger } from '@/ui/logger';
 import { executeTerminalHostDisposition } from '@/terminal/attachment/terminalHostDisposition';
 import type { SessionRunnerServiceabilityProbe } from './isSessionRunnerActive';
+import type { TerminalAttachmentControlDescriptorStatus } from '@/backends/types';
 import {
   requireExactTerminalControlServiceabilityRetirement,
   type ExactTerminalControlServiceabilityRetirement,
@@ -22,8 +23,8 @@ export type DisconnectedTerminalHostCandidate = Readonly<{
   happyHomeDir: string;
   attachmentId: NonNullable<TerminalHostHandle['attachmentId']>;
   handle: TerminalHostHandle & Readonly<{ attachmentId: NonNullable<TerminalHostHandle['attachmentId']> }>;
-  /** Exact provider hook/MCP descriptor proof, distinct from immutable host identity. */
-  controlDescriptorAvailable?: boolean;
+  /** Provider applicability and exact descriptor proof, distinct from immutable host identity. */
+  controlDescriptorStatus: TerminalAttachmentControlDescriptorStatus;
 }>;
 
 export type DisconnectedTerminalHostSupervisionResult =
@@ -81,7 +82,7 @@ export async function superviseDisconnectedTerminalHostCandidate(input: Readonly
 
   const probe = await evaluateTerminalHostLivenessForRecovery(adapter, current.handle);
   if (probe.status === 'alive') {
-    if (input.candidate.controlDescriptorAvailable === false) {
+    if (input.candidate.controlDescriptorStatus === 'missing') {
       return { state: 'recoverable_unservable', reason: 'control_descriptor_missing' };
     }
     if (!input.probeSessionServiceability) return { state: 'unknown', reason: 'probe_inconclusive' };

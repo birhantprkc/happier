@@ -62,7 +62,7 @@ import {
   resolveConnectedServiceSwitchContinuity,
   resolveAgentCliSubcommand,
   resolveCatalogAgentId,
-  hasTerminalAttachmentControlDescriptorThroughCatalog,
+  resolveTerminalAttachmentControlDescriptorStatusThroughCatalog,
   notifyTerminalAttachmentRetiredThroughCatalog,
 } from '@/backends/catalog';
 import { CATALOG_AGENT_IDS } from '@/backends/types';
@@ -2977,7 +2977,7 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
                 const delegatesExactClaudeRunnerAbsenceToRecovery =
                   normalizedOptions.backendTarget?.kind === 'builtInAgent'
                   && normalizedOptions.backendTarget.agentId === 'claude'
-                  && disconnectedHostCandidate.controlDescriptorAvailable === true
+                  && disconnectedHostCandidate.controlDescriptorStatus === 'available'
                   && supervision?.state === 'recoverable_unservable'
                   && supervision.reason === 'runner_absent';
                 if (resumeGate.action === 'fence' && !delegatesExactClaudeRunnerAbsenceToRecovery) {
@@ -3916,10 +3916,10 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
                   happyHomeDir: configuration.happyHomeDir,
                   sessionId: resolved.sessionId,
                   tmuxSessionName: tmuxSession,
-                  tmuxWindowName: tmuxResult.windowName ?? windowName,
+                  tmuxWindowId: tmuxResult.windowId ?? '',
                   ...(tmuxTmpDir ? { tmuxTmpDir } : {}),
                   disposeUnboundHost: async () => {
-                    const target = `${tmuxSession}:${tmuxResult.windowName ?? windowName}`;
+                    const target = tmuxResult.windowId ?? '';
                     if (!await tmux.killWindow(target)) {
                       throw new Error(`Failed to dispose unbound tmux window ${target}`);
                     }
@@ -5480,11 +5480,11 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
             }
 
             const agentId = resolveTrackedSessionCatalogAgentId(trackedSession);
-            const controlDescriptorAvailable = await hasTerminalAttachmentControlDescriptorThroughCatalog(agentId, {
+            const controlDescriptorStatus = await resolveTerminalAttachmentControlDescriptorStatusThroughCatalog(agentId, {
               happyHomeDir: configuration.happyHomeDir,
               sessionId,
               attachmentId: attachmentInfo.attachmentId,
-            }).catch(() => false);
+            }).catch(() => 'missing' as const);
             registerDisconnectedTerminalHostCandidate({
               sessionId,
               pid,
@@ -5492,7 +5492,7 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
               happyHomeDir: configuration.happyHomeDir,
               attachmentId: attachmentInfo.attachmentId,
               handle: attachmentInfo.handle,
-              controlDescriptorAvailable,
+              controlDescriptorStatus,
             });
           },
             });
