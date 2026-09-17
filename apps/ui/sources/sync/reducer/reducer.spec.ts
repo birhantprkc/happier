@@ -248,7 +248,7 @@ describe('reducer', () => {
                 cacheCreation: 10,
                 cacheRead: 30,
                 contextSize: 160,
-                contextSizeIsExact: false,
+                contextSizeIsReported: false,
             });
             expect(state.latestUsage).toEqual({
                 inputTokens: 120,
@@ -256,7 +256,7 @@ describe('reducer', () => {
                 cacheCreation: 10,
                 cacheRead: 30,
                 contextSize: 160,
-                contextSizeIsExact: false,
+                contextSizeIsReported: false,
                 timestamp: 1000,
             });
         });
@@ -290,7 +290,7 @@ describe('reducer', () => {
                 cacheCreation: 0,
                 cacheRead: 200,
                 contextSize: 1_200,
-                contextSizeIsExact: true,
+                contextSizeIsReported: true,
                 contextWindowTokens: 258_400,
             });
             expect(state.latestUsage).toEqual({
@@ -299,7 +299,7 @@ describe('reducer', () => {
                 cacheCreation: 0,
                 cacheRead: 200,
                 contextSize: 1_200,
-                contextSizeIsExact: true,
+                contextSizeIsReported: true,
                 contextWindowTokens: 258_400,
                 timestamp: 1000,
             });
@@ -349,7 +349,7 @@ describe('reducer', () => {
                 cacheCreation: 769_000,
                 cacheRead: 39_231_000,
                 contextSize: 938_843,
-                contextSizeIsExact: false,
+                contextSizeIsReported: false,
                 contextWindowTokens: 1_000_000,
             });
         });
@@ -395,7 +395,7 @@ describe('reducer', () => {
                 cacheCreation: 0,
                 cacheRead: 0,
                 contextSize: 0,
-                contextSizeIsExact: false,
+                contextSizeIsReported: false,
                 contextWindowTokens: 258_400,
                 timestamp: 2000,
             });
@@ -443,7 +443,7 @@ describe('reducer', () => {
                 cacheCreation: 0,
                 cacheRead: 0,
                 contextSize: 0,
-                contextSizeIsExact: false,
+                contextSizeIsReported: false,
                 contextWindowTokens: 258_400,
                 timestamp: 2000,
             });

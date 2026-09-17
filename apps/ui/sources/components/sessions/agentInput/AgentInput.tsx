@@ -321,7 +321,7 @@ interface AgentInputProps {
         cacheCreation: number;
         cacheRead: number;
         contextSize: number;
-        contextSizeIsExact?: boolean;
+        contextSizeIsReported?: boolean;
         contextWindowTokens?: number;
     };
     providerUsageGauge?: ConnectedServiceQuotaGaugeViewModel | null;
@@ -1348,23 +1348,31 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                 return 'user-circle';
             }, []);
 
-    const supportsExactContextUsageBadge = React.useMemo(
-        () => getAgentBehavior(agentId).sessionUsage?.supportsExactContextUsageBadge !== false,
+    const contextUsageBadge = React.useMemo(
+        () => getAgentBehavior(agentId).sessionUsage?.contextUsageBadge ?? 'derived',
         [agentId],
     );
 
     const contextWindowTokens = React.useMemo(
         () => (
-            supportsExactContextUsageBadge
+            contextUsageBadge !== 'hidden'
                 ? resolveContextWindowTokens({ agentId, metadata: props.metadata ?? null, usageData: props.usageData })
                 : null
         ),
-        [agentId, props.metadata, props.usageData, supportsExactContextUsageBadge],
+        [agentId, props.metadata, props.usageData, contextUsageBadge],
     );
 
-    const contextUsageState = supportsExactContextUsageBadge && props.usageData?.contextSizeIsExact === true
+    // See `AgentUiBehavior.sessionUsage.contextUsageBadge`: a derived badge follows any usage record
+    // (or the always-show setting before one arrives); a reported-only badge needs the producer's
+    // explicit context size.
+    const contextSizeForBadge = contextUsageBadge === 'derived'
+        ? (props.usageData || props.alwaysShowContextSize === true ? props.usageData?.contextSize ?? 0 : null)
+        : contextUsageBadge === 'reportedOnly' && props.usageData?.contextSizeIsReported === true
+            ? props.usageData.contextSize
+            : null;
+    const contextUsageState = contextSizeForBadge !== null
         ? getContextUsageState(
-            props.usageData?.contextSize,
+            contextSizeForBadge,
             props.alwaysShowContextSize ?? false,
             contextWindowTokens,
         )

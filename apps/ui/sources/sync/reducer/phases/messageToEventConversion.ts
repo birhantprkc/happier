@@ -94,7 +94,7 @@ export function runMessageToEventConversion({
         cacheCreation: 0,
         cacheRead: 0,
         contextSize: 0,
-        contextSizeIsExact: false,
+        contextSizeIsReported: false,
         ...(typeof state.latestUsage?.contextWindowTokens === 'number'
           ? { contextWindowTokens: state.latestUsage.contextWindowTokens }
           : {}),
@@ -119,7 +119,7 @@ export function runMessageToEventConversion({
         cacheCreation: 0,
         cacheRead: 0,
         contextSize: 0,
-        contextSizeIsExact: false,
+        contextSizeIsReported: false,
         ...(typeof state.latestUsage?.contextWindowTokens === 'number'
           ? { contextWindowTokens: state.latestUsage.contextWindowTokens }
           : {}),

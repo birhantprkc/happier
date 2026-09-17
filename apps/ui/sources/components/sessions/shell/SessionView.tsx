@@ -1310,7 +1310,7 @@ const SessionAgentInputWithUsage = React.memo(function SessionAgentInputWithUsag
             cacheCreation: usage.cacheCreation,
             cacheRead: usage.cacheRead,
             contextSize: usage.contextSize,
-            contextSizeIsExact: usage.contextSizeIsExact === true,
+            contextSizeIsReported: usage.contextSizeIsReported === true,
             ...(typeof usage.contextWindowTokens === 'number'
                 ? { contextWindowTokens: usage.contextWindowTokens }
                 : {}),

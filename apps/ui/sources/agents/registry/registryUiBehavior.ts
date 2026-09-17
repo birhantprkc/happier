@@ -104,7 +104,17 @@ export type AgentUiBehavior = Readonly<{
         includeInSessionGettingStartedCliExamples?: boolean;
     }>;
     sessionUsage?: Readonly<{
-        supportsExactContextUsageBadge?: boolean;
+        /**
+         * How the composer may show context usage for this agent.
+         * - `derived`: the protocol's per-message usage record (input + cache tokens) is the active
+         *   context, so the composer derives it whenever the producer does not report
+         *   `context_used_tokens` explicitly.
+         * - `reportedOnly`: the agent's token rows are not per-message usage (e.g. cumulative thread
+         *   totals kept for account usage snapshots), so only an explicitly reported context size may
+         *   be shown.
+         * - `hidden`: never show the badge.
+         */
+        contextUsageBadge?: 'derived' | 'reportedOnly' | 'hidden';
     }>;
     workState?: Readonly<{
         supportsEditableGoals?: (ctx: {
@@ -328,7 +338,7 @@ function buildDefaultAgentUiBehavior(agentId: AgentId): AgentUiBehavior {
 
     return {
         sessionUsage: {
-            supportsExactContextUsageBadge: true,
+            contextUsageBadge: 'derived',
         },
         permissions: {
             footer: {

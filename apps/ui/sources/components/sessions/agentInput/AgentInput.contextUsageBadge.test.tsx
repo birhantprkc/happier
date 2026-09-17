@@ -144,7 +144,7 @@ vi.mock('@/agents/catalog/catalog', () => ({
     }),
     getAgentBehavior: (agentId: string) => ({
         sessionUsage: {
-            supportsExactContextUsageBadge: agentId !== 'gemini',
+            contextUsageBadge: agentId === 'gemini' ? 'hidden' : agentId === 'codex' ? 'reportedOnly' : 'derived',
         },
     }),
 }));
@@ -336,7 +336,7 @@ describe('AgentInput (context usage badge)', () => {
         windowDimensionsState.height = 600;
     });
 
-    it('still renders the context usage badge for providers that support exact context telemetry', async () => {
+    it('renders the context badge from provider-reported context usage', async () => {
         captured.last = null;
         const { AgentInput } = await import('./AgentInput');
 
@@ -356,7 +356,7 @@ describe('AgentInput (context usage badge)', () => {
                     cacheCreation: 0,
                     cacheRead: 0,
                     contextSize: 38_691,
-                    contextSizeIsExact: true,
+                    contextSizeIsReported: true,
                     contextWindowTokens: 200_000,
                 }}
                 alwaysShowContextSize={true}
@@ -368,6 +368,65 @@ describe('AgentInput (context usage badge)', () => {
         expect(screen.findByTestId('agent-input-context-usage-ring')).toBeTruthy();
         expect(screen.findByTestId('agent-input-context-usage-value')?.props.children).toBe('19');
         expect(String(badge?.props.accessibilityLabel ?? '')).toContain('38.7k/200k');
+
+        act(() => screen.tree.unmount());
+    });
+
+    it('renders the context badge derived from per-message usage when the provider does not report context explicitly', async () => {
+        captured.last = null;
+        const { AgentInput } = await import('./AgentInput');
+
+        const screen = await renderScreen(
+            <AgentInput
+                value=""
+                placeholder="Type"
+                onChangeText={() => {}}
+                onSend={() => {}}
+                autocompleteKinds={[]}
+                autocompleteSuggestions={async () => []}
+                agentType={"claude" as any}
+                onAgentClick={() => {}}
+                usageData={{
+                    inputTokens: 2_000,
+                    outputTokens: 1_200,
+                    cacheCreation: 8_000,
+                    cacheRead: 170_000,
+                    contextSize: 180_000,
+                    contextSizeIsReported: false,
+                    contextWindowTokens: 200_000,
+                }}
+                alwaysShowContextSize={false}
+            />,
+        );
+
+        const badge = screen.findByTestId('agent-input-context-usage-badge');
+        expect(badge).toBeTruthy();
+        expect(screen.findByTestId('agent-input-context-usage-value')?.props.children).toBe('90');
+        expect(String(badge?.props.accessibilityLabel ?? '')).toContain('180k/200k');
+
+        act(() => screen.tree.unmount());
+    });
+
+    it('honors alwaysShowContextSize before the first usage record arrives', async () => {
+        captured.last = null;
+        const { AgentInput } = await import('./AgentInput');
+
+        const screen = await renderScreen(
+            <AgentInput
+                value=""
+                placeholder="Type"
+                onChangeText={() => {}}
+                onSend={() => {}}
+                autocompleteKinds={[]}
+                autocompleteSuggestions={async () => []}
+                agentType={"claude" as any}
+                onAgentClick={() => {}}
+                alwaysShowContextSize={true}
+            />,
+        );
+
+        expect(screen.findByTestId('agent-input-context-usage-badge')).toBeTruthy();
+        expect(screen.findByTestId('agent-input-context-usage-value')?.props.children).toBe('0');
 
         act(() => screen.tree.unmount());
     });
@@ -406,7 +465,7 @@ describe('AgentInput (context usage badge)', () => {
                     cacheCreation: 0,
                     cacheRead: 0,
                     contextSize: 38_691,
-                    contextSizeIsExact: true,
+                    contextSizeIsReported: true,
                 }}
                 alwaysShowContextSize={true}
             />,
@@ -493,7 +552,7 @@ describe('AgentInput (context usage badge)', () => {
                     cacheCreation: 0,
                     cacheRead: 0,
                     contextSize: 38_691,
-                    contextSizeIsExact: true,
+                    contextSizeIsReported: true,
                 }}
                 alwaysShowContextSize={true}
                 {...{ providerUsageGauge }}
@@ -592,7 +651,7 @@ describe('AgentInput (context usage badge)', () => {
                     cacheCreation: 0,
                     cacheRead: 0,
                     contextSize: 38_691,
-                    contextSizeIsExact: true,
+                    contextSizeIsReported: true,
                 }}
                 alwaysShowContextSize={true}
                 {...{ providerUsageGauge }}
@@ -614,7 +673,7 @@ describe('AgentInput (context usage badge)', () => {
         act(() => screen.tree.unmount());
     });
 
-    it('does not render an exact context badge when active-context telemetry is missing', async () => {
+    it('hides the context badge for a reported-only provider until it reports active context', async () => {
         captured.last = null;
         const { AgentInput } = await import('./AgentInput');
 

@@ -252,7 +252,7 @@ export type ReducerState = {
         cacheCreation: number;
         cacheRead: number;
         contextSize: number;
-        contextSizeIsExact: boolean;
+        contextSizeIsReported: boolean;
         contextWindowTokens?: number;
         timestamp: number;
     };
@@ -292,7 +292,7 @@ export type ReducerResult = {
         cacheCreation: number;
         cacheRead: number;
         contextSize: number;
-        contextSizeIsExact: boolean;
+        contextSizeIsReported: boolean;
         contextWindowTokens?: number;
     };
     hasReadyEvent?: boolean;
@@ -631,7 +631,7 @@ export function reducer(
             cacheCreation: state.latestUsage.cacheCreation,
             cacheRead: state.latestUsage.cacheRead,
             contextSize: state.latestUsage.contextSize,
-            contextSizeIsExact: state.latestUsage.contextSizeIsExact,
+            contextSizeIsReported: state.latestUsage.contextSizeIsReported,
             ...(typeof state.latestUsage.contextWindowTokens === 'number'
                 ? { contextWindowTokens: state.latestUsage.contextWindowTokens }
                 : {})
@@ -681,7 +681,7 @@ function processUsageData(state: ReducerState, usage: UsageData, timestamp: numb
             cacheCreation: usage.cache_creation_input_tokens || 0,
             cacheRead: usage.cache_read_input_tokens || 0,
             contextSize,
-            contextSizeIsExact: reportedContextUsedTokens !== null,
+            contextSizeIsReported: reportedContextUsedTokens !== null,
             ...(contextWindowTokens !== null ? { contextWindowTokens } : {}),
             timestamp: timestamp
         };
