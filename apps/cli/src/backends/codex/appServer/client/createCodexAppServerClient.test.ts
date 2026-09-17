@@ -65,7 +65,12 @@ describe('createCodexAppServerClient', () => {
                 expect(spawn).not.toHaveBeenCalled();
             } finally {
                 await client.dispose();
-                await new Promise<void>((resolve) => webSocketServer.close(resolve));
+                await new Promise<void>((resolve, reject) => {
+                    webSocketServer.close((error?: Error): void => {
+                        if (error) reject(error);
+                        else resolve();
+                    });
+                });
                 await new Promise<void>((resolve) => httpServer.close(() => resolve()));
             }
         });
