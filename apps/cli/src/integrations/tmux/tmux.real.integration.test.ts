@@ -249,6 +249,65 @@ describe.skipIf(!shouldRunTmuxIntegration())('tmux (real) integration tests (opt
         }
     });
 
+    it('spawnInTmux parses -P/-F output when the client environment has no UTF-8 locale (regression: daemon launched over SSH)', async () => {
+        // tmux flags a command client as non-UTF-8 unless TMUX is set or LC_ALL/LC_CTYPE/LANG
+        // mention UTF-8, and then passes printed output through utf8_sanitize(), which turns
+        // the TAB separator in `#{pane_pid}\t#{window_id}` into `_`. A daemon started over SSH
+        // (no locale forwarded) reproduced this as `Failed to extract PID from tmux output: 5266_@9`.
+        const dir = mkdtempSync(join(tmpdir(), 'happier-cli-tmux-nolocale-it-'));
+        const socketPath = join(dir, 'tmux.sock');
+        const utils = new TmuxUtilities('happy', { LANG: '', LC_ALL: '', LC_CTYPE: '' }, socketPath);
+
+        try {
+            const scriptPath = writeDumpScript(dir);
+            const outFile = join(dir, 'out.json');
+            const sessionName = `happy-it-nolocale-${process.pid}-${Date.now()}`;
+            const windowName = 'pid';
+
+            const result = await utils.spawnInTmux(
+                [process.execPath, scriptPath, outFile, '5000', 'no-locale'],
+                { sessionName, windowName, cwd: dir },
+                {},
+            );
+
+            expect(result.error).toBeUndefined();
+            expect(result.success).toBe(true);
+            expect(result.pid).toBeGreaterThan(0);
+            expect(result.windowId).toMatch(/^@\d+$/);
+
+            const panes = runTmux(['-S', socketPath, 'list-panes', '-t', `${sessionName}:${windowName}`, '-F', '#{pane_pid}']);
+            expect(panes.status).toBe(0);
+            expect(Number.parseInt(panes.stdout.trim(), 10)).toBe(result.pid);
+        } finally {
+            killIsolatedTmuxServer(socketPath);
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('captureCursorPosition returns the live pane cursor for a window-id target (regression: display-message operand order)', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'happier-cli-tmux-cursor-it-'));
+        const socketPath = join(dir, 'tmux.sock');
+        const utils = new TmuxUtilities('happy', undefined, socketPath);
+
+        try {
+            const scriptPath = writeDumpScript(dir);
+            const outFile = join(dir, 'out.json');
+            const sessionName = `happy-it-cursor-${process.pid}-${Date.now()}`;
+            const result = await utils.spawnInTmux(
+                [process.execPath, scriptPath, outFile, '5000', 'cursor'],
+                { sessionName, windowName: 'cursor', cwd: dir },
+                {},
+            );
+            expect(result.success).toBe(true);
+
+            const cursor = await utils.captureCursorPosition(result.windowId!);
+            expect(cursor).toEqual({ x: expect.any(Number), y: expect.any(Number) });
+        } finally {
+            killIsolatedTmuxServer(socketPath);
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
     it('creates and disposes an owned terminal host as one exact tmux session', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'happier-cli-tmux-owned-it-'));
         const socketPath = join(dir, 'tmux.sock');

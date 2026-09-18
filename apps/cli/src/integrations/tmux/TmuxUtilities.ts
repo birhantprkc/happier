@@ -60,8 +60,38 @@ export class TmuxUtilities {
   private readonly tmuxCommandEnv?: Record<string, string>;
   private readonly tmuxSocketPath?: string;
 
+  /**
+   * Build the leading argv for every tmux client this class spawns.
+   *
+   * `-u` declares the client UTF-8 capable. Without it tmux derives that flag from
+   * TMUX/LC_ALL/LC_CTYPE/LANG and, for a non-UTF-8 client, rewrites every control or
+   * non-ASCII byte of printed output (`-P`, `display-message -p`, `list-*`) as `_`.
+   * That silently corrupts the TAB-separated formats parsed here (pane pid + window
+   * id, cursor position, session selection) whenever the daemon inherits no locale,
+   * e.g. when it was started over SSH.
+   */
+  private static clientArgs(socketPath?: string): string[] {
+    return socketPath ? ['tmux', '-u', '-S', socketPath] : ['tmux', '-u'];
+  }
+
+  /** Index of the tmux command name in an argv built from `clientArgs()`. */
+  private static commandIndex(args: readonly string[]): number {
+    let index = 1;
+    while (index < args.length) {
+      const arg = args[index];
+      if (arg === '-S') {
+        index += 2;
+      } else if (arg?.startsWith('-')) {
+        index += 1;
+      } else {
+        break;
+      }
+    }
+    return index;
+  }
+
   private static operationName(args: readonly string[]): string {
-    return args[1] === '-S' ? (args[3] ?? 'unknown') : (args[1] ?? 'unknown');
+    return args[TmuxUtilities.commandIndex(args)] ?? 'unknown';
   }
 
   constructor(sessionName?: string, tmuxCommandEnv?: Record<string, string>, tmuxSocketPath?: string) {
@@ -119,47 +149,19 @@ export class TmuxUtilities {
   ): Promise<TmuxCommandResult | null> {
     const targetSession = session || this.sessionName;
 
-    // Build command array
-    let baseCmd = ['tmux'];
+    const baseCmd = TmuxUtilities.clientArgs(socketPath ?? this.tmuxSocketPath);
 
-    // Add socket specification if provided
-    const resolvedSocketPath = socketPath ?? this.tmuxSocketPath;
-    if (resolvedSocketPath) {
-      baseCmd = ['tmux', '-S', resolvedSocketPath];
-    }
-
-    // Handle send-keys with proper target specification
-    if (cmd.length > 0 && cmd[0] === 'send-keys') {
-      const fullCmd = [...baseCmd, cmd[0]];
-      const hasExplicitTarget = cmd.slice(1).includes('-t');
-
-      // Add target specification immediately after send-keys
-      if (!hasExplicitTarget) {
-        let target = targetSession;
-        if (window) target += `:${window}`;
-        if (pane) target += `.${pane}`;
-        fullCmd.push('-t', target);
-      }
-
-      // Add keys and control sequences
-      fullCmd.push(...cmd.slice(1));
-
-      return this.executeCommand(fullCmd, {
-        ...(stdin !== undefined ? { stdin } : {}),
-        ...(options?.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
-      });
-    }
-
-    // Non-send-keys commands
+    // Add the default target for commands that support it, immediately after the command name.
+    // tmux does not permute arguments: a `-t` placed after a positional operand (`send-keys` text,
+    // the `display-message` format) is rejected as an extra argument instead of being parsed.
+    const commandName = cmd[0];
+    const hasExplicitTarget = cmd.slice(1).includes('-t');
     const fullCmd = [...baseCmd, ...cmd];
-
-    // Add target specification for commands that support it
-    const hasExplicitTarget = cmd.includes('-t');
-    if (!hasExplicitTarget && cmd.length > 0 && COMMANDS_SUPPORTING_TARGET.has(cmd[0])) {
+    if (commandName !== undefined && !hasExplicitTarget && COMMANDS_SUPPORTING_TARGET.has(commandName)) {
       let target = targetSession;
       if (window) target += `:${window}`;
       if (pane) target += `.${pane}`;
-      fullCmd.push('-t', target);
+      fullCmd.splice(baseCmd.length + 1, 0, '-t', target);
     }
 
     return this.executeCommand(fullCmd, {
@@ -219,7 +221,7 @@ export class TmuxUtilities {
       logger.debug('[TMUX] Command starting', {
         operation: TmuxUtilities.operationName(args),
         timeoutMs: commandTimeoutMs,
-        hasSocketPath: args[1] === '-S',
+        hasSocketPath: args.slice(0, TmuxUtilities.commandIndex(args)).includes('-S'),
       });
       const child = spawn(args[0], args.slice(1), {
         stdio: stdin !== undefined ? ['pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'],
