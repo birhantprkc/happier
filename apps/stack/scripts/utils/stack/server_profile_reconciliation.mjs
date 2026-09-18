@@ -28,6 +28,19 @@ export function deriveEnvServerIdFromUrl(url) {
   return `env_${(h >>> 0).toString(16)}`;
 }
 
+function readCliSettings(homeDir) {
+  const baseDir = String(homeDir ?? '').trim();
+  if (!baseDir) return null;
+  const settingsPath = join(baseDir, 'settings.json');
+  if (!existsSync(settingsPath)) return null;
+  try {
+    const parsed = JSON.parse(readFileSync(settingsPath, 'utf-8'));
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 function coerceServerProfileFromSettings(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const id = typeof raw.id === 'string' ? raw.id.trim() : '';
@@ -46,22 +59,57 @@ function coerceServerProfileFromSettings(raw) {
 }
 
 export function readActiveServerUrlsFromCliSettings(homeDir) {
-  const baseDir = String(homeDir ?? '').trim();
-  if (!baseDir) return null;
-  const settingsPath = join(baseDir, 'settings.json');
-  if (!existsSync(settingsPath)) return null;
-  try {
-    const parsed = JSON.parse(readFileSync(settingsPath, 'utf-8'));
-    if (!parsed || typeof parsed !== 'object') return null;
-    const schemaVersion = Number(parsed.schemaVersion ?? 0);
-    if (!Number.isFinite(schemaVersion) || schemaVersion < 5) return null;
-    const activeServerId = typeof parsed.activeServerId === 'string' ? parsed.activeServerId.trim() : '';
-    const servers = parsed.servers && typeof parsed.servers === 'object' ? parsed.servers : null;
-    if (!activeServerId || !servers) return null;
-    return coerceServerProfileFromSettings(servers[activeServerId]);
-  } catch {
-    return null;
-  }
+  const parsed = readCliSettings(homeDir);
+  if (!parsed) return null;
+  const schemaVersion = Number(parsed.schemaVersion ?? 0);
+  if (!Number.isFinite(schemaVersion) || schemaVersion < 5) return null;
+  const activeServerId = typeof parsed.activeServerId === 'string' ? parsed.activeServerId.trim() : '';
+  const servers = parsed.servers && typeof parsed.servers === 'object' ? parsed.servers : null;
+  if (!activeServerId || !servers) return null;
+  return coerceServerProfileFromSettings(servers[activeServerId]);
+}
+
+export function shouldVerifyStackServerProfileReconciliation(homeDir) {
+  const settings = readCliSettings(homeDir);
+  const schemaVersion = Number(settings?.schemaVersion ?? 0);
+  return Boolean(
+    Number.isFinite(schemaVersion)
+      && schemaVersion >= 5
+      && settings?.servers
+      && typeof settings.servers === 'object',
+  );
+}
+
+export function assertStackServerProfileReconciled({
+  homeDir,
+  serverId,
+  internalServerUrl,
+  publicServerUrl,
+}) {
+  const expectedId = String(serverId ?? '').trim();
+  const expectedInternalUrl = normalizeServerUrl(internalServerUrl);
+  const expectedPublicUrl = normalizeServerUrl(publicServerUrl);
+  const settings = readCliSettings(homeDir);
+  const activeServerId = typeof settings?.activeServerId === 'string' ? settings.activeServerId.trim() : '';
+  const servers = settings?.servers && typeof settings.servers === 'object' ? settings.servers : null;
+  const profile = servers && expectedId ? servers[expectedId] : null;
+
+  let reason = null;
+  if (!settings) reason = 'settings could not be read after the CLI exited';
+  else if (activeServerId !== expectedId) reason = `active profile remained ${activeServerId || 'unset'}`;
+  else if (!profile || typeof profile !== 'object') reason = `profile ${expectedId} was not written`;
+  else if (String(profile.id ?? '').trim() !== expectedId) reason = `profile ${expectedId} has a different identity`;
+  else if (normalizeServerUrl(profile.serverUrl) !== expectedInternalUrl) reason = 'relay URL was not updated';
+  else if (normalizeServerUrl(profile.localServerUrl) !== expectedInternalUrl) reason = 'local relay URL was not updated';
+  else if (normalizeServerUrl(profile.webappUrl) !== expectedPublicUrl) reason = 'web app URL was not updated';
+
+  if (!reason) return;
+  const error = new Error(
+    `[hstack] the selected Happier CLI exited successfully but did not apply the requested stack relay profile (${reason}). `
+      + 'Upgrade or rebuild the Happier CLI before launching this stack.',
+  );
+  error.code = 'ESTACKCLIPROFILERECONCILIATION';
+  throw error;
 }
 
 /**

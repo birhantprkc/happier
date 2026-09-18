@@ -11,13 +11,23 @@ import { buildStackStableScopeId } from './utils/auth/stable_scope_id.mjs';
 const scriptsDir = dirname(fileURLToPath(import.meta.url));
 const rootDir = dirname(scriptsDir);
 
-function buildStubHappyCliScript({ message }) {
+function buildStubHappyCliScript({ message, ignoreServerSet = false }) {
   return [
       `import { appendFileSync } from 'node:fs';`,
       `import { join } from 'node:path';`,
       `const args = process.argv.slice(2);`,
       `if (args[0] === 'server' && args[1] === 'set') {`,
       `  appendFileSync(join(process.env.HAPPIER_HOME_DIR, '.hstack-test-server-set-calls.ndjson'), JSON.stringify(args) + '\\n');`,
+      ...(ignoreServerSet ? [] : [
+        `  const { readFileSync, writeFileSync } = await import('node:fs');`,
+        `  const settingsPath = join(process.env.HAPPIER_HOME_DIR, 'settings.json');`,
+        `  const settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));`,
+        `  const value = (name) => String(args[args.indexOf(name) + 1] || '');`,
+        `  const serverId = value('--server-id');`,
+        `  settings.activeServerId = serverId;`,
+        `  settings.servers = { ...(settings.servers || {}), [serverId]: { ...(settings.servers?.[serverId] || {}), id: serverId, serverUrl: value('--server-url'), localServerUrl: value('--local-server-url'), webappUrl: value('--webapp-url') } };`,
+        `  writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\\n', 'utf-8');`,
+      ]),
       `  process.exit(0);`,
       `}`,
       `console.log(JSON.stringify({`,
@@ -59,7 +69,10 @@ async function createHappyStackFixture(
     distIndexScript:
       stubType === 'failing'
         ? buildFailingStubHappyCliScript({ errorMessage })
-        : buildStubHappyCliScript({ message }),
+        : buildStubHappyCliScript({
+            message,
+            ignoreServerSet: stubType === 'legacy-ignore-server-set',
+          }),
   });
   if (!includePinnedServerPortInEnvFile) {
     await fixture.writeStackEnv({ port: '' });
@@ -236,7 +249,44 @@ test('hstack stack happier <name> delegates stack profile reconciliation to the 
   ]]);
 
   const settings = JSON.parse(await readFile(settingsPath, 'utf-8'));
-  assert.equal(settings.activeServerId, 'cloud', 'the wrapper must not mutate settings behind the CLI owner');
+  assert.equal(settings.activeServerId, out.activeServerId, 'the selected CLI must own the reconciled active profile');
+  assert.equal(settings.servers[out.activeServerId].serverUrl, 'http://127.0.0.1:45123');
+  assert.equal(settings.servers[out.activeServerId].localServerUrl, 'http://127.0.0.1:45123');
+  assert.equal(settings.servers[out.activeServerId].webappUrl, 'http://localhost:45123');
+});
+
+test('hstack stack happier <name> rejects a CLI that exits successfully without reconciling the stack profile', async (t) => {
+  const fixture = await createHappyStackFixture(t, {
+    prefix: 'happier-stack-stack-happy-legacy-server-set-',
+    message: 'must-not-run',
+    serverPort: 45124,
+    stubType: 'legacy-ignore-server-set',
+    stackCliSettings: {
+      schemaVersion: 6,
+      onboardingCompleted: false,
+      activeServerId: 'cloud',
+      servers: {
+        cloud: {
+          id: 'cloud',
+          name: 'Happier Cloud',
+          serverUrl: 'https://api.happier.dev',
+          webappUrl: 'https://app.happier.dev',
+          createdAt: 0,
+          updatedAt: 0,
+          lastUsedAt: 0,
+        },
+      },
+    },
+  });
+
+  const res = await runNodeCapture([join(rootDir, 'bin', 'hstack.mjs'), 'stack', 'happier', fixture.stackName], {
+    cwd: rootDir,
+    env: fixture.baseEnv,
+  });
+
+  assert.notEqual(res.code, 0, `expected reconciliation verification to fail\nstdout:\n${res.stdout}\nstderr:\n${res.stderr}`);
+  assert.match(res.stderr, /did not apply the requested stack relay profile/i);
+  assert.doesNotMatch(res.stdout, /must-not-run/);
 });
 
 test('hstack stack happier <name> uses stack.runtime.json ports when env file does not pin HAPPIER_STACK_SERVER_PORT', async (t) => {
