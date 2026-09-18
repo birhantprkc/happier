@@ -123,3 +123,15 @@ export {
 } from './serverRuntimeArtifactLayout.js';
 
 export { installOrUpdateRelayRuntimeLocal } from './relayRuntimeInstall.js';
+
+export {
+  HAPPIER_DESKTOP_PATH_MARKER_LINE,
+  HAPPIER_DESKTOP_WINDOWS_PATH_PROVENANCE_VARIABLE,
+  ensureHappierCliPathExposure,
+  removeHappierCliPathExposure,
+  renderHappierCliPathExportLine,
+} from './ensureHappierCliPathExposure.js';
+export type {
+  HappierCliPathExposureResult,
+  HappierCliPathRemovalResult,
+} from './ensureHappierCliPathExposure.js';
