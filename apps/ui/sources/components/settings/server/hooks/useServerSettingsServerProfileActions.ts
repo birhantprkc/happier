@@ -11,6 +11,7 @@ import {
 } from '@/sync/domains/server/serverProfiles';
 import { promptSignedOutServerSwitchConfirmation } from '@/components/settings/server/modals/ServerSwitchAuthPrompt';
 import { retargetPendingTerminalConnectToServerUrl } from '@/components/settings/server/hooks/retargetPendingTerminalConnectToServerUrl';
+import { recordDirectRelaySelectionIntent } from '@/setup/directRelaySelectionIntent';
 
 import type { ServerAuthStatus } from './useServerAuthStatusByServerId';
 
@@ -38,6 +39,13 @@ export function useServerSettingsServerProfileActions(params: Readonly<{
         }
 
         retargetPendingTerminalConnectToServerUrl(profile.serverUrl);
+
+        // R8/INV7 — an explicit relay pick in settings is the same direct action as picking one
+        // from the connection status control, so it arms the same one-slot intent the desktop
+        // setup gate spends to reconcile this computer's background service. It is recorded here
+        // and not in the screen's shared `switchServerById` helper: deep-link auto-add and group
+        // actions reach that helper too, and neither names a relay a person chose for this device.
+        recordDirectRelaySelectionIntent(scopeId);
 
         await params.onSwitchServerById(scopeId);
         if (authStatus === 'signedOut') {

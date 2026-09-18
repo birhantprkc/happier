@@ -8,8 +8,6 @@ import { t } from '@/text';
 import { router } from 'expo-router';
 import { Modal } from '@/modal';
 import { Image } from 'expo-image';
-import Constants from 'expo-constants';
-import * as Updates from 'expo-updates';
 import { useVisibleSessionListSessionSummary } from '@/hooks/session/useVisibleSessionListViewData';
 import { useResolvedActiveServerSelection } from '@/hooks/server/useEffectiveServerSelection';
 import { useMachineListByServerId, useMachineListStatusByServerId, useSetting } from '@/sync/domains/state/storage';
@@ -18,7 +16,7 @@ import { useConnectTerminal } from '@/hooks/session/useConnectTerminal';
 import type { FeatureId } from '@happier-dev/protocol';
 import { getFeatureBuildPolicyDecision } from '@/sync/domains/features/featureBuildPolicy';
 import { config } from '@/config';
-import { resolveAppVariant, type AppVariant } from '@/sync/runtime/appVariant';
+import { resolveCurrentAppVariant } from '@/sync/runtime/currentAppVariant';
 import { isTauriDesktop } from '@/utils/platform/tauri';
 
 import type { SessionGettingStartedDecisionKind } from './gettingStartedModel';
@@ -226,23 +224,9 @@ function subtitleForKind(kind: SessionGettingStartedDecisionKind, targetLabel: s
     }
 }
 
-function resolveAppVariantForCliInstall(): AppVariant {
-    return (
-        resolveAppVariant({
-            appVariant: config.variant,
-            updatesReleaseChannel: (Updates as any)?.releaseChannel,
-            updatesChannel: (Updates as any)?.channel,
-            manifestReleaseChannel: (Constants as any)?.manifest?.releaseChannel,
-            expoConfigReleaseChannel: (Constants as any)?.expoConfig?.releaseChannel,
-            envAppEnv: process.env.APP_ENV,
-            envExpoPublicAppEnv: process.env.EXPO_PUBLIC_APP_ENV,
-        }) ?? 'production'
-    );
-}
-
 function buildCliInstallCommand(options?: Readonly<{ suppressAutomaticSetup?: boolean }>): string {
     return buildHappierCliInstallCommand({
-        appVariant: resolveAppVariantForCliInstall(),
+        appVariant: resolveCurrentAppVariant(),
         distTagOverride: config.cliNpmDistTag,
         suppressAutomaticSetup: options?.suppressAutomaticSetup,
     });
@@ -250,7 +234,7 @@ function buildCliInstallCommand(options?: Readonly<{ suppressAutomaticSetup?: bo
 
 function buildCliCommandName(): 'happier' | 'hprev' {
     return buildHappierCliCommandName({
-        appVariant: resolveAppVariantForCliInstall(),
+        appVariant: resolveCurrentAppVariant(),
         distTagOverride: config.cliNpmDistTag,
     });
 }
@@ -645,7 +629,10 @@ function useSessionGettingStartedGuidanceViewModelBase(): SessionGettingStartedG
     const resolveNewSessionOrdinaryEntryRoute = useResolveNewSessionOrdinaryEntryRoute();
     const canOpenSetup = isTauriDesktop();
     const onOpenSetup = React.useCallback(() => {
-        router.push('/setup' as any);
+        // The manual "set up / repair this computer" surface is the settings one. `/setup` is the
+        // pre-auth relay chooser plus the remote-machine continuation; first-run local setup runs
+        // automatically in `DesktopLocalSetupGate` (R9/INV1).
+        router.push('/settings/machines/this-computer');
     }, []);
 
     const onStartNewSession = React.useCallback((event?: unknown) => {

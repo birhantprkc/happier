@@ -87,6 +87,31 @@ export function subscribeToRuntimeActiveChange(listener: () => void): () => void
 }
 
 /**
+ * Whether the host surface is on screen and actually being painted.
+ *
+ * Deliberately a different question from `isRuntimeActive()`. That one answers *may background
+ * WORK continue*, and returns `true` unconditionally on Tauri desktop so sync keeps running in a
+ * hidden window. Motion has the opposite need: an animation in a window nobody can see is pure
+ * cost, and `apps/ui/AGENTS.md` requires every animation loop to declare a stop condition. Same
+ * lifecycle signals and the same subscription (`subscribeToRuntimeActiveChange`) — one extra
+ * question, rather than a second set of listeners hung off `visibilitychange`.
+ *
+ * The document is authoritative wherever there is one, because it is the thing that does or does
+ * not paint. Native has no document, so the app-state answer above is the signal there.
+ */
+export function isHostVisible(): boolean {
+    try {
+        const doc = readDocument();
+        if (doc && typeof doc.visibilityState === 'string') {
+            return doc.visibilityState !== 'hidden';
+        }
+    } catch {
+        // ignore
+    }
+    return isRuntimeActive();
+}
+
+/**
  * Runs an interval only while the runtime is active. If regular ticks were
  * skipped while inactive, the callback runs once immediately when the runtime
  * returns to active and the interval is overdue.

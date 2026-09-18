@@ -391,6 +391,13 @@ export const LOCAL_SETTING_DEFINITIONS = defineSettingDefinitions({
         storageScope: 'local',
         analytics: { trackCurrentState: true, trackChanges: true, valueKind: 'boolean', privacy: 'safe', identityScope: 'device_user' },
     },
+    desktopAlwaysMoveDefaultFollowingService: {
+        schema: z.boolean(),
+        default: false,
+        description: 'Move this device\u2019s default-following background service with the selected default relay without asking',
+        storageScope: 'local',
+        analytics: { trackCurrentState: true, trackChanges: true, valueKind: 'boolean', privacy: 'safe', identityScope: 'device_user' },
+    },
     desktopPetOverlayEnabledOverride: {
         schema: PetEnabledOverrideSchema,
         default: 'inherit',

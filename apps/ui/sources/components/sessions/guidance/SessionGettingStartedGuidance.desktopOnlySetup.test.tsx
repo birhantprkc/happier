@@ -145,6 +145,18 @@ describe('SessionGettingStartedGuidance (desktop-only setup CTA)', () => {
         expect(() => tree.root.findByProps({ testID: 'session-getting-started-open-setup' })).not.toThrow();
     });
 
+    it('routes the Open setup CTA to the canonical manual this-computer surface, not the first-run /setup route', async () => {
+        tauriState.desktop = true;
+        vi.resetModules();
+        const { SessionGettingStartedGuidance } = await import('./SessionGettingStartedGuidance');
+
+        const tree: renderer.ReactTestRenderer = (await renderScreen(<SessionGettingStartedGuidance variant="sidebar" />)).tree;
+        tree.root.findByProps({ testID: 'session-getting-started-open-setup' }).props.onPress();
+
+        expect(routerMockState.push).toHaveBeenCalledWith('/settings/machines/this-computer');
+        expect(routerMockState.push).not.toHaveBeenCalledWith('/setup');
+    });
+
     it('routes the create-session CTA through the ordinary-entry resolver with pointer modifiers', async () => {
         machineState.machines = [{ active: true }];
         vi.resetModules();

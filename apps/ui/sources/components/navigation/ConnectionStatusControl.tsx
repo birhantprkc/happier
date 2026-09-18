@@ -36,6 +36,7 @@ import { Text } from '@/components/ui/text/Text';
 import { useConnectionHealth } from '@/components/navigation/connectionStatus/useConnectionHealth';
 import { selectSyncErrorForServer } from '@/sync/runtime/connectivity/syncErrorScope';
 import { setPendingSetupIntent } from '@/sync/domains/pending/pendingSetupIntent';
+import { recordDirectRelaySelectionIntent } from '@/setup/directRelaySelectionIntent';
 import { isTauriDesktop } from '@/utils/platform/tauri';
 import { DropdownMenu, type DropdownMenuItem } from '@/components/ui/forms/dropdown/DropdownMenu';
 import { runGuardedNavigation } from '@/utils/navigation/runGuardedNavigation';
@@ -360,6 +361,13 @@ export const ConnectionStatusControl = React.memo(function ConnectionStatusContr
             if (!server) return;
             const shouldSwitch = await confirmSignedOutSwitch(server.id);
             if (!shouldSwitch) return;
+            // R8/INV7 — this is the direct Relay/Home action, the one place a person chooses a
+            // single relay for this device, so it is the one place allowed to authorise moving
+            // this computer's background service there. Recorded before the switch so the intent
+            // is already armed when the authenticated setup gate re-renders against the new
+            // identity; the gate spends it exactly once. The group branch below records nothing:
+            // a group names several relays and cannot name one daemon target (B2).
+            recordDirectRelaySelectionIntent(target.serverId);
             writeServerSelectionActiveTargetToServer({
                 setServerSelectionActiveTargetKind,
                 setServerSelectionActiveTargetId,

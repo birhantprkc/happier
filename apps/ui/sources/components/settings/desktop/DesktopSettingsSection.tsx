@@ -8,11 +8,13 @@ import { Switch } from '@/components/ui/forms/Switch';
 import { t } from '@/text';
 
 import { useDesktopAutostart } from './useDesktopAutostart';
+import { useDesktopBackgroundServiceAutostart } from './useDesktopBackgroundServiceAutostart';
 import { Icon } from '@/components/ui/icons/Icon';
 
 export const DesktopSettingsSection = React.memo(function DesktopSettingsSection() {
     const { theme } = useUnistyles();
     const autostart = useDesktopAutostart();
+    const backgroundService = useDesktopBackgroundServiceAutostart();
 
     if (!autostart.supported) {
         return null;
@@ -39,6 +41,28 @@ export const DesktopSettingsSection = React.memo(function DesktopSettingsSection
                 )}
                 showChevron={false}
             />
+            {backgroundService.supported ? (
+                <Item
+                    testID="settings-desktop-background-service-enabled"
+                    title={t('settingsDesktop.backgroundServiceTitle')}
+                    subtitle={backgroundService.error
+                        ?? (backgroundService.mode === null
+                            ? t('settingsDesktop.backgroundServiceUnknown')
+                            : t('settingsDesktop.backgroundServiceSubtitle'))}
+                    icon={<Icon name="pulse" size={29} color={theme.colors.accent.green} />}
+                    rightElement={(
+                        <Switch
+                            value={backgroundService.mode === 'at-login'}
+                            disabled={backgroundService.loading || backgroundService.mode === null}
+                            onValueChange={(value) => {
+                                // The switch position is presentation; the mode is the contract.
+                                void backgroundService.setMode(value ? 'at-login' : 'on-demand');
+                            }}
+                        />
+                    )}
+                    showChevron={false}
+                />
+            ) : null}
         </ItemGroup>
     );
 });

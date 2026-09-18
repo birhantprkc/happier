@@ -27,7 +27,7 @@ import { digest } from "@/platform/digest";
 import { encodeHex } from "@/encryption/hex";
 import { resolveAppUrlScheme } from "@/utils/url/appScheme";
 import { readConfiguredServerUrlEnv } from "@/sync/domains/server/readConfiguredServerUrlEnv";
-import { getPendingSetupIntent, setPendingSetupIntent } from "@/sync/domains/pending/pendingSetupIntent";
+import { clearPendingSetupIntent, getPendingSetupIntent } from "@/sync/domains/pending/pendingSetupIntent";
 import { isTauriDesktop } from "@/utils/platform/tauri";
 import { isAuthenticatedRootDeepLinkRedirectAllowed } from "@/auth/routing/isAuthenticatedRootDeepLinkRedirectAllowed";
 import { buildScopedSessionRouteHref } from "@/hooks/session/sessionRouteServerScope";
@@ -40,8 +40,7 @@ import {
     type RemoteServerAvailability,
     type RemoteSignupOptions,
 } from "@/components/account/auth/useRemoteAuthEntryOptions";
-
-import { shouldAutoRedirectToSetupOnFirstLaunch } from "@/utils/navigation/firstLaunchSetupRedirectPolicy";
+import { DesktopLocalSetupGate } from "@/setup/DesktopLocalSetupGate";
 
 const DEFAULT_WELCOME_SERVER_CHECK_TIMEOUT_MS = 6_000;
 const DEFAULT_WELCOME_SERVER_CHECK_RETRY_DELAY_MS = 1_000;
@@ -109,22 +108,35 @@ function Authenticated() {
         if (!isAuthenticatedRootDeepLinkRedirectAllowed()) return;
         if (getPendingTerminalConnect()) return;
 
+        if (!isTauriDesktop()) {
+            return;
+        }
         const pendingSetupIntent = getPendingSetupIntent();
         if (pendingSetupIntent?.phase !== 'awaiting_auth') {
             return;
         }
-        if (!isTauriDesktop()) {
+        if (pendingSetupIntent.branch === 'remoteMachine') {
+            // `/setup` still owns resuming provider follow-up after a relay adoption.
+            router.replace('/setup');
             return;
         }
-        router.replace('/setup');
+        // R9/INV1: a `thisComputer` continuation is `DesktopLocalSetupGate`'s job, and this route
+        // already renders that gate. Consume the continuation here rather than handing it to a
+        // second setup surface that would start the executor in parallel.
+        clearPendingSetupIntent();
     }, [router, sessionId]);
 
+    if (isTauriDesktop()) {
+        return <DesktopLocalSetupGate />;
+    }
     return <MainView variant="phone" />;
 }
 
 function resolveAuthReturnToRoute(): string {
     const pendingSetupIntent = getPendingSetupIntent();
-    return pendingSetupIntent?.phase === 'awaiting_auth' && isTauriDesktop() ? '/setup' : '/';
+    const resumesRemoteMachineSetup = pendingSetupIntent?.phase === 'awaiting_auth'
+        && pendingSetupIntent.branch === 'remoteMachine';
+    return resumesRemoteMachineSetup && isTauriDesktop() ? '/setup' : '/';
 }
 
 function NotAuthenticated() {
@@ -148,30 +160,6 @@ function NotAuthenticated() {
     const [retentionSummary, setRetentionSummary] = React.useState<string | null>(null);
     const autoRedirectAttemptedRef = React.useRef(false);
     const hasPendingTerminalConnect = Boolean(getPendingTerminalConnect());
-    const firstLaunchSetupRedirectedRef = React.useRef(false);
-
-    React.useEffect(() => {
-        if (firstLaunchSetupRedirectedRef.current) {
-            return;
-        }
-        if (!shouldAutoRedirectToSetupOnFirstLaunch({ platformOs: Platform.OS, isDesktopTauri: isTauriDesktop() })) {
-            return;
-        }
-        const pendingSetupIntent = getPendingSetupIntent();
-        if (pendingSetupIntent) {
-            return;
-        }
-
-        firstLaunchSetupRedirectedRef.current = true;
-        const snapshot = getActiveServerSnapshot();
-        const relayUrl = snapshot.serverUrl ? String(snapshot.serverUrl).trim().replace(/\/+$/, '') : null;
-        setPendingSetupIntent({
-            branch: 'thisComputer',
-            phase: 'pre_auth',
-            relayUrl: relayUrl || null,
-        });
-        router.replace('/setup');
-    }, [router]);
 
     React.useEffect(() => {
         let mounted = true;

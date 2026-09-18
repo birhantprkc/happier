@@ -66,6 +66,8 @@ import { useIsTablet } from '@/utils/platform/responsive';
 import { ThemePreferenceTransitionHost } from '@/components/settings/appearance/ThemePreferenceTransitionHost';
 import { useTauriMainWindowBackgroundColor } from '@/desktop/window/useTauriMainWindowBackgroundColor';
 import { OnboardingShowcaseAutoShowMount } from '@/onboarding/showcase';
+import { DesktopBackgroundServiceCloseGuard } from '@/setup/DesktopBackgroundServiceCloseGuard';
+import { DesktopLocalSetupWarmup } from '@/setup/DesktopLocalSetupWarmup';
 import { DesktopMainContentDragSurface } from '@/components/navigation/desktopWindowChrome/DesktopMainContentDragSurface';
 import { useChromeSafeAreaInsets } from '@/components/ui/layout/useChromeSafeAreaInsets';
 import { loadExpoNotifications, type ExpoNotificationsModule } from '@/utils/platform/loadExpoNotifications';
@@ -816,6 +818,21 @@ function RootAppShell(props: Readonly<{
     const shellContent = (
         <View style={{ flex: 1, position: 'relative' }}>
             <ActionOperationRuntime enabled={auth.isAuthenticated && !props.isDesktopPetOverlayWindow} />
+            {/*
+              * R5/INV4 — deliberately NOT behind `auth.isAuthenticated`. This is the app's one
+              * pre-auth mount: the moment the desktop window opens it starts acquiring the
+              * managed CLI and reading local readiness, so signing in lands on work already done.
+              * The pet overlay is a second webview of the same app and must not read a second time.
+              */}
+            <DesktopLocalSetupWarmup enabled={tauriDesktop && !props.isDesktopPetOverlayWindow} />
+            {/*
+              * The quit handoff. Mounted beside the warm-up and on the same one-webview condition:
+              * the native side hands the decision to a single webview, and the pet overlay is a
+              * second webview of the same app. Nothing is gated on auth — a computer whose
+              * background service should stop when the app closes is one whose app may be closed
+              * from anywhere in the app, signed in or not.
+              */}
+            <DesktopBackgroundServiceCloseGuard enabled={tauriDesktop && !props.isDesktopPetOverlayWindow} />
             {!props.isDesktopPetOverlayWindow ? <OnboardingShowcaseAutoShowMount /> : null}
             {appShellChromeHost === 'narrow-desktop-fallback' || appShellChromeHost === 'unauth-shell' ? (
                 <DesktopFallbackShellChrome safeArea={props.safeArea} />

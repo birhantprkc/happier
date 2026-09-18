@@ -111,6 +111,8 @@ const ALLOW_SAME_STRING_KEYS_BY_LOCALE: Readonly<Record<string, ReadonlySet<stri
     'common.error': new Set(['es', 'ca']),
     'tools.fullView.error': new Set(['es', 'ca']),
     'status.error': new Set(['es']),
+    // "Terminal" is the correct word in these locales and matches English.
+    'machine.cliPath.title': new Set(['pl', 'es', 'fr', 'pt', 'ca', 'de']),
     // Catalan: common noun matches English.
     'tabs.sessions': new Set(['ca']),
     'memorySearchSettings.embeddings.openAi.dimensionsTitle': new Set(['ca']),

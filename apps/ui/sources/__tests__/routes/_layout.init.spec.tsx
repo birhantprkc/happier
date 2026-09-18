@@ -35,6 +35,7 @@ const notificationNativeState = vi.hoisted(() => ({
     unavailable: false,
 }));
 const chromeSafeAreaWarmupMock = vi.hoisted(() => vi.fn(() => ({ top: 0, bottom: 0, left: 0, right: 0 })));
+const desktopSetupInspectMock = vi.hoisted(() => vi.fn(async () => ({ status: 'pending' as const })));
 
 const { fromModuleMock, trackingState, fontAwesomeFontMock, ioniconsFontMock } = vi.hoisted(() => ({
     fromModuleMock: vi.fn(),
@@ -139,11 +140,22 @@ vi.mock('@/boot/resolveBootCredentials', () => ({
 vi.mock('@/utils/platform/tauri', () => ({
     isTauriDesktop: () => shellChromeState.isTauriDesktop,
     invokeTauri: vi.fn(),
-    listenTauriEvent: vi.fn(),
+    // Mirrors the real contract: `listenTauriEvent` is async, so it always resolves an unlisten
+    // function. A bare `vi.fn()` resolves nothing and breaks every listener registered at boot.
+    listenTauriEvent: vi.fn(async () => () => {}),
 }));
 
 vi.mock('@/utils/platform/responsive', () => ({
     useIsTablet: () => shellChromeState.isTablet,
+}));
+
+vi.mock('@/setup/desktopSetupCoordinator', () => ({
+    desktopSetupCoordinator: {
+        inspect: desktopSetupInspectMock,
+        readObservedExpectation: () => null,
+        startSetup: vi.fn(),
+        reconcile: vi.fn(),
+    },
 }));
 
 vi.mock('@/components/pets/desktop/runtime/isDesktopPetOverlayWindowContext', () => ({
@@ -409,6 +421,7 @@ describe('app/_layout init resilience', () => {
         sentryWrapMock.mockClear();
         routerPushMock.mockClear();
         chromeSafeAreaWarmupMock.mockClear();
+        desktopSetupInspectMock.mockClear();
         consumeRestartBugReportIntentMock.mockClear();
         if (previousSentryDsn === undefined) delete process.env.EXPO_PUBLIC_SENTRY_DSN;
         else process.env.EXPO_PUBLIC_SENTRY_DSN = previousSentryDsn;
@@ -932,5 +945,49 @@ describe('app/_layout init resilience', () => {
         expect(screen.findAllByTestId('root-shell-app-update-status-tag')).toHaveLength(0);
         expect(screen.findByTestId('desktop-main-content-drag-surface')?.props.enabled).toBe(false);
         expect(syncRestoreMock).toHaveBeenCalledWith({ token: 'token', secret: 'secret' });
+    });
+
+    it('warms the local readiness inspection as soon as the desktop app opens, before anyone signs in (R5/INV4)', async () => {
+        // The whole point of R5: acquisition and the read-only inspection are local Tauri IPC, so
+        // they must not wait for authentication. Before this mount existed the only caller sat
+        // behind the authenticated root, so every user paid the full round trip after login.
+        bootCredentialsState.value = null;
+        shellChromeState.isTauriDesktop = true;
+
+        const screen = await renderSettledRootLayout();
+
+        expect(screen.findAllByTestId('desktop-fallback-shell-chrome')).toHaveLength(1);
+        expect(desktopSetupInspectMock).toHaveBeenCalledTimes(1);
+        // INV4: invisible. The warm-up renders nothing, so no setup chrome reaches the welcome screen.
+        expect(screen.findAllByTestId('setup-surface')).toHaveLength(0);
+    });
+
+    it('warms the inspection exactly once across re-renders of the root shell', async () => {
+        bootCredentialsState.value = null;
+        shellChromeState.isTauriDesktop = true;
+        shellChromeState.isTablet = true;
+
+        const screen = await renderSettledRootLayout();
+        const RootLayout = (await import('@/app/_layout')).default;
+        shellChromeState.isTablet = false;
+        await screen.update(React.createElement(RootLayout));
+        const { flushHookEffects } = await import('@/dev/testkit');
+        await flushHookEffects();
+
+        expect(desktopSetupInspectMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('never warms local readiness off Tauri desktop or in the pet overlay window', async () => {
+        shellChromeState.isTauriDesktop = false;
+        await renderSettledRootLayout();
+        expect(desktopSetupInspectMock).not.toHaveBeenCalled();
+
+        const { standardCleanup } = await import('@/dev/testkit');
+        standardCleanup();
+        shellChromeState.isTauriDesktop = true;
+        desktopPetOverlayWindowState.value = true;
+        await renderSettledRootLayout();
+
+        expect(desktopSetupInspectMock).not.toHaveBeenCalled();
     });
 });

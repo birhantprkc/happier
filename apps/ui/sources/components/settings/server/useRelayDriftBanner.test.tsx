@@ -5,7 +5,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { SystemTaskRunner } from '@/components/systemTasks/types';
 import { renderScreen } from '@/dev/testkit';
-import { buildRelayDriftRepairSystemTaskSpec } from '@/sync/domains/server/relayDrift/relayDriftSystemTask';
 import { installServerSettingsHooksCommonModuleMocks } from './hooks/serverSettingsHooksTestHelpers';
 import type { RelayDriftBanner } from './relayDriftTypes';
 
@@ -53,7 +52,53 @@ const state = vi.hoisted(() => ({
         },
     ],
     runner: null as SystemTaskRunner | null,
+    isTauriDesktop: false,
+    accountId: 'acct_app' as string | null,
 }));
+
+vi.mock('@/utils/platform/tauri', () => ({
+    isTauriDesktop: () => state.isTauriDesktop,
+}));
+
+vi.mock('@/sync/domains/scope/activeServerAccountScope', () => ({
+    getActiveServerAccountScope: () => (state.accountId ? { serverId: state.activeServerSnapshot.serverId, accountId: state.accountId } : null),
+}));
+
+vi.mock('@/components/systemTasks/systemTasksRuntime', () => ({
+    getSystemTasksRunner: () => state.runner,
+}));
+
+function setupSpecMatcher(target: Readonly<{ activeRelayUrl: string; activeWebappUrl: string; activeLocalRelayUrl: string | null }>) {
+    return expect.objectContaining({
+        kind: 'setup.thisComputer.v1',
+        params: expect.objectContaining({
+            ...target,
+            expectedAccountId: 'acct_app',
+            surface: 'desktop.ui',
+        }),
+    });
+}
+
+const AMBIENT_STATUS_DATA = {
+    serviceInstalled: false,
+    daemonRunning: false,
+    needsAuth: true,
+    machineId: null,
+    acquisition: { command: '/home/user/.happier/cli/current/happier', provenance: 'managed' },
+    server: { activeServerId: 'cloud', serverUrl: null, publicServerUrl: null, localServerUrl: null, comparableKey: null },
+    auth: {
+        authenticated: false,
+        machineRegistered: false,
+        machineId: null,
+        needsAuth: true,
+        accountId: null,
+        credentialState: 'missing',
+        validatedAccountId: null,
+    },
+    service: { installed: false, running: false },
+    daemon: { running: false, startedWithCliVersion: null, serviceManaged: null, serviceLabel: null },
+    runtimeConvergence: { controlReachable: false, serviceOwnsRunningDaemon: false, machineIdMatches: false, cliVersionMatches: false },
+};
 
 installServerSettingsHooksCommonModuleMocks({
     text: async () => {
@@ -117,7 +162,10 @@ vi.mock('@/components/systemTasks', async (importOriginal) => {
 
 describe('useRelayDriftBanner', () => {
     beforeEach(() => {
+        vi.resetModules();
         Reflect.deleteProperty(globalThis as { location?: unknown }, 'location');
+        state.isTauriDesktop = false;
+        state.accountId = 'acct_app';
         state.activeServerSnapshot = {
             serverId: 'server-a',
             serverUrl: 'https://relay.example.test',
@@ -143,6 +191,56 @@ describe('useRelayDriftBanner', () => {
             subscribe: () => () => {},
         } satisfies SystemTaskRunner;
     });
+
+    /** Answers the one ambient `daemon.service.status.v1` read the desktop banner classifies. */
+    async function installAmbientLocalFacts(data: unknown): Promise<void> {
+        const { createSystemTaskRunner } = await import('@/components/systemTasks/createSystemTaskRunner');
+        state.runner = createSystemTaskRunner({
+            mode: 'dev',
+            bridge: {
+                start: async () => 'task_status',
+                async subscribe(taskId, listenerSet) {
+                    queueMicrotask(() => listenerSet.onResult({ protocolVersion: 1, taskId, ok: true, data }));
+                    return () => {};
+                },
+                async cancel() {},
+                async respond() {},
+            },
+        });
+        state.cachedDoctorSnapshot = null;
+    }
+
+    /** Ambient facts for a computer that does have a daemon: paired, with a service or a live one. */
+    function localFactsForDaemon(params: Readonly<{
+        serverUrl: string;
+        serviceInstalled: boolean;
+        controlReachable: boolean;
+    }>) {
+        return {
+            ...AMBIENT_STATUS_DATA,
+            serviceInstalled: params.serviceInstalled,
+            daemonRunning: params.controlReachable,
+            needsAuth: false,
+            machineId: 'machine-1',
+            server: { activeServerId: 'server-a', serverUrl: params.serverUrl, publicServerUrl: params.serverUrl, localServerUrl: null, comparableKey: params.serverUrl },
+            auth: {
+                authenticated: true,
+                machineRegistered: true,
+                machineId: 'machine-1',
+                needsAuth: false,
+                accountId: 'acct_app',
+                credentialState: 'valid',
+                validatedAccountId: 'acct_app',
+            },
+            service: { installed: params.serviceInstalled, running: params.controlReachable },
+            runtimeConvergence: {
+                controlReachable: params.controlReachable,
+                serviceOwnsRunningDaemon: params.serviceInstalled && params.controlReachable,
+                machineIdMatches: params.controlReachable,
+                cliVersionMatches: params.controlReachable,
+            },
+        };
+    }
 
     it('does not show drift when the daemon public relay matches the active relay', async () => {
         const { useRelayDriftBanner } = await import('./useRelayDriftBanner');
@@ -275,7 +373,7 @@ describe('useRelayDriftBanner', () => {
             await resolvedBanner.onPress();
         });
 
-        expect(startMock).toHaveBeenCalledWith(buildRelayDriftRepairSystemTaskSpec({
+        expect(startMock).toHaveBeenCalledWith(setupSpecMatcher({
             activeRelayUrl: 'https://relay.example.test',
             activeWebappUrl: 'https://relay.example.test',
             activeLocalRelayUrl: null,
@@ -292,14 +390,14 @@ describe('useRelayDriftBanner', () => {
                 taskId: 'task_1',
                 tsMs: 100,
                 type: 'progress',
-                stepId: 'relay.connectBackgroundService.configureRelay',
+                stepId: 'setup.thisComputer.configureRelay',
                 message: 'executor message',
             });
         });
 
         const bannerAfterEvent = banner as RelayDriftBanner | null;
         expect(bannerAfterEvent?.repairTaskSnapshot).toEqual(expect.objectContaining({
-            currentStepId: 'relay.connectBackgroundService.configureRelay',
+            currentStepId: 'setup.thisComputer.configureRelay',
             latestMessage: 'executor message',
         }));
         expect(typeof bannerAfterEvent?.onCancelRepair).toBe('function');
@@ -369,75 +467,10 @@ describe('useRelayDriftBanner', () => {
             await banner?.onPress();
         });
 
-        expect(startMock).toHaveBeenCalledWith(buildRelayDriftRepairSystemTaskSpec({
+        expect(startMock).toHaveBeenCalledWith(setupSpecMatcher({
             activeRelayUrl: 'https://api.happier.dev',
             activeWebappUrl: 'https://app.happier.dev',
             activeLocalRelayUrl: null,
-        }));
-    });
-
-    it('passes the daemon local relay url to repair when the active relay matches the daemon public relay', async () => {
-        const { useRelayDriftBanner } = await import('./useRelayDriftBanner');
-        const { createSystemTaskRunner } = await import('@/components/systemTasks/createSystemTaskRunner');
-        const { SystemTaskSpecSchema } = await import('@happier-dev/protocol');
-
-        const startMock = vi.fn(async (spec: unknown) => {
-            SystemTaskSpecSchema.parse(spec);
-            return 'task_1';
-        });
-
-        state.runner = createSystemTaskRunner({
-            mode: 'dev',
-            bridge: {
-                start: startMock,
-                async subscribe() {
-                    return () => {};
-                },
-                async cancel() {},
-                async respond() {},
-            },
-        });
-        state.activeServerSnapshot = {
-            serverId: 'server-a',
-            serverUrl: 'https://relay.example.test',
-            generation: 1,
-        } as ActiveServerSnapshot;
-        state.cachedDoctorSnapshot = {
-            cachedAt: 1,
-            snapshot: {
-                capturedAt: '2026-03-29T00:00:00.000Z',
-                server: {
-                    activeServerId: 'server-a',
-                    serverUrl: 'http://127.0.0.1:3000',
-                    publicServerUrl: 'https://relay.example.test',
-                    webappUrl: 'https://relay.example.test',
-                },
-                accountId: null,
-                settings: {
-                    activeServerId: 'server-a',
-                    servers: [],
-                    knownAccountIds: [],
-                },
-            },
-        };
-
-        let banner: RelayDriftBanner | null = null;
-        function Probe() {
-            banner = useRelayDriftBanner();
-            return null;
-        }
-
-        await renderScreen(React.createElement(Probe));
-
-        expect(banner).not.toBeNull();
-        await renderer.act(async () => {
-            await banner?.onPress();
-        });
-
-        expect(startMock).toHaveBeenCalledWith(buildRelayDriftRepairSystemTaskSpec({
-            activeRelayUrl: 'https://relay.example.test',
-            activeWebappUrl: 'https://relay.example.test',
-            activeLocalRelayUrl: 'http://127.0.0.1:3000',
         }));
     });
 
@@ -500,10 +533,68 @@ describe('useRelayDriftBanner', () => {
             await banner?.onPress();
         });
 
-        expect(startMock).toHaveBeenCalledWith(buildRelayDriftRepairSystemTaskSpec({
+        expect(startMock).toHaveBeenCalledWith(setupSpecMatcher({
             activeRelayUrl: 'https://relay.example.test',
             activeWebappUrl: 'https://relay.example.test',
             activeLocalRelayUrl: 'http://127.0.0.1:3000',
+        }));
+    });
+
+    it('sends the app relay to the executor, never a relay derived from the daemon', async () => {
+        const { useRelayDriftBanner } = await import('./useRelayDriftBanner');
+        const { createSystemTaskRunner } = await import('@/components/systemTasks/createSystemTaskRunner');
+        const { SystemTaskSpecSchema } = await import('@happier-dev/protocol');
+
+        const startMock = vi.fn(async (spec: unknown) => {
+            SystemTaskSpecSchema.parse(spec);
+            return 'task_1';
+        });
+        state.runner = createSystemTaskRunner({
+            mode: 'dev',
+            bridge: {
+                start: startMock,
+                async subscribe() {
+                    return () => {};
+                },
+                async cancel() {},
+                async respond() {},
+            },
+        });
+        state.activeServerSnapshot = {
+            serverId: 'server-a',
+            serverUrl: 'https://relay.example.test',
+            generation: 1,
+        } as ActiveServerSnapshot;
+        state.cachedDoctorSnapshot = {
+            cachedAt: 1,
+            snapshot: {
+                capturedAt: '2026-03-29T00:00:00.000Z',
+                server: {
+                    activeServerId: 'server-a',
+                    serverUrl: 'http://127.0.0.1:3000',
+                    publicServerUrl: 'https://relay.example.test',
+                    webappUrl: 'https://relay.example.test',
+                },
+                accountId: null,
+                settings: { activeServerId: 'server-a', servers: [], knownAccountIds: [] },
+            },
+        };
+
+        let banner: RelayDriftBanner | null = null;
+        function Probe() {
+            banner = useRelayDriftBanner();
+            return null;
+        }
+
+        await renderScreen(React.createElement(Probe));
+        await renderer.act(async () => {
+            await banner?.onPress();
+        });
+
+        expect(startMock).toHaveBeenCalledWith(setupSpecMatcher({
+            activeRelayUrl: 'https://relay.example.test',
+            activeWebappUrl: 'https://relay.example.test',
+            activeLocalRelayUrl: null,
         }));
     });
 
@@ -557,6 +648,224 @@ describe('useRelayDriftBanner', () => {
         expect(startMock).not.toHaveBeenCalled();
     });
 
+    it('is null on a first-run desktop machine about which the app has no daemon knowledge (R10)', async () => {
+        state.isTauriDesktop = true;
+        state.cachedDoctorSnapshot = {
+            cachedAt: 1,
+            snapshot: {
+                capturedAt: '2026-03-29T00:00:00.000Z',
+                server: { activeServerId: 'server-a', serverUrl: '', publicServerUrl: '', webappUrl: '' },
+                accountId: null,
+                settings: { activeServerId: 'server-a', servers: [], knownAccountIds: [] },
+            },
+        };
+        const { useRelayDriftBanner } = await import('./useRelayDriftBanner');
+
+        let banner: RelayDriftBanner | null = null;
+        function Probe() {
+            banner = useRelayDriftBanner();
+            return null;
+        }
+
+        await renderScreen(React.createElement(Probe));
+
+        expect(banner).toBeNull();
+    });
+
+    it('stays null once the ambient facts resolve with no daemon on this computer at all (R10)', async () => {
+        // "This computer has no daemon yet" is an ordinary first-run fact, not drift: the setup
+        // gate owns acquiring it. The CLI config file's default relay is not knowledge of a daemon.
+        state.isTauriDesktop = true;
+        await installAmbientLocalFacts({
+            ...AMBIENT_STATUS_DATA,
+            server: { activeServerId: 'server-a', serverUrl: 'https://relay.example.test', publicServerUrl: 'https://relay.example.test', localServerUrl: null, comparableKey: 'https://relay.example.test' },
+        });
+        const { useRelayDriftBanner } = await import('./useRelayDriftBanner');
+
+        let banner: RelayDriftBanner | null = null;
+        function Probe() {
+            banner = useRelayDriftBanner();
+            return null;
+        }
+
+        await renderScreen(React.createElement(Probe));
+        await renderer.act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+
+        expect(banner).toBeNull();
+    });
+
+    it('still warns and offers repair when a live local daemon is on a different relay', async () => {
+        state.isTauriDesktop = true;
+        await installAmbientLocalFacts(localFactsForDaemon({
+            serverUrl: 'https://daemon-relay.example.test',
+            serviceInstalled: true,
+            controlReachable: true,
+        }));
+        const { useRelayDriftBanner } = await import('./useRelayDriftBanner');
+
+        let banner: RelayDriftBanner | null = null;
+        function Probe() {
+            banner = useRelayDriftBanner();
+            return null;
+        }
+
+        await renderScreen(React.createElement(Probe));
+        await renderer.act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+
+        expect(banner).toEqual(expect.objectContaining({
+            kind: 'warning',
+            title: 'server.relayDrift.bannerDifferentRelayTitle',
+            actionLabel: 'server.relayDrift.repairAction',
+            secondaryActionLabel: 'server.switchToServer',
+        }));
+    });
+
+    it('still warns and offers repair when this computer has a background service that is not running', async () => {
+        // An installed service that no longer answers is daemon knowledge and a real deviation,
+        // unlike a computer that never had one.
+        state.isTauriDesktop = true;
+        await installAmbientLocalFacts(localFactsForDaemon({
+            serverUrl: 'https://relay.example.test',
+            serviceInstalled: true,
+            controlReachable: false,
+        }));
+        const { useRelayDriftBanner } = await import('./useRelayDriftBanner');
+
+        let banner: RelayDriftBanner | null = null;
+        function Probe() {
+            banner = useRelayDriftBanner();
+            return null;
+        }
+
+        await renderScreen(React.createElement(Probe));
+        await renderer.act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+
+        expect(banner).toEqual(expect.objectContaining({
+            kind: 'warning',
+            title: 'server.relayDrift.bannerNotRunningTitle',
+            actionLabel: 'server.relayDrift.repairAction',
+        }));
+    });
+
+    it('classifies desktop-local drift from the ambient local facts, not the remote doctor cache', async () => {
+        state.isTauriDesktop = true;
+        await installAmbientLocalFacts(localFactsForDaemon({
+            serverUrl: 'https://daemon-relay.example.test',
+            serviceInstalled: true,
+            controlReachable: true,
+        }));
+        // An aligned remote snapshot: reading it instead of the local facts would report no drift.
+        state.cachedDoctorSnapshot = {
+            cachedAt: 1,
+            snapshot: {
+                capturedAt: '2026-03-29T00:00:00.000Z',
+                server: {
+                    activeServerId: 'server-a',
+                    serverUrl: 'https://relay.example.test',
+                    publicServerUrl: 'https://relay.example.test',
+                    webappUrl: 'https://relay.example.test',
+                },
+                accountId: 'acct_app',
+                settings: { activeServerId: 'server-a', servers: [], knownAccountIds: ['acct_app'] },
+            },
+        };
+        const { useRelayDriftBanner } = await import('./useRelayDriftBanner');
+
+        let banner: RelayDriftBanner | null = null;
+        function Probe() {
+            banner = useRelayDriftBanner();
+            return null;
+        }
+
+        await renderScreen(React.createElement(Probe));
+        await renderer.act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+
+        expect(banner).toEqual(expect.objectContaining({
+            kind: 'warning',
+            title: 'server.relayDrift.bannerDifferentRelayTitle',
+        }));
+    });
+
+    it('re-reads the local facts after a repair succeeds instead of projecting the pre-repair state', async () => {
+        // The ambient inspection is one promise per app open. The repair the banner just ran
+        // changed the very facts it classifies, so continuing to project them would leave a
+        // permanent "different relay" banner over a daemon that is now on the right relay.
+        state.isTauriDesktop = true;
+        const { createSystemTaskRunner } = await import('@/components/systemTasks/createSystemTaskRunner');
+        const DRIFTED_STATUS_DATA = localFactsForDaemon({
+            serverUrl: 'https://daemon-relay.example.test',
+            serviceInstalled: true,
+            controlReachable: true,
+        });
+        const CONVERGED_STATUS_DATA = localFactsForDaemon({
+            serverUrl: 'https://relay.example.test',
+            serviceInstalled: true,
+            controlReachable: true,
+        });
+        let statusReads = 0;
+        const listeners = new Map<string, { onEvent: (payload: unknown) => void; onResult: (payload: unknown) => void }>();
+        state.runner = createSystemTaskRunner({
+            mode: 'dev',
+            bridge: {
+                start: async (spec: unknown) => {
+                    const kind = (spec as { kind: string }).kind;
+                    if (kind !== 'daemon.service.status.v1') return 'task_setup';
+                    statusReads += 1;
+                    return `task_status_${statusReads}`;
+                },
+                async subscribe(taskId, listenerSet) {
+                    listeners.set(taskId, listenerSet);
+                    if (taskId.startsWith('task_status_')) {
+                        const data = taskId === 'task_status_1' ? DRIFTED_STATUS_DATA : CONVERGED_STATUS_DATA;
+                        queueMicrotask(() => listenerSet.onResult({ protocolVersion: 1, taskId, ok: true, data }));
+                    }
+                    return () => {
+                        listeners.delete(taskId);
+                    };
+                },
+                async cancel() {},
+                async respond() {},
+            },
+        });
+        state.cachedDoctorSnapshot = null;
+        const { useRelayDriftBanner } = await import('./useRelayDriftBanner');
+
+        let banner: RelayDriftBanner | null = null;
+        function Probe() {
+            banner = useRelayDriftBanner();
+            return null;
+        }
+
+        await renderScreen(React.createElement(Probe));
+        await renderer.act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+        expect(banner).not.toBeNull();
+
+        await renderer.act(async () => {
+            await banner?.onPress();
+        });
+        await renderer.act(async () => {
+            listeners.get('task_setup')?.onResult({
+                protocolVersion: 1,
+                taskId: 'task_setup',
+                ok: true,
+                data: { machineId: 'machine-1' },
+            });
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+
+        expect(banner).toBeNull();
+    });
+
     it('exposes a secondary action for switching to the daemon relay when the daemon is connected to a different relay', async () => {
         const { useRelayDriftBanner } = await import('./useRelayDriftBanner');
         state.cachedDoctorSnapshot = {
@@ -600,6 +909,41 @@ describe('useRelayDriftBanner', () => {
         }));
         expect(switchConnectionToActiveServerSpy).toHaveBeenCalled();
         expect(refreshFromActiveServerSpy).toHaveBeenCalled();
+    });
+
+    it('warns when the local daemon is healthy on this relay but paired to another account (F7)', async () => {
+        // Nothing is wrong with the relay, the service or the credentials — they just belong to
+        // someone else's account. The gate refuses to repoint it silently, so with the banner
+        // silent too the only thing that re-offered setup was a relaunch.
+        state.isTauriDesktop = true;
+        const facts = localFactsForDaemon({
+            serverUrl: 'https://relay.example.test',
+            serviceInstalled: true,
+            controlReachable: true,
+        });
+        await installAmbientLocalFacts({
+            ...facts,
+            auth: { ...facts.auth, accountId: 'acct_other', validatedAccountId: 'acct_other' },
+        });
+        const { useRelayDriftBanner } = await import('./useRelayDriftBanner');
+
+        let banner: RelayDriftBanner | null = null;
+        function Probe() {
+            banner = useRelayDriftBanner();
+            return null;
+        }
+
+        await renderScreen(React.createElement(Probe));
+        await renderer.act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+
+        expect(banner).toEqual(expect.objectContaining({
+            kind: 'warning',
+            title: 'server.relayDrift.bannerAccountMismatchTitle',
+            description: 'server.relayDrift.bannerAccountMismatchDescription',
+            actionLabel: 'common.authenticate',
+        }));
     });
 
     it('uses an authenticate action label when the relay matches but the daemon still needs auth', async () => {

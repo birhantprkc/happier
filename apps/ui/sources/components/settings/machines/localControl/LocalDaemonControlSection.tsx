@@ -5,29 +5,30 @@ import { SystemTaskProgressCard } from '@/components/systemTasks';
 import type { SystemTaskRunner } from '@/components/systemTasks/types';
 import { Item } from '@/components/ui/lists/Item';
 import { ItemGroup } from '@/components/ui/lists/ItemGroup';
+import { daemonNeedsAuthFromFacts, type DesktopLocalReadinessFacts } from '@/setup/deriveDesktopLocalSetupSnapshot';
 import { getActiveServerSnapshot } from '@/sync/domains/server/serverProfiles';
 import { t } from '@/text';
 
 import { useLocalDaemonControl } from './useLocalDaemonControl';
 
 function resolveStatusSubtitle(
-    status: ReturnType<typeof useLocalDaemonControl>['status'],
+    facts: DesktopLocalReadinessFacts | null,
     activeRelayUrl: string | null,
 ): string {
-    if (!status) {
+    if (!facts) {
         return t('machine.daemonStatus.unknown');
     }
-    if (!status.serviceInstalled) {
+    if (!facts.service.installed) {
         return activeRelayUrl
             ? t('server.relayDrift.bannerNotInstalledDescription', { activeRelayUrl })
             : t('machine.daemonStatus.stopped');
     }
-    if (status.needsAuth) {
+    if (daemonNeedsAuthFromFacts(facts)) {
         return activeRelayUrl
             ? t('server.relayDrift.bannerNeedsAuthDescription', { activeRelayUrl })
             : t('machine.daemonStatus.stopped');
     }
-    if (!status.daemonRunning) {
+    if (!facts.service.running) {
         return activeRelayUrl
             ? t('server.relayDrift.bannerNotRunningDescription', { activeRelayUrl })
             : t('machine.daemonStatus.stopped');
@@ -47,7 +48,7 @@ export const LocalDaemonControlSection = React.memo(function LocalDaemonControlS
         lastErrorMessage,
         repairBackgroundService,
         startDaemonService,
-        status,
+        facts,
         isBusy,
         isUnavailable,
         refreshStatus,
@@ -62,15 +63,15 @@ export const LocalDaemonControlSection = React.memo(function LocalDaemonControlS
                 <Item
                     testID="settings.localDaemonControl.status"
                     title={t('machine.status')}
-                    subtitle={isUnavailable ? t('settings.systemTaskBridgeUnavailable') : resolveStatusSubtitle(status, activeServerSnapshot.serverUrl)}
+                    subtitle={isUnavailable ? t('settings.systemTaskBridgeUnavailable') : resolveStatusSubtitle(facts, activeServerSnapshot.serverUrl)}
                     showChevron={false}
                     mode="info"
                 />
-                {status?.machineId ? (
+                {facts?.auth.machineId ? (
                     <Item
                         testID="settings.localDaemonControl.machineId"
                         title={t('machine.machineId')}
-                        subtitle={status.machineId}
+                        subtitle={facts.auth.machineId}
                         showChevron={false}
                         mode="info"
                     />
@@ -92,10 +93,9 @@ export const LocalDaemonControlSection = React.memo(function LocalDaemonControlS
                     disabled={!canRepair}
                 />
                 <Item
+                    testID="settings.localDaemonControl.refresh"
                     title={t('common.refresh')}
-                    onPress={() => {
-                        void refreshStatus();
-                    }}
+                    onPress={refreshStatus}
                     disabled={isBusy || isUnavailable}
                 />
                 {lastErrorMessage ? (

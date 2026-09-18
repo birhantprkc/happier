@@ -690,8 +690,6 @@ export default function MachineDetailScreen() {
                     updatedMetadata,
                     machine.metadataVersion
                 );
-                
-                Modal.alert(t('common.success'), t('machine.renamedSuccess'));
             } catch (error) {
                 Modal.alert(
                     t('common.error'),
