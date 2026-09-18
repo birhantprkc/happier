@@ -6,6 +6,8 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Text } from '@/components/ui/text/Text';
 import { GradientSurface, type SurfaceGradient } from '@/components/ui/surfaces/GradientSurface';
 import { ActivitySpinner } from '@/components/ui/feedback/ActivitySpinner';
+import { FocusRing, WEB_FOCUS_OUTLINE_RESET } from '@/components/ui/interaction/FocusRing';
+import { useIsKeyboardModality } from '@/components/ui/interaction/inputModalityStore';
 
 
 export type RoundButtonSize = 'large' | 'normal' | 'small';
@@ -71,7 +73,7 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
 }));
 
-export const RoundButton = React.memo((props: {
+export type RoundButtonProps = {
     size?: RoundButtonSize,
     display?: RoundButtonDisplay,
     title?: any,
@@ -107,7 +109,12 @@ export const RoundButton = React.memo((props: {
     accessibilityHint?: string,
     onPress?: (event: GestureResponderEvent) => void,
     action?: () => Promise<any>
-}) => {
+};
+
+export const RoundButton = React.memo(React.forwardRef<
+    React.ElementRef<typeof Pressable>,
+    RoundButtonProps
+>(function RoundButton(props, ref) {
     const { theme } = useUnistyles();
     const scopedSize = React.useContext(RoundButtonSizeContext);
     const styles = stylesheet;
@@ -151,14 +158,28 @@ export const RoundButton = React.memo((props: {
     const size = sizes[props.size ?? scopedSize ?? 'large'];
     const display = displays[props.display || 'default'];
 
+    // React Native has no `:focus-visible`, so the ring is gated on keyboard modality by the
+    // canonical input-modality store; a ring that flashed on every tap would be worse than none.
+    // The ring is mounted only once focus has been possible, because `FocusRing` runs a Reanimated
+    // animated style and this primitive is on nearly every screen.
+    const keyboardModality = useIsKeyboardModality();
+    const [focused, setFocused] = React.useState(false);
+    const handleFocus = React.useCallback(() => setFocused(true), []);
+    const handleBlur = React.useCallback(() => setFocused(false), []);
+    const disabled = doLoading || props.disabled === true;
+    const ringVisible = focused && keyboardModality && !disabled;
+
     return (
         <Pressable
+            ref={ref}
             testID={props.testID}
             accessibilityRole="button"
             accessibilityLabel={props.accessibilityLabel}
             accessibilityHint={props.accessibilityHint}
-            disabled={doLoading || props.disabled}
+            disabled={disabled}
             hitSlop={size.hitSlop}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
             style={(p) => ([
                 {
                     borderWidth: 1,
@@ -168,6 +189,7 @@ export const RoundButton = React.memo((props: {
                     opacity: props.disabled ? 0.35 : (p.pressed ? 0.9 : 1),
                     overflow: 'hidden',
                 },
+                Platform.OS === 'web' ? WEB_FOCUS_OUTLINE_RESET : null,
                 props.style])}
             onPress={doAction}
         >
@@ -217,6 +239,18 @@ export const RoundButton = React.memo((props: {
                     </View>
                 ) : null}
             </View>
+            {keyboardModality || focused ? (
+                <FocusRing
+                    testID={props.testID === undefined ? undefined : `${props.testID}-focus-ring`}
+                    visible={ringVisible}
+                    // The pill clips its gradient with `overflow: hidden`, so an outside ring would
+                    // be cut off exactly where it needs to be seen.
+                    placement="inside"
+                    radius={10}
+                />
+            ) : null}
         </Pressable>
     )
-});
+}));
+
+RoundButton.displayName = 'RoundButton';
