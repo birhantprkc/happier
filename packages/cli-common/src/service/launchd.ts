@@ -21,6 +21,13 @@ export function buildLaunchdPlistXml(params: Readonly<{
   stderrPath: string;
   workingDirectory?: string;
   abandonProcessGroup?: boolean;
+  /**
+   * Whether launchd starts the job as soon as it loads the definition — which,
+   * for a LaunchAgent in ~/Library/LaunchAgents, is at login. Defaults to true.
+   * Pass false for an installed-but-not-login-started service that only runs
+   * when something explicitly starts it.
+   */
+  runAtLoad?: boolean;
   keepAliveOnFailure?: boolean;
   startIntervalSec?: number;
   startCalendarInterval?: Readonly<{ hour: number; minute: number }>;
@@ -102,7 +109,7 @@ ${programArgsXml}
     </array>
 
     <key>RunAtLoad</key>
-    <true/>
+    ${params.runAtLoad === false ? '<false/>' : '<true/>'}
 ${keepAlive}
 ${startCalendarInterval || startInterval}
 ${abandonProcessGroupXml}

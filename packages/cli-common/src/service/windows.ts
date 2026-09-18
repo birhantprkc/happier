@@ -212,6 +212,13 @@ export function buildApplyWindowsScheduledTaskServicePolicyPowerShellCommand(par
   restartPolicy: 'always' | 'on-failure' | 'no';
   restartIntervalMinutes?: number;
   restartCount?: number;
+  /**
+   * Whether Task Scheduler may run a *missed* scheduled start as soon as possible
+   * (`-StartWhenAvailable`). Defaults to true, which is what a task with a real login/boot trigger
+   * wants: a machine asleep at logon should still start it. Pass false for a task whose trigger is
+   * deliberately in the past — catching that up is the one way such a trigger could ever fire.
+   */
+  catchUpMissedStart?: boolean;
 }>): string {
   const { taskName, taskPath } = splitQualifiedWindowsScheduledTaskName(params.qualifiedTaskName);
   const restartIntervalMinutes = Number.isFinite(params.restartIntervalMinutes)
@@ -236,7 +243,7 @@ export function buildApplyWindowsScheduledTaskServicePolicyPowerShellCommand(par
     '-ExecutionTimeLimit (New-TimeSpan -Seconds 0)',
     '-AllowStartIfOnBatteries',
     '-DontStopIfGoingOnBatteries',
-    '-StartWhenAvailable',
+    ...(params.catchUpMissedStart === false ? [] : ['-StartWhenAvailable']),
     '-MultipleInstances IgnoreNew',
   ].join(' ');
 

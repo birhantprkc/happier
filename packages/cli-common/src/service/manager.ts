@@ -238,6 +238,16 @@ export function buildServiceCommandEnv(params: Readonly<{
   return env;
 }
 
+/**
+ * The start boundary a non-persistent (`persistent: false`) Windows task is registered with: a day
+ * that has already passed under either regional date ordering, so the `ONCE` trigger can never
+ * come due and only `schtasks /Run` (or the desktop app) starts the task.
+ *
+ * NOT VERIFIED ON A REAL WINDOWS HOST: a Windows gate must confirm that a task registered this way
+ * never runs at midnight, at login or at boot, and that `/Run` still starts it.
+ */
+const NEVER_DUE_SCHTASKS_START_DATE = '01/01/2000';
+
 export function planServiceAction(params: Readonly<{
   backend: ServiceBackend;
   action: 'install' | 'uninstall' | 'start' | 'stop' | 'restart';
@@ -379,7 +389,13 @@ export function planServiceAction(params: Readonly<{
         '/F',
         '/SC',
         schedule,
-        ...(schedule === 'ONCE' ? ['/ST', '00:00'] : []),
+        // A non-persistent task is "registered and startable, but nothing starts it for me", and
+        // schtasks has no manual-only schedule: `ONCE` with a start boundary that has already
+        // passed is the only trigger it can express that never comes due. The boundary is stated
+        // explicitly rather than left to default to the installation day — that default is only
+        // "already past" because installs rarely happen at 00:00 — and the date is chosen so the
+        // two regional orderings (MM/DD/YYYY and DD/MM/YYYY) name the same past day.
+        ...(schedule === 'ONCE' ? ['/SD', NEVER_DUE_SCHTASKS_START_DATE, '/ST', '00:00'] : []),
         '/TN',
         name,
         '/TR',
@@ -395,6 +411,10 @@ export function planServiceAction(params: Readonly<{
         args: windowsPowerShellCommandArgs(buildApplyWindowsScheduledTaskServicePolicyPowerShellCommand({
           qualifiedTaskName: name,
           restartPolicy: params.restartPolicy ?? 'always',
+          // The other half of the never-due trigger: `-StartWhenAvailable` runs a *missed*
+          // scheduled start as soon as possible, and a past start boundary is exactly a missed
+          // scheduled start — so for a non-persistent task Task Scheduler must not catch it up.
+          catchUpMissedStart: persistent,
         })),
       });
       commands.push({ cmd: 'schtasks', args: ['/Run', '/TN', name] });
