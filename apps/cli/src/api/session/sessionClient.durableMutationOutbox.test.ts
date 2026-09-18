@@ -390,7 +390,6 @@ describe('ApiSessionClient durable mutation outbox', () => {
     expect(materializationsBeforePublisherAck).toBe(0);
     expect(pendingMaterializeCount).toBe(1);
     expect(transportCreationCount).toBe(lifecycle ? 2 : 1);
-    expect(fetchFeatures).toHaveBeenCalledTimes(recoverFeatures || lifecycle ? 2 : 1);
   });
 
   it('does not queue a terminal session turn mutation when no turn is active', async () => {

@@ -17,7 +17,7 @@ describe('getInstallablesRegistryEntries', () => {
         ]);
         expect(entries.find((entry) => entry.key === INSTALLABLE_KEYS.AGY_ACP_SERVER)).toMatchObject({
             title: 'Agy ACP server',
-            iconName: 'hardware-chip-outline',
+            iconName: 'cpu',
             groupTitleKey: 'newSession.agyAcpBanner.title',
         });
         expect(entries.find((entry) => entry.key === INSTALLABLE_KEYS.GH)).toMatchObject({

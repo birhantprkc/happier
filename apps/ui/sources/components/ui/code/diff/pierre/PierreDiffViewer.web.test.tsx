@@ -381,6 +381,20 @@ describe('PierreDiffViewer (web)', () => {
         expect(tree.findByType('FileDiff').props.renderedFileDiff.cacheKey).not.toBe(firstRenderedKey);
     });
 
+    it('refreshes a non-virtualized Pierre diff when its patch changes', async () => {
+        const { PierreDiffViewer } = await import('./PierreDiffViewer.web');
+        const patch = 'diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-foo\n+bar\n';
+        const view = (unifiedDiff: string) => <PierreDiffViewer mode="unified" filePath="a.ts" unifiedDiff={unifiedDiff} virtualized={false} />;
+        const { tree } = await renderScreen(view(patch));
+        const firstRenderedKey = tree.findByType('FileDiff').props.renderedFileDiff.cacheKey;
+
+        await renderer.act(async () => {
+            tree.update(view(patch.replace('+bar', '+updated')));
+        });
+
+        expect(tree.findByType('FileDiff').props.renderedFileDiff.cacheKey).not.toBe(firstRenderedKey);
+    });
+
     it('does not reapply a consumed jump target on a patch refresh', async () => {
         const { PierreDiffViewer } = await import('./PierreDiffViewer.web');
         const root = document.createElement('div');

@@ -17,7 +17,7 @@ describe('PromptsLayoutRoute', () => {
 
     it('keeps every prompt route unmounted until artifact heads are materialized', async () => {
         useArtifactsLoaded.mockReturnValue(false);
-        const { default: PromptsLayoutRoute } = await import('./_layout');
+        const { default: PromptsLayoutRoute } = await import('@/app/(app)/settings/prompts/_layout');
         const screen = await renderScreen(<PromptsLayoutRoute />);
 
         expect(screen.findByTestId('prompts.artifacts.loading')).toBeTruthy();
@@ -26,7 +26,7 @@ describe('PromptsLayoutRoute', () => {
 
     it('mounts the selected prompt route after artifact heads are ready', async () => {
         useArtifactsLoaded.mockReturnValue(true);
-        const { default: PromptsLayoutRoute } = await import('./_layout');
+        const { default: PromptsLayoutRoute } = await import('@/app/(app)/settings/prompts/_layout');
         const screen = await renderScreen(<PromptsLayoutRoute />);
 
         expect(screen.findAllByType('PromptRouteSlot' as never)).toHaveLength(1);

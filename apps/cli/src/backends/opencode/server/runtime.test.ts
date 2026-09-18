@@ -7209,7 +7209,7 @@ describe('createOpenCodeServerRuntime', () => {
   it('resolves turns when the control-plane /session/status reports idle and idle SSE signals are missing', async () => {
     const prevPollInterval = process.env.HAPPIER_OPENCODE_SERVER_CONTROL_POLL_INTERVAL_MS;
     const prevStatusPoll = process.env.HAPPIER_OPENCODE_SERVER_STATUS_POLL_ENABLED;
-    process.env.HAPPIER_OPENCODE_SERVER_CONTROL_POLL_INTERVAL_MS = '10000';
+    process.env.HAPPIER_OPENCODE_SERVER_CONTROL_POLL_INTERVAL_MS = '25';
     process.env.HAPPIER_OPENCODE_SERVER_STATUS_POLL_ENABLED = '1';
     try {
       const client = createFakeClient();
