@@ -5479,6 +5479,8 @@ localTailscale: {
         statusPaused: "一時停止中",
         statusComplete: "完了",
         statusBudgetLimited: "予算制限中",
+        budgetReachedBody: "このゴールはトークン予算に達しました。続行するには予算を削除してください。",
+        removeBudgetAndResume: "予算を削除して続行",
         statusInterrupted: "中断",
         tokenBudget: "トークン予算",
         budgetProgress: ({ used, budget }: { used: string; budget: string }) => `${used} / ${budget}`,

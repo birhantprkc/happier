@@ -5206,6 +5206,8 @@ export const es: TranslationStructure = {
         statusPaused: "En pausa",
         statusComplete: "Completado",
         statusBudgetLimited: "Limitado por presupuesto",
+        budgetReachedBody: "Este objetivo ha alcanzado su presupuesto de tokens. Quita el presupuesto para continuar.",
+        removeBudgetAndResume: "Quitar presupuesto y continuar",
         statusInterrupted: "Interrumpido",
         tokenBudget: "Presupuesto de tokens",
         budgetProgress: ({ used, budget }: { used: string; budget: string }) => `${used} / ${budget}`,

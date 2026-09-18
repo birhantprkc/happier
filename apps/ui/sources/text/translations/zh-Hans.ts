@@ -5025,6 +5025,8 @@ export const zhHans: TranslationStructure = {
         statusPaused: "已暂停",
         statusComplete: "已完成",
         statusBudgetLimited: "受预算限制",
+        budgetReachedBody: "此目标已达到 Token 预算。移除预算后即可继续。",
+        removeBudgetAndResume: "移除预算并继续",
         statusInterrupted: "已中断",
         tokenBudget: "Token 预算",
         budgetProgress: ({ used, budget }: { used: string; budget: string }) => `${used} / ${budget}`,

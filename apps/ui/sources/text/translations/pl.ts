@@ -5227,6 +5227,8 @@ export const pl: TranslationStructure = {
         statusPaused: "Wstrzymane",
         statusComplete: "Ukończone",
         statusBudgetLimited: "Ograniczone budżetem",
+        budgetReachedBody: "Ten cel osiągnął budżet tokenów. Usuń budżet, aby kontynuować.",
+        removeBudgetAndResume: "Usuń budżet i kontynuuj",
         statusInterrupted: "Przerwano",
         tokenBudget: "Budżet tokenów",
         budgetProgress: ({ used, budget }: { used: string; budget: string }) => `${used} / ${budget}`,

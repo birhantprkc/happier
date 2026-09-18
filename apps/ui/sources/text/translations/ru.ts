@@ -5730,6 +5730,8 @@ export const ru: TranslationStructure = {
         statusPaused: "Приостановлена",
         statusComplete: "Выполнена",
         statusBudgetLimited: "Ограничена бюджетом",
+        budgetReachedBody: "Эта цель достигла бюджета токенов. Уберите бюджет, чтобы продолжить.",
+        removeBudgetAndResume: "Убрать бюджет и продолжить",
         statusInterrupted: "Прервано",
         tokenBudget: "Бюджет токенов",
         budgetProgress: ({ used, budget }: { used: string; budget: string }) => `${used} / ${budget}`,

@@ -4520,6 +4520,8 @@ const zhHantOverrides: DeepPartial<TranslationStructure> = {
               statusPaused: '已暫停',
               statusComplete: '已完成',
               statusBudgetLimited: '受預算限制',
+              budgetReachedBody: '此目標已達到 Token 預算。移除預算後即可繼續。',
+              removeBudgetAndResume: '移除預算並繼續',
               statusInterrupted: '已中斷',
               tokenBudget: 'Token 預算',
               budgetProgress: ({ used, budget }: { used: string; budget: string }) => `${used} / ${budget}`,

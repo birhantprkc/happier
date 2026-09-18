@@ -4869,6 +4869,8 @@ export const en = {
                 statusPaused: 'Paused',
                 statusComplete: 'Complete',
                 statusBudgetLimited: 'Limited by budget',
+                budgetReachedBody: 'This goal has reached its token budget. Remove the budget to continue.',
+                removeBudgetAndResume: 'Remove budget and continue',
                 statusInterrupted: 'Interrupted',
                 tokenBudget: 'Token budget',
                 budgetProgress: ({ used, budget }: { used: string; budget: string }) => `${used} / ${budget}`,

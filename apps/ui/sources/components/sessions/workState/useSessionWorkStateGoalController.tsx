@@ -190,6 +190,25 @@ export function useSessionWorkStateGoalController(params: Readonly<{
         }
     }, [onClearGoal, onRequestClose]);
 
+    const resumeGoal = React.useCallback(async () => {
+        if (goal?.statusReason !== 'budgetLimited') {
+            await runGoalMutation({ status: 'active' });
+            return;
+        }
+
+        const confirmed = await Modal.confirm(
+            t('session.workState.goal.statusBudgetLimited'),
+            t('session.workState.goal.budgetReachedBody'),
+            {
+                cancelText: t('common.cancel'),
+                confirmText: t('session.workState.goal.removeBudgetAndResume'),
+            },
+        );
+        if (!confirmed) return;
+
+        await runGoalMutation({ status: 'active', tokenBudget: null });
+    }, [goal?.statusReason, runGoalMutation]);
+
     // U-7: goal / workflow / tasks stack with a hairline divider between present sections instead of
     // one uniform gap, so a busy popover reads as distinct landmarks rather than "soup".
     const taskGroups = groupSessionWorkStateItems(taskListSnapshot);
@@ -226,7 +245,7 @@ export function useSessionWorkStateGoalController(params: Readonly<{
                         void runGoalMutation(request);
                     }}
                     onPause={() => { void runGoalMutation({ status: 'paused' }); }}
-                    onResume={() => { void runGoalMutation({ status: 'active' }); }}
+                    onResume={() => { void resumeGoal(); }}
                     onComplete={() => { void runGoalMutation({ status: 'complete' }); }}
                     onClear={clearGoal}
                     onCancel={() => { void guardedRequestClose(); }}
