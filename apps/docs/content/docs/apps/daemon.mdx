@@ -144,6 +144,36 @@ Platform notes:
 - **Linux**: `systemd --user`
 - **Windows**: Scheduled Task (user-level)
 
+### Installed, but not started at login
+
+If you would rather have the daemon run only while you are using Happier (for example only while the
+desktop app is open), install the service without its login trigger:
+
+```bash
+happier service install --no-autostart
+```
+
+The service stays installed and `happier service start` / `stop` / `restart` keep working — nothing
+starts it for you at login. On macOS the LaunchAgent is written with `RunAtLoad` off, on Linux the
+`systemd --user` unit is installed but not enabled, and on Windows the Scheduled Task is registered
+with a start date that has already passed instead of a logon trigger — so it is startable but never
+due, and Task Scheduler is told not to catch up a missed start.
+
+On macOS an on-demand LaunchAgent also carries no keep-alive, so launchd does not relaunch the
+daemon if it crashes — start it again yourself, or from the desktop app. On Linux, switching only
+the mode changes the login trigger and leaves a running daemon alone; on macOS and Windows the job
+has to be re-registered to apply the new trigger, which restarts the daemon.
+
+Switch back with:
+
+```bash
+happier service install --autostart at-login
+```
+
+Re-running `install` without either flag keeps whichever mode the service already has, so repairs and
+upgrades never turn the login trigger back on behind your back. `happier service install --dry-run
+--json` reports the mode it would apply as `autostart`.
+
 To remove it:
 
 ```bash
