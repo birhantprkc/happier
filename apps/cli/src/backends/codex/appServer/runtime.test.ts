@@ -163,6 +163,7 @@ async function writeFakeCodexAppServerScript(params: Readonly<{
     rejectStructuredSteerInput?: boolean;
     threadStartServiceTier?: string | null;
     steerUserMessageEchoDelayMs?: number;
+    omitSteerUserMessageEcho?: boolean;
     emitResumeContinuationUserInputRequest?: boolean;
     emitHistoricalResumeUserInputRequestBeforeResponse?: boolean;
     emitResumeTurnStartedBeforeResponse?: boolean;
@@ -1601,7 +1602,7 @@ async function writeFakeCodexAppServerScript(params: Readonly<{
         '        setTimeout(() => {',
         '            process.stdout.write(JSON.stringify({ id: msg.id, result: { turnId: selected } }) + "\\n");',
         '        }, steerResponseDelayMs);',
-        '        if (typeof msg.params?.clientUserMessageId === "string" && msg.params.clientUserMessageId.length > 0) {',
+        `        if (!${JSON.stringify(params.omitSteerUserMessageEcho === true)} && typeof msg.params?.clientUserMessageId === "string" && msg.params.clientUserMessageId.length > 0) {`,
         '            setTimeout(() => {',
         '                process.stdout.write(JSON.stringify({ method: "item/started", params: { threadId: msg.params?.threadId ?? null, turnId: selected, item: { id: "steer-user-" + msg.params.clientUserMessageId, type: "userMessage", clientId: msg.params.clientUserMessageId, content: msg.params?.input ?? [] } } }) + "\\n");',
         `            }, ${JSON.stringify(params.steerUserMessageEchoDelayMs ?? 0)});`,
@@ -1690,6 +1691,7 @@ describe('createCodexAppServerRuntime', () => {
             rejectStructuredSteerInput?: boolean;
             threadStartServiceTier?: string | null;
             steerUserMessageEchoDelayMs?: number;
+            omitSteerUserMessageEcho?: boolean;
             emitResumeContinuationUserInputRequest?: boolean;
             emitHistoricalResumeUserInputRequestBeforeResponse?: boolean;
             emitResumeTurnStartedBeforeResponse?: boolean;
@@ -1755,6 +1757,7 @@ describe('createCodexAppServerRuntime', () => {
             rejectStructuredSteerInput: options.rejectStructuredSteerInput,
             threadStartServiceTier: options.threadStartServiceTier,
             steerUserMessageEchoDelayMs: options.steerUserMessageEchoDelayMs,
+            omitSteerUserMessageEcho: options.omitSteerUserMessageEcho,
             emitResumeContinuationUserInputRequest: options.emitResumeContinuationUserInputRequest,
             emitHistoricalResumeUserInputRequestBeforeResponse: options.emitHistoricalResumeUserInputRequestBeforeResponse,
             emitResumeTurnStartedBeforeResponse: options.emitResumeTurnStartedBeforeResponse,
@@ -4004,6 +4007,7 @@ describe('createCodexAppServerRuntime', () => {
             'happier-codex-app-server-runtime-steer-user-boundary-',
             { steerUserMessageEchoDelayMs: 80 },
         );
+        const sendUserTextMessageCommitted = vi.fn(async () => {});
         const acceptedPrompts: Array<Readonly<{
             localIds?: readonly string[] | null;
             userMessageSeq: number | null;
@@ -4012,7 +4016,11 @@ describe('createCodexAppServerRuntime', () => {
         const runtime = createCodexAppServerRuntime({
             directory: root,
             onThinkingChange: vi.fn(),
-            session: { updateMetadata: vi.fn() } as any,
+            session: {
+                updateMetadata: vi.fn(),
+                getCommittedUserMessageSeq: vi.fn(() => null),
+                sendUserTextMessageCommitted,
+            } as any,
         });
         runtime.setOnPromptAcceptedByProvider((prompt) => {
             acceptedPrompts.push(prompt);
@@ -4052,7 +4060,42 @@ describe('createCodexAppServerRuntime', () => {
                 label: 'provider user-message echo to settle Pending custody',
             },
         );
+        expect(sendUserTextMessageCommitted).not.toHaveBeenCalled();
         await activeTurn;
+    });
+
+    it('returns an unconfirmed steer to Pending custody when its provider turn ends without a user-message echo', async () => {
+        const { root } = await createRuntimeFixture(
+            'happier-codex-app-server-runtime-steer-without-user-echo-',
+            { omitSteerUserMessageEcho: true },
+        );
+        const undeliverablePrompts: Array<Readonly<{ localIds?: readonly string[] | null }>> = [];
+        const runtime = createCodexAppServerRuntime({
+            directory: root,
+            onThinkingChange: vi.fn(),
+            session: { updateMetadata: vi.fn() } as any,
+        });
+        runtime.setOnUndeliverablePrompts((prompts) => {
+            undeliverablePrompts.push(...prompts);
+        });
+
+        await runtime.startOrLoad({});
+        const activeTurn = runtime.sendPrompt('overlap-start');
+        await waitForCondition(() => runtime.canSteerPrompt(), {
+            timeoutMs: 1_000,
+            intervalMs: 10,
+            label: 'active Codex turn to become steerable',
+        });
+
+        await runtime.steerPrompt('unconfirmed steer', {
+            localId: 'pending-steer-without-echo',
+            userMessageSeq: 288,
+        });
+        await activeTurn;
+
+        expect(undeliverablePrompts).toContainEqual(expect.objectContaining({
+            localIds: ['pending-steer-without-echo'],
+        }));
     });
 
     it('materializes a woken head steer during a genuinely active turn and leaves its FIFO neighbor queued', async () => {
@@ -4917,6 +4960,36 @@ describe('createCodexAppServerRuntime', () => {
 
         await runtime.startOrLoad({});
         await runtime.sendPrompt('bridge-provider-user-projection', { localId: 'happier-local-1' });
+
+        expect(sendUserTextMessageCommitted).toHaveBeenCalledTimes(1);
+        expect(sendUserTextMessageCommitted).toHaveBeenCalledWith(
+            'hello from attached Codex TUI',
+            {
+                localId: 'codex-app-server-user:thread-started:native_user_1',
+                meta: { importedFrom: 'codex-app-server' },
+            },
+        );
+    });
+
+    it('does not re-import a fresh Happier prompt when its provider echo precedes transcript sequence observation', async () => {
+        const { root } = await createRuntimeFixture('happier-codex-app-server-runtime-provider-user-race-');
+
+        const sendUserTextMessageCommitted = vi.fn(async () => {});
+        const session = {
+            updateMetadata: vi.fn(),
+            getCommittedUserMessageSeq: vi.fn(() => null),
+            sendUserTextMessageCommitted,
+            sendAgentMessageCommitted: vi.fn(async () => {}),
+            sendCodexMessage: vi.fn(),
+        };
+        const runtime = createCodexAppServerRuntime({
+            directory: root,
+            onThinkingChange: vi.fn(),
+            session: session as unknown as ApiSessionClient,
+        });
+
+        await runtime.startOrLoad({});
+        await runtime.sendPrompt('bridge-provider-user-projection', { localId: 'happier-local-race' });
 
         expect(sendUserTextMessageCommitted).toHaveBeenCalledTimes(1);
         expect(sendUserTextMessageCommitted).toHaveBeenCalledWith(

@@ -391,6 +391,7 @@ type CodexAppServerUndeliverablePrompt = Readonly<{
 
 type CodexAppServerPendingProviderPrompt = CodexAppServerUndeliverablePrompt & {
     accepted: boolean;
+    providerAcceptanceNotified: boolean;
     appliedModelId?: string;
 };
 
@@ -1579,6 +1580,7 @@ export function createCodexAppServerRuntime(params: Readonly<{
             text,
             userMessageSeq: typeof options?.userMessageSeq === 'number' ? options.userMessageSeq : null,
             accepted: false,
+            providerAcceptanceNotified: false,
             ...(readNonBlankOpaqueIdentifier(options?.appliedModelId)
                 ? { appliedModelId: readNonBlankOpaqueIdentifier(options?.appliedModelId)! }
                 : {}),
@@ -1587,16 +1589,20 @@ export function createCodexAppServerRuntime(params: Readonly<{
         return pending;
     };
 
-    const markPendingProviderPromptAccepted = (
-        pending: CodexAppServerPendingProviderPrompt | null | undefined,
-        rawProviderTurnId: string | null | undefined,
+    const findPendingProviderPromptByClientId = (
+        clientUserMessageId: string,
+    ): CodexAppServerPendingProviderPrompt | null => {
+        return Array.from(pendingProviderPrompts).find(
+            (candidate) => candidate.localIds?.length === 1 && candidate.localIds[0] === clientUserMessageId,
+        ) ?? null;
+    };
+
+    const notifyProviderPromptAccepted = (
+        pending: CodexAppServerPendingProviderPrompt,
+        providerTurnId: string,
     ): void => {
-        if (!pending || !pendingProviderPrompts.has(pending)) return;
-        pending.accepted = true;
-        const providerTurnId = trimSessionId(rawProviderTurnId);
-        if (!providerTurnId) return;
-        pendingProviderPrompts.delete(pending);
-        if (!codexAppServerPromptHasDeliveryIdentity(pending)) return;
+        if (pending.providerAcceptanceNotified || !codexAppServerPromptHasDeliveryIdentity(pending)) return;
+        pending.providerAcceptanceNotified = true;
         onPromptAcceptedByProvider?.({
             ...codexAppServerPromptLocalIdPayload(pending.localIds),
             userMessageSeq: pending.userMessageSeq,
@@ -1605,33 +1611,55 @@ export function createCodexAppServerRuntime(params: Readonly<{
         });
     };
 
+    const markPendingProviderPromptAccepted = (
+        pending: CodexAppServerPendingProviderPrompt | null | undefined,
+        rawProviderTurnId: string | null | undefined,
+        options?: Readonly<{
+            retainUntilProviderUserMessageProjection?: boolean;
+        }>,
+    ): void => {
+        if (!pending || !pendingProviderPrompts.has(pending)) return;
+        pending.accepted = true;
+        const providerTurnId = trimSessionId(rawProviderTurnId);
+        if (!providerTurnId) return;
+        if (options?.retainUntilProviderUserMessageProjection) {
+            notifyProviderPromptAccepted(pending, providerTurnId);
+            return;
+        }
+        pendingProviderPrompts.delete(pending);
+        notifyProviderPromptAccepted(pending, providerTurnId);
+    };
+
+    const retireAcceptedProviderPrompt = (
+        pending: CodexAppServerPendingProviderPrompt | null | undefined,
+        rawProviderTurnId: string | null | undefined,
+    ): void => {
+        if (!pending || !pending.accepted || !pendingProviderPrompts.has(pending)) return;
+        const providerTurnId = trimSessionId(rawProviderTurnId);
+        if (!providerTurnId) return;
+        pendingProviderPrompts.delete(pending);
+        notifyProviderPromptAccepted(pending, providerTurnId);
+    };
+
     const markCorrelatedProviderUserMessageAccepted = (
         notificationParams: unknown,
         rawProviderTurnId: string | null | undefined,
-    ): void => {
+    ): CodexAppServerPendingProviderPrompt | null => {
+        // Provider acceptance and transcript projection are separate notifications. Keep the
+        // correlation visible until the provider-user update has made its one import/suppression
+        // decision; the committed transcript sequence may arrive later.
         const clientUserMessageId = readProviderUserMessageClientId(notificationParams);
-        if (!clientUserMessageId) return;
-        const pending = Array.from(pendingProviderPrompts).find(
-            (candidate) => candidate.localIds?.length === 1 && candidate.localIds[0] === clientUserMessageId,
-        );
-        markPendingProviderPromptAccepted(pending, rawProviderTurnId);
+        if (!clientUserMessageId) return null;
+        const pending = findPendingProviderPromptByClientId(clientUserMessageId);
+        markPendingProviderPromptAccepted(pending, rawProviderTurnId, {
+            retainUntilProviderUserMessageProjection: true,
+        });
+        return pending ?? null;
     };
 
     const clearPendingProviderPrompt = (pending: CodexAppServerPendingProviderPrompt | null | undefined): void => {
         if (!pending) return;
         pendingProviderPrompts.delete(pending);
-    };
-
-    const emitPendingProviderPromptAsUndeliverable = (
-        pending: CodexAppServerPendingProviderPrompt | null | undefined,
-    ): void => {
-        if (!pending || pending.accepted || !pendingProviderPrompts.has(pending)) return;
-        pendingProviderPrompts.delete(pending);
-        onUndeliverablePrompts?.([{
-            ...codexAppServerPromptLocalIdPayload(pending.localIds),
-            text: pending.text,
-            userMessageSeq: pending.userMessageSeq,
-        }]);
     };
 
     const emitAllPendingProviderPromptsAsUndeliverable = (): void => {
@@ -2359,7 +2387,7 @@ export function createCodexAppServerRuntime(params: Readonly<{
             const clientId = update.clientId;
             const isHappierOriginated = clientId !== null && (
                 typeof params.session.getCommittedUserMessageSeq?.(clientId) === 'number'
-                || Array.from(pendingProviderPrompts).some((candidate) => candidate.localIds?.includes(clientId))
+                || findPendingProviderPromptByClientId(clientId) !== null
             );
             if (isHappierOriginated) return;
             if (typeof params.session.sendUserTextMessageCommitted !== 'function') return;
@@ -3146,12 +3174,12 @@ export function createCodexAppServerRuntime(params: Readonly<{
         latestPendingTurnId = null;
         setThinking(false);
         if (!activeTurn) return;
+        if (options?.error && options.emitUndeliverablePrompt === false) {
+            pendingProviderPrompts.clear();
+        } else {
+            emitAllPendingProviderPromptsAsUndeliverable();
+        }
         if (options?.error) {
-            if (options.emitUndeliverablePrompt === false) {
-                clearPendingProviderPrompt(activeTurn.providerPrompt);
-            } else {
-                emitPendingProviderPromptAsUndeliverable(activeTurn.providerPrompt);
-            }
             activeTurn.reject(options.error);
             return;
         }
@@ -3723,50 +3751,55 @@ export function createCodexAppServerRuntime(params: Readonly<{
                     details: { method },
                 }, async () => {
                     if (attachedClientGeneration !== clientLifecycleGeneration) return;
-                    if (method === 'item/started' || method === 'item/completed') {
-                        markCorrelatedProviderUserMessageAccepted(
+                    const providerTurnId = readProviderEventTurnId(notificationParams) ?? pendingTurn?.turnId;
+                    const correlatedProviderPrompt = method === 'item/started' || method === 'item/completed'
+                        ? markCorrelatedProviderUserMessageAccepted(
                             notificationParams,
-                            readProviderEventTurnId(notificationParams) ?? pendingTurn?.turnId,
-                        );
-                    }
-                    const context = await resolveStreamUpdateContext(method, notificationParams);
-                    if (!context) {
-                        if (pendingTurn && notificationMatchesPendingTurn(notificationParams)) {
-                            if (method === 'item/started') {
-                                trackActiveProviderTurnItemStart(notificationParams);
-                            } else if (method === 'item/completed') {
-                                const clearedActiveItem = trackActiveProviderTurnItemCompletion(notificationParams);
-                                if (clearedActiveItem
-                                    && scheduledPendingTurnFlushReason === 'turn-end'
-                                    && activeProviderTurnItemIds.size === 0) {
-                                    schedulePendingTurnFinalization('turn-end');
+                            providerTurnId,
+                        )
+                        : null;
+                    try {
+                        const context = await resolveStreamUpdateContext(method, notificationParams);
+                        if (!context) {
+                            if (pendingTurn && notificationMatchesPendingTurn(notificationParams)) {
+                                if (method === 'item/started') {
+                                    trackActiveProviderTurnItemStart(notificationParams);
+                                } else if (method === 'item/completed') {
+                                    const clearedActiveItem = trackActiveProviderTurnItemCompletion(notificationParams);
+                                    if (clearedActiveItem
+                                        && scheduledPendingTurnFlushReason === 'turn-end'
+                                        && activeProviderTurnItemIds.size === 0) {
+                                        schedulePendingTurnFinalization('turn-end');
+                                    }
                                 }
                             }
+                            return;
                         }
-                        return;
-                    }
-                    if (context.sidechainId) {
-                        await ensureSyntheticSubagentThread(context.sidechainId);
-                    } else if (!notificationMatchesPendingTurn(notificationParams)) {
-                        return;
-                    }
-                    if (!context.sidechainId && method === 'item/started') {
-                        trackActiveProviderTurnItemStart(notificationParams);
-                    }
-                    if (method === 'item/completed' && shouldSkipDuplicateBlockingProviderItemCompletion(context, notificationParams)) {
-                        return;
-                    }
-                    const updates = streamEventBridge.onNotification({ method, params: notificationParams });
-                    for (const update of updates) {
-                        await applyStreamUpdate(update, context);
-                    }
-                    if (!context.sidechainId && method === 'item/completed') {
-                        const clearedActiveItem = trackActiveProviderTurnItemCompletion(notificationParams);
-                        if (clearedActiveItem
-                            && scheduledPendingTurnFlushReason === 'turn-end'
-                            && activeProviderTurnItemIds.size === 0) {
-                            schedulePendingTurnFinalization('turn-end');
+                        if (context.sidechainId) {
+                            await ensureSyntheticSubagentThread(context.sidechainId);
+                        } else if (!notificationMatchesPendingTurn(notificationParams)) {
+                            return;
                         }
+                        if (!context.sidechainId && method === 'item/started') {
+                            trackActiveProviderTurnItemStart(notificationParams);
+                        }
+                        if (method === 'item/completed' && shouldSkipDuplicateBlockingProviderItemCompletion(context, notificationParams)) {
+                            return;
+                        }
+                        const updates = streamEventBridge.onNotification({ method, params: notificationParams });
+                        for (const update of updates) {
+                            await applyStreamUpdate(update, context);
+                        }
+                        if (!context.sidechainId && method === 'item/completed') {
+                            const clearedActiveItem = trackActiveProviderTurnItemCompletion(notificationParams);
+                            if (clearedActiveItem
+                                && scheduledPendingTurnFlushReason === 'turn-end'
+                                && activeProviderTurnItemIds.size === 0) {
+                                schedulePendingTurnFinalization('turn-end');
+                            }
+                        }
+                    } finally {
+                        retireAcceptedProviderPrompt(correlatedProviderPrompt, providerTurnId);
                     }
                 }),
             );
@@ -3830,6 +3863,7 @@ export function createCodexAppServerRuntime(params: Readonly<{
                                 markPendingProviderPromptAccepted(
                                     activeTurn.providerPrompt,
                                     notificationTurnId ?? activeTurn.turnId,
+                                    { retainUntilProviderUserMessageProjection: true },
                                 );
                                 const nextThreadId = readThreadId(notificationParams);
                                 if (nextThreadId && nextThreadId !== threadId) {
@@ -5097,7 +5131,9 @@ export function createCodexAppServerRuntime(params: Readonly<{
                     } else {
                         markActiveTurnSteerable();
                     }
-                    markPendingProviderPromptAccepted(pendingProviderPrompt, startedTurnId);
+                    markPendingProviderPromptAccepted(pendingProviderPrompt, startedTurnId, {
+                        retainUntilProviderUserMessageProjection: true,
+                    });
                     // A native goal successor is a distinct provider turn, not an extension of
                     // this explicit prompt. The session loop preserves that successor through
                     // hasActiveProviderTurn(), which includes the atomic handoff barrier.
