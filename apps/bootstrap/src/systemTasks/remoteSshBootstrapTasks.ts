@@ -135,6 +135,7 @@ export async function approveLocalRemoteAuthRequestDefault(params: Readonly<{
   ];
   await (deps.runLocalHappierJsonCommand ?? runLocalHappierJsonCommand)({
     args: ['auth', 'approve', '--public-key', params.publicKey, '--json', '--persist', ...relayArgs],
+    releaseRing: normalizeBootstrapChannel(params.parsed.channel).releaseChannel,
   });
 }
 

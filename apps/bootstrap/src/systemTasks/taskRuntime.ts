@@ -8,6 +8,23 @@ export interface CommandExecutionResult {
   stderr: string;
 }
 
+export class CommandTimeoutError extends Error {
+  readonly timeoutMs: number;
+
+  constructor(command: string, timeoutMs: number) {
+    super(`Command timed out after ${Math.round(timeoutMs / 1000)}s: ${command}`);
+    this.name = 'CommandTimeoutError';
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+/**
+ * The ring names a caller may send. `normalizeBootstrapChannel` maps everything else to `stable`,
+ * so every parser that accepts a caller-supplied channel checks it against this list first and
+ * names it in the failure — a typo'd ring otherwise silently reads or starts the wrong CLI.
+ */
+export const ACCEPTED_BOOTSTRAP_CHANNELS: readonly string[] = ['stable', 'preview', 'dev', 'publicdev'];
+
 export function normalizeBootstrapChannel(raw: unknown): Readonly<{
   commandChannel: 'stable' | 'preview' | 'dev';
   releaseChannel: 'stable' | 'preview' | 'publicdev';
@@ -36,12 +53,13 @@ export async function runCommandCapture(params: Readonly<{
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
     let settled = false;
+    const timeoutMs = Number.isFinite(params.timeoutMs) ? Math.max(1, Math.floor(params.timeoutMs as number)) : 60_000;
     const timeout = setTimeout(() => {
       if (settled) return;
       settled = true;
       child.kill('SIGTERM');
-      reject(new Error(`Command timed out: ${params.command}`));
-    }, Number.isFinite(params.timeoutMs) ? Math.max(1, Math.floor(params.timeoutMs as number)) : 60_000);
+      reject(new CommandTimeoutError(params.command, timeoutMs));
+    }, timeoutMs);
 
     child.stdout.on('data', (chunk: Buffer | string) => {
       stdoutChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));

@@ -11,6 +11,18 @@ import {
   type SystemTaskResult,
 } from '@happier-dev/protocol';
 
+import { ensureSetupCapableLocalHappierCli } from '../systemTasks/happierCli.js';
+import {
+  configureRelay,
+  installService,
+  requestAuthPairing,
+  controlDaemonService,
+  waitForAuthPairing,
+} from '../systemTasks/localDaemonCli.js';
+import {
+  createSetupThisComputerKind,
+  ensureManagedCliPathExposureDefault,
+} from '../systemTasks/kinds/setupThisComputer.js';
 import { createHsetupSystemTaskRegistry, createSystemTaskId } from '../systemTasks/registry.js';
 import {
   approveLocalRemoteAuthRequestDefault,
@@ -168,8 +180,19 @@ async function readSpecJsonFromStdin(stdin: HsetupIo['stdin']): Promise<string> 
   return fallback;
 }
 
-function createDefaultInteractiveKinds(): InteractiveSystemTaskKindMap {
+export function createDefaultInteractiveKinds(): InteractiveSystemTaskKindMap {
   return {
+    // The only place the setup kind is built for real: every dep that changes this computer is
+    // named here, so no other construction site can inherit a real mutation by forgetting one.
+    'setup.thisComputer.v1': createSetupThisComputerKind({
+      ensureCli: ensureSetupCapableLocalHappierCli,
+      configureRelay,
+      requestAuthPairing,
+      waitForAuthPairing,
+      installService,
+      startService: controlDaemonService,
+      ensurePathExposure: ensureManagedCliPathExposureDefault,
+    }),
     'remote.ssh.bootstrapMachine.v1': systemTasks.createRemoteSshBootstrapMachineTaskKind({
       resolveHostTrust: resolveRemoteSshHostTrustDefault,
       installRemoteCli: installRemoteCliDefault,
