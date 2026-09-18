@@ -144,12 +144,12 @@ async function prepareOpenSsh({ targets, mutagenDir, env }) {
   for (const executable of ['ssh', 'scp']) {
     await writeFile(
       join(opensshDir, executable),
-      `#!/bin/sh\nexec /usr/bin/${executable} -F ${shellQuote(configPath)} -o ControlMaster=no "$@"\n`,
+      `#!/bin/sh\nexec /usr/bin/${executable} -F ${shellQuote(configPath)} -o ControlMaster=no -o ControlPath=none "$@"\n`,
       { mode: 0o700 },
     );
   }
   return {
-    sshArgs: ['-F', configPath, '-o', 'ControlMaster=no'],
+    sshArgs: ['-F', configPath, '-o', 'ControlMaster=no', '-o', 'ControlPath=none'],
     mutagenEnv: { ...env, MUTAGEN_SSH_PATH: opensshDir },
   };
 }
@@ -549,8 +549,11 @@ export async function startStackDevTargets(
           tunnelsByTarget.set(target.name, tunnel);
         }
         if (!services.server) {
-          requireSuccessful(
-            await runProcess({
+          const readinessDeadline = Date.now() + resolveRemoteServerReadyTimeoutMs(env);
+          let readinessAttempt = 0;
+          let readinessResult;
+          do {
+            readinessResult = await runProcess({
               label: `remote:${target.name}`,
               command: 'ssh',
               args: [
@@ -561,7 +564,19 @@ export async function startStackDevTargets(
                 buildRemoteForwardProbeCommand(target, { remoteServerPort }),
               ],
               env: infraEnv,
-            }),
+            });
+            if (readinessResult?.code === 0 || tunnel.exitCode != null || Date.now() >= readinessDeadline) {
+              break;
+            }
+            readinessAttempt += 1;
+            const retryOutcome = await Promise.race([
+              waitForRetry({ attempt: readinessAttempt, delayMs: 5_000, target }).then(() => 'retry'),
+              closeRequested.then(() => 'close'),
+            ]);
+            if (retryOutcome === 'close' || closed) return null;
+          } while (!closed);
+          requireSuccessful(
+            readinessResult,
             `${target.name} reverse tunnel readiness`,
           );
         }
