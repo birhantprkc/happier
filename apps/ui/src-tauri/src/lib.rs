@@ -2,6 +2,9 @@
 mod autostart;
 
 #[cfg(desktop)]
+mod menu;
+
+#[cfg(desktop)]
 mod tray;
 
 #[cfg(desktop)]
@@ -15,6 +18,9 @@ mod window_chrome;
 
 #[cfg(desktop)]
 mod startup;
+
+#[cfg(desktop)]
+mod shutdown;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -30,10 +36,22 @@ pub fn run() {
 
     #[cfg(desktop)]
     {
+        // One global router for every menu command; muda delivers the tray menu and the macOS app
+        // menu through the same channel, and registering it twice would double every Quit.
+        builder = builder.on_menu_event(menu::handle_menu_event);
+
+        // tauri's default macOS menu quits through the predefined item's native `terminate:`, which
+        // never reaches `RunEvent::ExitRequested` and so would skip the shutdown handoff entirely.
+        #[cfg(target_os = "macos")]
+        {
+            builder = builder.menu(menu::build_app_menu);
+        }
+
         builder = builder
             .manage(app_updates::PendingUpdate::default())
             .manage(pet_overlay::DesktopPetOverlayState::default())
             .manage(system_tasks::SystemTasksState::default())
+            .manage(shutdown::DesktopShutdownState::default())
             .invoke_handler(tauri::generate_handler![
                 app_updates::desktop_fetch_update,
                 app_updates::desktop_install_update,
@@ -64,7 +82,8 @@ pub fn run() {
                 window_chrome::desktop_toggle_window_maximize,
                 window_chrome::desktop_close_window,
                 window_chrome::desktop_show_main_window,
-                window_chrome::desktop_start_window_dragging
+                window_chrome::desktop_start_window_dragging,
+                shutdown::desktop_finish_shutdown
             ]);
     }
 
@@ -96,6 +115,11 @@ pub fn run() {
         .run(|app_handle, event| {
             #[cfg(desktop)]
             match event {
+                tauri::RunEvent::ExitRequested { code, ref api, .. } => {
+                    if shutdown::handle_exit_requested(app_handle, code) {
+                        api.prevent_exit();
+                    }
+                }
                 tauri::RunEvent::Ready => {
                     startup::emit_ready(app_handle);
                     window_chrome::present_main_window_for_lifecycle_event(

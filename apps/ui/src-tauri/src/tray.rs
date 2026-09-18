@@ -1,24 +1,25 @@
 #[cfg(desktop)]
 use tauri::{
     image::Image,
-    menu::{MenuBuilder, MenuEvent, MenuItemBuilder},
+    menu::{MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     App, AppHandle, Manager, Runtime,
 };
 
 #[cfg(desktop)]
-use serde::Deserialize;
+use crate::menu::{QUIT_APP_MENU_ID, SHOW_MAIN_WINDOW_MENU_ID};
 
 #[cfg(desktop)]
-const SHOW_MAIN_WINDOW_MENU_ID: &str = "tray-show-main-window";
-#[cfg(desktop)]
-const QUIT_APP_MENU_ID: &str = "tray-quit-app";
+use serde::Deserialize;
+
 #[cfg(desktop)]
 const TRAY_ICON_ID: &str = "main";
 #[cfg(desktop)]
 const TRAY_ICON_SIZE: u32 = 18;
+/// The tray is how Windows and Linux reach Quit at all: they get no app menu, and closing the main
+/// window only hides it. It is also the only way to bring that window back on those platforms.
 #[cfg(desktop)]
-const DESKTOP_TRAY_ENABLED: bool = false;
+const DESKTOP_TRAY_ENABLED: bool = true;
 
 #[cfg(desktop)]
 fn is_desktop_tray_enabled_for_build() -> bool {
@@ -46,7 +47,6 @@ pub fn register<R: Runtime>(app: &mut App<R>) -> tauri::Result<()> {
         .title(initial_state.label.clone())
         .menu(&build_menu(app, &initial_state)?)
         .show_menu_on_left_click(false)
-        .on_menu_event(handle_menu_event)
         .on_tray_icon_event(|tray, event| {
             if matches!(
                 event,
@@ -98,19 +98,6 @@ pub fn desktop_set_tray_state<R: Runtime>(
     }
 
     apply_tray_state(&app, &state).map_err(|error| error.to_string())
-}
-
-#[cfg(desktop)]
-fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
-    match event.id().0.as_str() {
-        SHOW_MAIN_WINDOW_MENU_ID => {
-            let _ = crate::window_chrome::show_main_window(app);
-        }
-        QUIT_APP_MENU_ID => {
-            app.exit(0);
-        }
-        _ => {}
-    }
 }
 
 #[cfg(desktop)]
@@ -200,7 +187,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn remote_dev_build_disables_desktop_tray() {
-        assert!(!is_desktop_tray_enabled_for_build());
+    fn every_desktop_build_ships_the_tray_so_quit_is_reachable() {
+        // Windows and Linux have no other quit or re-show affordance: no app menu, and the main
+        // window hides on close.
+        assert!(is_desktop_tray_enabled_for_build());
     }
 }
