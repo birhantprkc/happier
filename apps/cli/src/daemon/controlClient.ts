@@ -289,6 +289,18 @@ export async function inspectDaemonRunningStateAndCleanupStaleState(): Promise<D
     process.kill(state.pid, 0);
   } catch (error) {
     if ((error as NodeJS.ErrnoException)?.code === 'ESRCH') {
+      if (state.controlToken) {
+        const hiddenPidLiveness = await probeDaemonAuthenticatedControl({
+          pid: state.pid,
+          httpPort: state.httpPort,
+          controlToken: state.controlToken,
+          timeoutMs: resolveDaemonPingTimeoutMs(),
+        });
+        if (hiddenPidLiveness === 'running') {
+          logger.debug('[DAEMON RUN] Daemon PID is hidden from this pid namespace but authenticated control answered, treating daemon as running');
+          return { status: 'running', state };
+        }
+      }
       logger.debug('[DAEMON RUN] Daemon PID is definitively not running, leaving daemon-owned state for startup replacement');
       return { status: 'not-running' };
     }
