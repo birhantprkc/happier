@@ -26,3 +26,18 @@ export {
   type TailscaleSecureAccessTaskResult,
   type TailscaleSecureAccessTaskSpec,
 } from './tailscaleSecureAccessTaskContract.js';
+
+export {
+  classifySetupPairingRequirement,
+  createSetupPairingPromptData,
+  createSetupServiceConsentPromptData,
+  parseSetupPairingPromptData,
+  parseSetupServiceConsentPromptData,
+  SETUP_PAIRING_PROMPT_KIND,
+  SETUP_SERVICE_CONSENT_PROMPT_KIND,
+  SETUP_THIS_COMPUTER_SYSTEM_TASK_KIND,
+  type SetupCliProvenance,
+  type SetupPairingPromptPayload,
+  type SetupPairingRequirement,
+  type SetupServiceConsentPromptPayload,
+} from './setupThisComputerTaskContract.js';
