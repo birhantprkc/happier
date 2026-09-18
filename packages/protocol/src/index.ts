@@ -3498,11 +3498,13 @@ export {
 } from './bugReports.js';
 
 export {
+  DoctorSnapshotDaemonStatusSchema,
   DoctorSnapshotSchema,
   DoctorSnapshotServerProfileSchema,
   parseDoctorSnapshotSafe,
   sanitizeDoctorSnapshotUrls,
   type DoctorSnapshot,
+  type DoctorSnapshotDaemonStatus,
   type DoctorSnapshotServerProfile,
 } from './diagnostics/doctorSnapshot.js';
 

@@ -23,6 +23,8 @@ const HappierServiceBackendSchema = z.enum([
 ]);
 const HappierServiceVerificationSchema = z.enum(['verified', 'candidate']);
 const HappierServiceTargetModeSchema = z.enum(['pinned', 'default-following']);
+/** The CLI's own autostart vocabulary (`DaemonServiceAutostartMode`), not a boolean. */
+const HappierServiceAutostartModeSchema = z.enum(['at-login', 'on-demand']);
 const HappierWarningSeveritySchema = z.enum(['info', 'warning', 'error']);
 
 function sanitizeUrl(raw: string): string {
@@ -42,6 +44,24 @@ export const DoctorSnapshotServerProfileSchema = z.object({
 });
 
 export type DoctorSnapshotServerProfile = z.infer<typeof DoctorSnapshotServerProfileSchema>;
+
+export const DoctorSnapshotDaemonCredentialStateSchema = z.enum(['missing', 'rejected', 'valid', 'unknown']);
+
+export type DoctorSnapshotDaemonCredentialState = z.infer<typeof DoctorSnapshotDaemonCredentialStateSchema>;
+
+/**
+ * Facts about the daemon that is actually running, derived by the CLI from its
+ * authenticated control endpoint and owner evaluation rather than from the files
+ * beside it. Optional because older CLIs did not emit it.
+ */
+export const DoctorSnapshotDaemonRuntimeConvergenceSchema = z.object({
+  controlReachable: z.boolean(),
+  serviceOwnsRunningDaemon: z.boolean(),
+  machineIdMatches: z.boolean(),
+  cliVersionMatches: z.boolean(),
+});
+
+export type DoctorSnapshotDaemonRuntimeConvergence = z.infer<typeof DoctorSnapshotDaemonRuntimeConvergenceSchema>;
 
 export const DoctorSnapshotDaemonStatusSchema = z.object({
   server: z.object({
@@ -66,6 +86,18 @@ export const DoctorSnapshotDaemonStatusSchema = z.object({
   service: z.object({
     installed: z.boolean(),
     running: z.boolean(),
+    /**
+     * Whether the installed background service follows the default relay or is pinned to one
+     * profile. `null` means no readable definition proved a mode; absent means the CLI that
+     * answered predates this field. Neither may be read as `default-following`.
+     */
+    targetMode: HappierServiceTargetModeSchema.nullable().optional(),
+    /**
+     * Whether the installed background service starts the daemon at login. `null` means the
+     * installed definition declared no mode; absent means the CLI that answered predates this
+     * field. Neither may be read as `at-login`.
+     */
+    autostart: HappierServiceAutostartModeSchema.nullable().optional(),
   }),
   auth: z.object({
     authenticated: z.boolean(),
@@ -73,7 +105,10 @@ export const DoctorSnapshotDaemonStatusSchema = z.object({
     machineId: NonEmptyString.nullable(),
     needsAuth: z.boolean(),
     accountId: NonEmptyString.nullable(),
+    credentialState: DoctorSnapshotDaemonCredentialStateSchema.optional(),
+    validatedAccountId: NonEmptyString.nullable().optional(),
   }),
+  runtimeConvergence: DoctorSnapshotDaemonRuntimeConvergenceSchema.optional(),
 });
 
 export type DoctorSnapshotDaemonStatus = z.infer<typeof DoctorSnapshotDaemonStatusSchema>;
