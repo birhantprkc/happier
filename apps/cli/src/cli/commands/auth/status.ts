@@ -60,7 +60,7 @@ export async function handleAuthStatus(argv: string[] = []): Promise<void> {
     return;
   }
 
-  const { machineId, machineRegistered } = readiness;
+  const { machineId, machineRegistered, validatedAccountId } = readiness;
 
   let daemonRunning = false;
   try {
@@ -75,6 +75,7 @@ export async function handleAuthStatus(argv: string[] = []): Promise<void> {
       kind: 'auth_status',
       data: {
         authenticated: true,
+        ...(validatedAccountId ? { accountId: validatedAccountId } : {}),
         encryption: { type: credentials.encryption.type },
         machineRegistered,
         ...(machineRegistered && machineId ? { machineId } : {}),

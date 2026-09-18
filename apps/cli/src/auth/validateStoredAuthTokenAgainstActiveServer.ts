@@ -2,7 +2,7 @@ import { isAuthenticationStatus } from '@/api/client/httpStatusError';
 import { resolveServerHttpBaseUrl } from '@/api/client/serverHttpBaseUrl';
 
 export type ActiveServerStoredTokenValidationResult = Readonly<
-  | { state: 'valid'; httpStatus: number }
+  | { state: 'valid'; httpStatus: number; accountId: string }
   | { state: 'invalid'; httpStatus: number; reasonCode: string }
   | { state: 'unknown'; httpStatus: number | null; reasonCode: string }
 >;
@@ -57,7 +57,7 @@ export async function validateStoredAuthTokenAgainstServer(params: Readonly<{
     if (response.ok) {
       const accountId = (body as { id?: unknown } | null)?.id;
       if (typeof accountId === 'string' && accountId.trim().length > 0) {
-        return { state: 'valid', httpStatus: response.status };
+        return { state: 'valid', httpStatus: response.status, accountId: accountId.trim() };
       }
       return { state: 'unknown', httpStatus: response.status, reasonCode: 'invalid-profile-response' };
     }

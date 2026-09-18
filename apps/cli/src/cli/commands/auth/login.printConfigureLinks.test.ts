@@ -8,7 +8,7 @@ const authAndSetupMachineIfNeededMock = vi.hoisted(() => vi.fn(async (_options?:
   credentials: { token: 't1', encryption: { type: 'legacy', secret: new Uint8Array(32) } },
 })));
 const validateStoredAuthTokenAgainstActiveServerMock = vi.hoisted(() =>
-  vi.fn<(token: string) => Promise<ActiveServerStoredTokenValidationResult>>(async () => ({ state: 'valid', httpStatus: 200 })),
+  vi.fn<(token: string) => Promise<ActiveServerStoredTokenValidationResult>>(async () => ({ state: 'valid', httpStatus: 200, accountId: 'acct_test' })),
 );
 const readCredentialsMock = vi.hoisted(() => vi.fn<() => Promise<Credentials | null>>(async () => null));
 const readSettingsMock = vi.hoisted(() => vi.fn<() => Promise<Partial<Settings>>>(async () => ({})));
@@ -81,7 +81,7 @@ describe('happier auth login', () => {
       credentials: { token: 't1', encryption: { type: 'legacy', secret: new Uint8Array(32) } },
     });
     validateStoredAuthTokenAgainstActiveServerMock.mockReset();
-    validateStoredAuthTokenAgainstActiveServerMock.mockResolvedValue({ state: 'valid', httpStatus: 200 });
+    validateStoredAuthTokenAgainstActiveServerMock.mockResolvedValue({ state: 'valid', httpStatus: 200, accountId: 'acct_test' });
     readCredentialsMock.mockReset();
     readCredentialsMock.mockResolvedValue(null);
     readSettingsMock.mockReset();
@@ -105,7 +105,7 @@ describe('happier auth login', () => {
     let authMethodAtFlowStart: string | undefined;
     validateStoredAuthTokenAgainstActiveServerMock.mockImplementationOnce(async () => {
       authMethodAtFlowStart = process.env.HAPPIER_AUTH_METHOD;
-      return { state: 'valid', httpStatus: 200 };
+      return { state: 'valid', httpStatus: 200, accountId: 'acct_test' };
     });
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     try {

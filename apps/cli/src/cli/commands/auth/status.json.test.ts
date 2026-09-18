@@ -251,13 +251,14 @@ describe('happier auth status --json', () => {
           const parsed = JSON.parse(output.text().trim()) as {
             ok: boolean;
             kind: string;
-            data?: { authenticated?: boolean; machineId?: string };
+            data?: { authenticated?: boolean; machineId?: string; accountId?: string };
             error?: { code?: string };
           };
           expect(parsed.ok).toBe(true);
           expect(parsed.kind).toBe('auth_status');
           expect(parsed.data?.authenticated).toBe(true);
           expect(parsed.data?.machineId).toBe('mid_ephemeral');
+          expect(parsed.data?.accountId).toBe('acct_1');
           expect(parsed.error).toBeUndefined();
           expect(process.exitCode).toBe(0);
         } finally {

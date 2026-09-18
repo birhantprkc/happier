@@ -21,6 +21,24 @@ describe('validateStoredAuthTokenAgainstServer', () => {
     });
   });
 
+  it('reports the account the relay validated the token for', async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ id: 'acct_validated' }),
+    } as Response)) as typeof fetch;
+
+    await expect(validateStoredAuthTokenAgainstServer({
+      token: 'token-123',
+      serverUrl: 'https://active.example.test',
+      fetchImpl,
+    })).resolves.toEqual({
+      state: 'valid',
+      httpStatus: 200,
+      accountId: 'acct_validated',
+    });
+  });
+
   it('returns unknown for transport failures instead of forcing invalid auth', async () => {
     const fetchImpl = vi.fn(async () => {
       throw new TypeError('fetch failed');
