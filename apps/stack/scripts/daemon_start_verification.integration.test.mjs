@@ -18,6 +18,7 @@ import {
 import { killDetachedProcessGroup } from './testkit/core/spawn_daemon_like_process.mjs';
 import { spawnDetachedInlineNodeTestProcess } from './testkit/core/spawn_test_process.mjs';
 import { writeStubHappierCliFiles } from './testkit/core/stub_happier_cli_files.mjs';
+import { buildStubHappierServerSetSource } from './testkit/core/stub_happier_cli_server_set.mjs';
 import { resolveStackCredentialPaths } from './utils/auth/credentials_paths.mjs';
 
 function runNode(args, { cwd, env }) {
@@ -50,34 +51,6 @@ const scriptsDir = dirname(fileURLToPath(import.meta.url));
 const rootDir = dirname(scriptsDir);
 const DAEMON_TEST_PROCESS_HELPER_PATH = join(rootDir, 'scripts', 'testkit', 'core', 'spawn_daemon_like_process.mjs');
 
-function buildServerProfileSetStubSource() {
-  return `
-if (args[0] === 'server' && args[1] === 'set') {
-  const { readFileSync, writeFileSync } = await import('node:fs');
-  const { join } = await import('node:path');
-  const home = process.env.HAPPIER_HOME_DIR || process.env.HAPPIER_STACK_CLI_HOME_DIR;
-  const value = (name) => String(args[args.indexOf(name) + 1] || '');
-  const serverId = value('--server-id');
-  const settingsPath = join(home, 'settings.json');
-  const settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
-  settings.schemaVersion = Math.max(Number(settings.schemaVersion || 0), 6);
-  settings.activeServerId = serverId;
-  settings.servers = {
-    ...(settings.servers || {}),
-    [serverId]: {
-      ...(settings.servers?.[serverId] || {}),
-      id: serverId,
-      serverUrl: value('--server-url'),
-      localServerUrl: value('--local-server-url'),
-      webappUrl: value('--webapp-url'),
-    },
-  };
-  writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\\n', 'utf-8');
-  process.exit(0);
-}
-`;
-}
-
 function buildProfileCaptureDaemonCliScript({ cliHomeDir, capturePath, ignoreServerSet = false }) {
   const activeServerId = 'stack_dev__id_default';
   const statePath = join(cliHomeDir, 'servers', activeServerId, 'daemon.state.json');
@@ -90,30 +63,7 @@ const args = process.argv.slice(2);
 const home = process.env.HAPPIER_HOME_DIR || process.env.HAPPIER_STACK_CLI_HOME_DIR;
 if (!home) process.exit(2);
 
-if (args[0] === 'server' && args[1] === 'set') {
-  if (${ignoreServerSet ? 'true' : 'false'}) process.exit(0);
-  const value = (name) => {
-    const index = args.indexOf(name);
-    return index >= 0 ? String(args[index + 1] || '') : '';
-  };
-  const settingsPath = join(home, 'settings.json');
-  const settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
-  const serverId = value('--server-id');
-  const current = settings.servers?.[serverId] ?? {};
-  settings.activeServerId = serverId;
-  settings.servers = {
-    ...(settings.servers ?? {}),
-    [serverId]: {
-      ...current,
-      id: serverId,
-      serverUrl: value('--server-url'),
-      localServerUrl: value('--local-server-url'),
-      webappUrl: value('--webapp-url'),
-    },
-  };
-  writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\\n', 'utf-8');
-  process.exit(0);
-}
+${buildStubHappierServerSetSource({ ignoreServerSet })}
 
 if (args[0] !== 'daemon') process.exit(0);
 const sub = args[1] || '';
@@ -143,7 +93,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const args = process.argv.slice(2);
-${buildServerProfileSetStubSource()}
+${buildStubHappierServerSetSource()}
 const home = process.env.HAPPIER_HOME_DIR || process.env.HAPPIER_STACK_CLI_HOME_DIR;
 if (!home) process.exit(2);
 const logsDir = join(home, 'logs');
@@ -434,7 +384,7 @@ test('startLocalDaemonWithAuth streams daemon start output in TUI mode', async (
       join(cliDir, 'dist', 'index.mjs'),
       `
 	const args = process.argv.slice(2);
-${buildServerProfileSetStubSource()}
+${buildStubHappierServerSetSource()}
 	if (args[0] === 'daemon' && args[1] === 'start') {
 	  console.log('stub daemon start');
 	  process.exit(1);
@@ -505,7 +455,7 @@ test('startLocalDaemonWithAuth keeps TUI alive when daemon start reports an inst
       join(cliDir, 'dist', 'index.mjs'),
       `
 const args = process.argv.slice(2);
-${buildServerProfileSetStubSource()}
+${buildStubHappierServerSetSource()}
 if (args[0] === 'daemon' && args[1] === 'start') {
   console.error('A background service is already installed for this relay.');
   console.error('Use \`happier service start\` to start the installed background service instead of starting a new relay runtime.');
@@ -573,7 +523,7 @@ test('startLocalDaemonWithAuth keeps TUI alive when the daemon start wrapper exi
       cliEntrypoint,
       `
 const args = process.argv.slice(2);
-${buildServerProfileSetStubSource()}
+${buildStubHappierServerSetSource()}
 if (args[0] === 'daemon' && args[1] === 'start') {
   process.kill(process.pid, 'SIGTERM');
   setInterval(() => {}, 1000);
@@ -869,14 +819,15 @@ test('startLocalDaemonWithAuth reconciles a stale active stack profile before sp
     const profileAtDaemonStart = JSON.parse(await readFile(capturePath, 'utf-8'));
     assert.equal(profileAtDaemonStart.activeServerId, activeServerId);
     assert.equal(profileAtDaemonStart.profile?.serverUrl, internalServerUrl);
-    assert.equal(profileAtDaemonStart.profile?.localServerUrl, internalServerUrl);
+    // The CLI collapses a local URL equal to the relay URL, so the stale split must be gone.
+    assert.equal(profileAtDaemonStart.profile?.localServerUrl, undefined);
     assert.equal(profileAtDaemonStart.profile?.webappUrl, publicServerUrl);
     assert.equal(profileAtDaemonStart.profile?.preservedProfileField, 'keep-me');
 
     const persistedSettings = JSON.parse(await readFile(join(cliHomeDir, 'settings.json'), 'utf-8'));
     assert.equal(persistedSettings.activeServerId, activeServerId);
     assert.equal(persistedSettings.servers[activeServerId].serverUrl, internalServerUrl);
-    assert.equal(persistedSettings.servers[activeServerId].localServerUrl, internalServerUrl);
+    assert.equal(persistedSettings.servers[activeServerId].localServerUrl, undefined);
     assert.equal(persistedSettings.servers[activeServerId].webappUrl, publicServerUrl);
     assert.equal(persistedSettings.servers[activeServerId].preservedProfileField, 'keep-me');
     assert.equal(await readFile(credentialPaths.serverScopedPath, 'utf-8'), credentialContents);
@@ -1177,7 +1128,7 @@ test('startLocalDaemonWithAuth allows slower binary daemon startups by default',
 import { spawn } from 'node:child_process';
 
 const args = process.argv.slice(2);
-${buildServerProfileSetStubSource()}
+${buildStubHappierServerSetSource()}
 const home = process.env.HAPPIER_HOME_DIR || process.env.HAPPIER_STACK_CLI_HOME_DIR;
 if (!home) process.exit(2);
 
@@ -1293,7 +1244,7 @@ test('startLocalDaemonWithAuth allows slower runtime JS daemon startups by defau
 import { spawn } from 'node:child_process';
 
 const args = process.argv.slice(2);
-${buildServerProfileSetStubSource()}
+${buildStubHappierServerSetSource()}
 const home = process.env.HAPPIER_HOME_DIR || process.env.HAPPIER_STACK_CLI_HOME_DIR;
 if (!home) process.exit(2);
 
@@ -1403,7 +1354,7 @@ test('startLocalDaemonWithAuth allows slower source daemon startups by default',
 import { spawn } from 'node:child_process';
 
 const args = process.argv.slice(2);
-${buildServerProfileSetStubSource()}
+${buildStubHappierServerSetSource()}
 const home = process.env.HAPPIER_HOME_DIR || process.env.HAPPIER_STACK_CLI_HOME_DIR;
 if (!home) process.exit(2);
 
@@ -1524,7 +1475,7 @@ test('startLocalDaemonWithAuth tolerates transient non-zero direct-executable st
 import { spawn } from 'node:child_process';
 
 const args = process.argv.slice(2);
-${buildServerProfileSetStubSource()}
+${buildStubHappierServerSetSource()}
 const home = process.env.HAPPIER_HOME_DIR || process.env.HAPPIER_STACK_CLI_HOME_DIR;
 if (!home) process.exit(2);
 

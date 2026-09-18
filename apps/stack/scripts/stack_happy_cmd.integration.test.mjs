@@ -6,30 +6,18 @@ import { fileURLToPath } from 'node:url';
 import { runNodeCapture } from './testkit/stack_script_command_testkit.mjs';
 import { createStackHappierCliCommandFixture } from './testkit/stack_happier_cli_command_testkit.mjs';
 import { createRuntimeSnapshotFixture } from './testkit/runtime_snapshot_testkit.mjs';
+import { buildStubHappierServerSetSource } from './testkit/core/stub_happier_cli_server_set.mjs';
 import { buildStackStableScopeId } from './utils/auth/stable_scope_id.mjs';
 
 const scriptsDir = dirname(fileURLToPath(import.meta.url));
 const rootDir = dirname(scriptsDir);
 
+const SERVER_SET_CALL_LOG_FILE_NAME = '.hstack-test-server-set-calls.ndjson';
+
 function buildStubHappyCliScript({ message, ignoreServerSet = false }) {
   return [
-      `import { appendFileSync } from 'node:fs';`,
-      `import { join } from 'node:path';`,
       `const args = process.argv.slice(2);`,
-      `if (args[0] === 'server' && args[1] === 'set') {`,
-      `  appendFileSync(join(process.env.HAPPIER_HOME_DIR, '.hstack-test-server-set-calls.ndjson'), JSON.stringify(args) + '\\n');`,
-      ...(ignoreServerSet ? [] : [
-        `  const { readFileSync, writeFileSync } = await import('node:fs');`,
-        `  const settingsPath = join(process.env.HAPPIER_HOME_DIR, 'settings.json');`,
-        `  const settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));`,
-        `  const value = (name) => String(args[args.indexOf(name) + 1] || '');`,
-        `  const serverId = value('--server-id');`,
-        `  settings.activeServerId = serverId;`,
-        `  settings.servers = { ...(settings.servers || {}), [serverId]: { ...(settings.servers?.[serverId] || {}), id: serverId, serverUrl: value('--server-url'), localServerUrl: value('--local-server-url'), webappUrl: value('--webapp-url') } };`,
-        `  writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\\n', 'utf-8');`,
-      ]),
-      `  process.exit(0);`,
-      `}`,
+      buildStubHappierServerSetSource({ ignoreServerSet, callLogFileName: SERVER_SET_CALL_LOG_FILE_NAME }),
       `console.log(JSON.stringify({`,
       `  message: ${JSON.stringify(message)},`,
       `  args,`,
@@ -220,7 +208,7 @@ test('hstack stack happier <name> delegates stack profile reconciliation to the 
   });
 
   const settingsPath = join(fixture.storageDir, fixture.stackName, 'cli', 'settings.json');
-  const serverSetCallsPath = join(fixture.storageDir, fixture.stackName, 'cli', '.hstack-test-server-set-calls.ndjson');
+  const serverSetCallsPath = join(fixture.storageDir, fixture.stackName, 'cli', SERVER_SET_CALL_LOG_FILE_NAME);
 
   const res = await runNodeCapture([join(rootDir, 'bin', 'hstack.mjs'), 'stack', 'happier', fixture.stackName], {
     cwd: rootDir,
@@ -251,7 +239,8 @@ test('hstack stack happier <name> delegates stack profile reconciliation to the 
   const settings = JSON.parse(await readFile(settingsPath, 'utf-8'));
   assert.equal(settings.activeServerId, out.activeServerId, 'the selected CLI must own the reconciled active profile');
   assert.equal(settings.servers[out.activeServerId].serverUrl, 'http://127.0.0.1:45123');
-  assert.equal(settings.servers[out.activeServerId].localServerUrl, 'http://127.0.0.1:45123');
+  // The CLI collapses a local URL equal to the relay URL; only the relay URL is persisted.
+  assert.equal(settings.servers[out.activeServerId].localServerUrl, undefined);
   assert.equal(settings.servers[out.activeServerId].webappUrl, 'http://localhost:45123');
 });
 

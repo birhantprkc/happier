@@ -92,16 +92,20 @@ export function assertStackServerProfileReconciled({
   const settings = readCliSettings(homeDir);
   const activeServerId = typeof settings?.activeServerId === 'string' ? settings.activeServerId.trim() : '';
   const servers = settings?.servers && typeof settings.servers === 'object' ? settings.servers : null;
-  const profile = servers && expectedId ? servers[expectedId] : null;
+  const rawProfile = servers && expectedId ? servers[expectedId] : null;
+  // Read the persisted profile the way the CLI resolves it. The CLI profile writer does not persist a
+  // `localServerUrl` equal to `serverUrl`, so the local relay URL is only split when present.
+  const profile = coerceServerProfileFromSettings(rawProfile);
 
   let reason = null;
   if (!settings) reason = 'settings could not be read after the CLI exited';
   else if (activeServerId !== expectedId) reason = `active profile remained ${activeServerId || 'unset'}`;
-  else if (!profile || typeof profile !== 'object') reason = `profile ${expectedId} was not written`;
-  else if (String(profile.id ?? '').trim() !== expectedId) reason = `profile ${expectedId} has a different identity`;
-  else if (normalizeServerUrl(profile.serverUrl) !== expectedInternalUrl) reason = 'relay URL was not updated';
-  else if (normalizeServerUrl(profile.localServerUrl) !== expectedInternalUrl) reason = 'local relay URL was not updated';
-  else if (normalizeServerUrl(profile.webappUrl) !== expectedPublicUrl) reason = 'web app URL was not updated';
+  else if (!rawProfile || typeof rawProfile !== 'object') reason = `profile ${expectedId} was not written`;
+  else if (!profile) reason = `profile ${expectedId} is incomplete`;
+  else if (profile.id !== expectedId) reason = `profile ${expectedId} has a different identity`;
+  else if (profile.serverUrl !== expectedInternalUrl) reason = 'relay URL was not updated';
+  else if ((profile.localServerUrl ?? profile.serverUrl) !== expectedInternalUrl) reason = 'local relay URL was not updated';
+  else if (profile.webappUrl !== expectedPublicUrl) reason = 'web app URL was not updated';
 
   if (!reason) return;
   const error = new Error(
