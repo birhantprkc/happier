@@ -147,6 +147,9 @@ const CROPPED_USAGE_LIMIT_DIALOG = /\bwhat do you want to do\?[\s\S]{0,400}(?:�
 // different effort opens "Change effort level? … ❯ 1. Yes, switch to <level>  2. No, go back".
 // Escape / "No, go back" prints `Kept effort level as <current>` (incident cmq8y3nlx, L6).
 const EFFORT_CHANGE_DIALOG = /change effort level\?/i;
+// 2.1.274 startup nudge ("Use Fable 5.1 at high effort by default?"): the same effort decision,
+// rendered as an unindexed chooser ("Keep xhigh" / "Switch Fable 5.1 to high effort").
+const EFFORT_DEFAULT_NUDGE_DIALOG = /\buse\s+\S.*?\s+at\s+([a-z]+)\s+effort by default\?/i;
 // Selection-dialog option shape shared by every observed confirmation dialog (2.1.170 Switch
 // model?, 2.1.173 Change effort level?): a terminal focus glyph directly on a numbered option line.
 // Used to fail closed on dialogs we do NOT recognize. Composer prompt echoes (`❯ <prompt>`) only
@@ -597,8 +600,23 @@ type FocusedSelectionBlock = Readonly<{
   options: ClaudeUnifiedDialogSelectionPresentation['options'];
 }>;
 
+// A chooser Claude renders without the "Enter to confirm · Esc to cancel" footer (2.1.274 effort
+// nudge) is still distinguishable from the composer by shape: the composer is rule-boxed
+// (`────` directly above and below its `❯`) and is the last prompt glyph on screen, while a chooser
+// indents its focused row, lists its sibling options directly beneath it and hides the composer.
+function isFooterlessChooserBlock(lines: readonly string[], start: number, end: number, focusedIndex: number): boolean {
+  const glyphColumn = (lines[focusedIndex] ?? '').search(new RegExp(SELECTION_FOCUS_GLYPH_SOURCE, 'u'));
+  if (glyphColumn < 1) return false;
+  if (end === focusedIndex) return false;
+  for (let index = start; index <= end; index += 1) {
+    const line = lines[index] ?? '';
+    if (COMPOSER_BORDER_LINE.test(line) || /[│|]/u.test(line)) return false;
+    if (index > focusedIndex && line.search(/\S/u) <= glyphColumn) return false;
+  }
+  return !lines.slice(end + 1).some((line) => FOCUSED_SELECTION_LINE.test(line) || COMPOSER_LINE.test(line));
+}
+
 function resolveFocusedSelectionBlock(text: string): FocusedSelectionBlock | null {
-  if (!SELECTION_CONFIRM_HINT.test(text)) return null;
   const lines = text.split('\n');
   const focusedIndexes = lines.flatMap((line, index) => (
     FOCUSED_UNINDEXED_SELECTION_LINE.test(line) ? [index] : []
@@ -611,6 +629,7 @@ function resolveFocusedSelectionBlock(text: string): FocusedSelectionBlock | nul
   while (end + 1 < lines.length && (lines[end + 1] ?? '').trim().length > 0) end += 1;
   const block = lines.slice(start, end + 1);
   if (block.length < 2 || block.length > 9) return null;
+  if (!SELECTION_CONFIRM_HINT.test(text) && !isFooterlessChooserBlock(lines, start, end, focusedIndex)) return null;
   const options = block.map((line, index) => {
     const focused = start + index === focusedIndex;
     return {
@@ -697,9 +716,9 @@ export function parseClaudeScreenState(rawText: string, context?: ClaudeScreenPa
   const resumeChoiceDialogVisible = resumeChoiceDialogOptions.length > 0;
   const safeguardPauseDialogOptions = resolveSafeguardPauseDialogOptions(text, visibleDialogSelection);
   const safeguardPauseDialogVisible = safeguardPauseDialogOptions.length > 0;
-  const effortChangeDialogVisible = EFFORT_CHANGE_DIALOG.test(text);
+  const effortChangeDialogVisible = EFFORT_CHANGE_DIALOG.test(text) || EFFORT_DEFAULT_NUDGE_DIALOG.test(text);
   const effortChangeDialogTarget = effortChangeDialogVisible
-    ? (EFFORT_CHANGE_DIALOG_TARGET.exec(text)?.[1]?.toLowerCase() ?? null)
+    ? ((EFFORT_CHANGE_DIALOG_TARGET.exec(text)?.[1] ?? EFFORT_DEFAULT_NUDGE_DIALOG.exec(text)?.[1])?.toLowerCase() ?? null)
     : null;
   const trustFolderPromptVisible = TRUST_FOLDER_PROMPT.test(text) || TRUST_FOLDER_NUMBERED_CHOICES.test(text);
   const permissionPromptVisible = !trustFolderPromptVisible && PERMISSION_PROMPT.test(text);
