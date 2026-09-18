@@ -10,6 +10,20 @@ export type DaemonServicePlatform = 'darwin' | 'linux' | 'win32';
 export type DaemonServiceMode = 'user' | 'system';
 export type DaemonServiceTargetMode = 'pinned' | 'default-following';
 
+/**
+ * Whether the installed background service starts itself at login.
+ *
+ * - `at-login` (default, unchanged behaviour): launchd `RunAtLoad`, a systemd
+ *   `enable`d unit, a Windows `ONLOGON` trigger.
+ * - `on-demand`: the service stays installed and startable, but nothing starts
+ *   it at login — the daemon runs only while something asks for it (the desktop
+ *   app, or `happier service start`).
+ */
+export type DaemonServiceAutostartMode = 'at-login' | 'on-demand';
+
+/** Definition-embedded record of the mode, so an installed service reports it back. */
+export const DAEMON_SERVICE_AUTOSTART_ENV_KEY = 'HAPPIER_DAEMON_SERVICE_AUTOSTART';
+
 export type DaemonServicePlannedFile = Readonly<{
   path: string;
   content: string;
@@ -243,6 +257,19 @@ export function planDaemonServiceInstall(params: Readonly<{
   systemUser?: string;
   channel?: PublicReleaseRingId;
   targetMode?: DaemonServiceTargetMode;
+  autostart?: DaemonServiceAutostartMode;
+  /**
+   * Set by the install choke point when the only difference from the installed definition is the
+   * autostart mode. Linux then applies the login trigger (`enable`/`disable`) and leaves the
+   * running daemon alone, because its trigger is an enable symlink outside the unit — restarting
+   * a daemon for a preference change would drop what the user is using.
+   *
+   * launchd and Windows have no equivalent: their trigger lives inside the definition
+   * (`RunAtLoad`) or the registered task, so applying it means `bootout` + `bootstrap` +
+   * `kickstart -k` / re-creating and re-running the task, which restarts the daemon either way.
+   * The flag is therefore ignored on those platforms.
+   */
+  autostartTriggerChangeOnly?: boolean;
   darwinInstallMode?: 'rebootstrap' | 'kickstart';
   instanceId: string;
   activeServerId?: string | null;
@@ -258,6 +285,7 @@ export function planDaemonServiceInstall(params: Readonly<{
   const instanceId = sanitizeServiceInstanceId(params.instanceId);
   const channel: PublicReleaseRingId = params.channel ?? 'stable';
   const targetMode: DaemonServiceTargetMode = params.targetMode ?? 'pinned';
+  const autostart: DaemonServiceAutostartMode = params.autostart ?? 'at-login';
   const activeServerId = resolvePinnedActiveServerId({
     targetMode,
     activeServerId: params.activeServerId,
@@ -280,6 +308,13 @@ export function planDaemonServiceInstall(params: Readonly<{
     HAPPIER_DAEMON_STARTUP_SOURCE: 'background-service',
     HAPPIER_DAEMON_SERVICE_LABEL: label,
     HAPPIER_DAEMON_SERVICE_TARGET_MODE: targetMode,
+    // Recorded in the definition itself so the installed service reports which
+    // mode it was installed with. Without it a mode switch on an already
+    // installed service is invisible to the definition-convergence check in
+    // `installDaemonService` on Linux/Windows, where the login trigger lives
+    // outside the definition file (systemd enable symlink, scheduled-task
+    // trigger) — the switch would silently no-op.
+    [DAEMON_SERVICE_AUTOSTART_ENV_KEY]: autostart,
     HAPPIER_NO_BROWSER_OPEN: '1',
     HAPPIER_DAEMON_WAIT_FOR_AUTH: '1',
     HAPPIER_DAEMON_WAIT_FOR_AUTH_TIMEOUT_MS: '0',
@@ -312,6 +347,18 @@ export function planDaemonServiceInstall(params: Readonly<{
       stderrPath,
       abandonProcessGroup: true,
       workingDirectory: '/tmp',
+      // The login trigger. `launchctl enable` below is launchd's allow-flag,
+      // not a login trigger: it must stay so that `bootstrap` still succeeds
+      // after an uninstall (which runs `launchctl disable`) and so an
+      // on-demand service remains startable.
+      runAtLoad: autostart === 'at-login',
+      // `KeepAlive{SuccessfulExit:false}` cannot ride along in on-demand mode:
+      // launchd.plist(5) states that SuccessfulExit "implies that RunAtLoad is set
+      // to true, since the job needs to run at least once before we can get an exit
+      // status", so it would re-arm at login exactly the trigger `runAtLoad: false`
+      // just removed. The cost is deliberate: an on-demand daemon is not relaunched
+      // after a crash, which is what "runs only while something asks for it" means.
+      keepAliveOnFailure: autostart === 'at-login',
     });
 
     const uid = params.uid;
@@ -372,7 +419,10 @@ export function planDaemonServiceInstall(params: Readonly<{
       definitionPath: wrapperPath,
       definitionContents: wrapper,
       taskName,
-      persistent: true,
+      // `persistent: false` is cli-common's existing expression of "registered
+      // without a logon trigger": it creates the task with `/SC ONCE` instead
+      // of `/SC ONLOGON`, and the install still runs it once now.
+      persistent: autostart === 'at-login',
     });
 
     const commands: DaemonServicePlannedCommand[] = [];
@@ -426,8 +476,18 @@ export function planDaemonServiceInstall(params: Readonly<{
       ignoreFailure: true,
     });
   }
-  commands.push({ cmd: 'systemctl', args: [...prefix, 'enable', unitName] });
-  commands.push({ cmd: 'systemctl', args: [...prefix, 'restart', unitName] });
+  // `disable` (without `--now`) removes any previously installed login trigger
+  // while leaving a running unit alone, so switching modes does not drop the
+  // daemon the user is currently using. `restart` below applies the new
+  // definition — and is skipped entirely when the mode is the only thing that
+  // changed, because then there is no new definition to apply.
+  commands.push({
+    cmd: 'systemctl',
+    args: [...prefix, autostart === 'at-login' ? 'enable' : 'disable', unitName],
+  });
+  if (params.autostartTriggerChangeOnly !== true) {
+    commands.push({ cmd: 'systemctl', args: [...prefix, 'restart', unitName] });
+  }
 
   return {
     platform: 'linux',

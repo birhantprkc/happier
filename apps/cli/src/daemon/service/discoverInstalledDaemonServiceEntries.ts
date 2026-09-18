@@ -5,7 +5,7 @@ import { basename, join, win32 as win32Path } from 'node:path';
 import type { PublicReleaseRingId } from '@happier-dev/release-runtime/releaseRings';
 import { readPositiveIntEnv } from '@/utils/readPositiveIntEnv';
 
-import type { DaemonServiceMode, DaemonServiceTargetMode } from './plan';
+import { DAEMON_SERVICE_AUTOSTART_ENV_KEY, type DaemonServiceAutostartMode, type DaemonServiceMode, type DaemonServiceTargetMode } from './plan';
 
 export type InstalledDaemonServiceEntry = Readonly<{
   serverId: string;
@@ -157,6 +157,13 @@ function parseLinuxUnitValue(contents: string, key: string): string | null {
 function parseDarwinPlistValue(contents: string, key: string): string | null {
   const match = new RegExp(`<key>${key}</key>\\s*<string>([^<]+)</string>`, 'i').exec(contents);
   return String(match?.[1] ?? '').trim() || null;
+}
+
+/** A `<true/>`/`<false/>` plist key, or `null` when the definition declares neither. */
+function parseDarwinPlistBoolean(contents: string, key: string): boolean | null {
+  const match = new RegExp(`<key>${key}</key>\\s*<(true|false)\\s*/>`, 'i').exec(contents);
+  const value = String(match?.[1] ?? '').trim().toLowerCase();
+  return value === 'true' ? true : value === 'false' ? false : null;
 }
 
 function parseWindowsWrapperValue(contents: string, key: string): string | null {
@@ -368,6 +375,97 @@ export function isValidInstalledDaemonServiceFile(params: Readonly<{
     );
 }
 
+/**
+ * The one rule for reading an installed service definition's target mode.
+ *
+ * The definition declares the mode the installer chose, so that declaration decides. The file
+ * name is only the fallback for a definition that predates the declaration: it cannot decide on
+ * its own, because a stable-ring service pinned to the profile named `default` occupies exactly
+ * the file name the default-following installation uses.
+ */
+function resolveInstalledDaemonServiceTargetMode(params: Readonly<{
+  platform: 'darwin' | 'linux' | 'win32';
+  path: string;
+  pathTargetMode: DaemonServiceTargetMode;
+}>): DaemonServiceTargetMode {
+  const declared = readInstalledDaemonServiceEnvValue({
+    platform: params.platform,
+    path: params.path,
+    key: 'HAPPIER_DAEMON_SERVICE_TARGET_MODE',
+  });
+  if (declared === 'default-following' || declared === 'pinned') {
+    return declared;
+  }
+  return params.pathTargetMode;
+}
+
+/**
+ * The autostart mode of the service installed at `path`, or `null` when nothing proves one —
+ * every definition written before the autostart dimension existed proves none, and `null` is
+ * unknown rather than a mode a caller may act on.
+ *
+ * On darwin the login trigger IS the plist's own `RunAtLoad`, so that key decides: the recorded
+ * declaration cannot outvote what launchd will actually do, which is what makes a hand-edited or
+ * `launchctl`-rewritten plist report honestly. Linux and Windows keep the recorded declaration,
+ * because their real trigger is a systemd enable symlink / a scheduled-task trigger and reading
+ * either needs a `systemctl is-enabled` / `schtasks /Query` subprocess — this reader is
+ * synchronous and runs on the healthy `daemon status` fast path, so it does not spawn one.
+ *
+ * This is the one rule for recovering the mode of an installed service, so a reinstall,
+ * drift-refresh or repair preserves the choice the user made instead of silently restoring the
+ * login trigger.
+ */
+export function readInstalledDaemonServiceAutostartMode(params: Readonly<{
+  platform: 'darwin' | 'linux' | 'win32';
+  path: string;
+}>): DaemonServiceAutostartMode | null {
+  if (params.platform === 'darwin') {
+    const contents = readInstalledServiceFile(params.path);
+    const runAtLoad = contents ? parseDarwinPlistBoolean(contents, 'RunAtLoad') : null;
+    if (runAtLoad !== null) {
+      return runAtLoad ? 'at-login' : 'on-demand';
+    }
+    return null;
+  }
+
+  const declared = readInstalledDaemonServiceEnvValue({
+    platform: params.platform,
+    path: params.path,
+    key: DAEMON_SERVICE_AUTOSTART_ENV_KEY,
+  });
+  const normalized = String(declared ?? '').trim().toLowerCase();
+  if (normalized === 'on-demand' || normalized === 'at-login') {
+    return normalized;
+  }
+  return null;
+}
+
+/**
+ * The target mode of the service definition installed at `path`, or `null` when this path holds
+ * no readable Happier service definition. `null` is unknown — never a mode a caller may act on.
+ */
+export function readInstalledDaemonServiceTargetMode(params: Readonly<{
+  platform: 'darwin' | 'linux' | 'win32';
+  path: string;
+}>): DaemonServiceTargetMode | null {
+  const parsed = parseInstalledServicePath(params.platform, params.path);
+  if (!parsed) {
+    return null;
+  }
+  if (!isValidInstalledDaemonServiceFile({
+    platform: params.platform,
+    path: params.path,
+    expectedLabel: parsed.label,
+  })) {
+    return null;
+  }
+  return resolveInstalledDaemonServiceTargetMode({
+    platform: params.platform,
+    path: params.path,
+    pathTargetMode: parsed.targetMode,
+  });
+}
+
 function parseInstalledServiceMetadata(params: Readonly<{
   platform: 'darwin' | 'linux' | 'win32';
   path: string;
@@ -397,7 +495,6 @@ function parseInstalledServiceMetadata(params: Readonly<{
     key,
   });
 
-  const parsedTargetMode = readValue('HAPPIER_DAEMON_SERVICE_TARGET_MODE');
   const parsedServerId = readValue('HAPPIER_ACTIVE_SERVER_ID');
   const parsedHappierHomeDir = readValue('HAPPIER_HOME_DIR') ?? readValue('HAPPIER_DAEMON_SERVICE_HAPPIER_HOME_DIR');
   const parsedRelayUrl = readValue('HAPPIER_PUBLIC_SERVER_URL') ?? readValue('HAPPIER_SERVER_URL');
@@ -407,7 +504,11 @@ function parseInstalledServiceMetadata(params: Readonly<{
     happierHomeDir: parsedHappierHomeDir,
     relayUrl: parsedRelayUrl,
     releaseChannel: parsedReleaseChannel ?? params.initialReleaseChannel,
-    targetMode: parsedTargetMode === 'default-following' ? 'default-following' : params.initialTargetMode,
+    targetMode: resolveInstalledDaemonServiceTargetMode({
+      platform: params.platform,
+      path: params.path,
+      pathTargetMode: params.initialTargetMode,
+    }),
   };
 }
 

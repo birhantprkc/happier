@@ -12,6 +12,7 @@ import {
   resolveWindowsDaemonServiceLogPaths,
   resolveWindowsDaemonTaskName,
   resolveWindowsDaemonWrapperPath,
+  type DaemonServiceAutostartMode,
   type DaemonServiceMode,
   type DaemonServiceTargetMode,
 } from './plan';
@@ -38,6 +39,18 @@ export type DaemonServiceInstallationSnapshot = Readonly<{
   platform: SupportedPlatform;
   installed: boolean;
   installedPath: string;
+  /** The service label a daemon started by this installation reports in its state. */
+  label: string;
+  /**
+   * Whether the installed definition follows the default relay or is pinned to one profile.
+   * `null` when nothing readable is installed here, so the mode is unknown rather than assumed.
+   */
+  targetMode: DaemonServiceTargetMode | null;
+  /**
+   * Whether the installed definition starts the daemon at login. `null` when nothing readable is
+   * installed here or the definition predates the declaration — unknown, never `at-login`.
+   */
+  autostart: DaemonServiceAutostartMode | null;
 }>;
 
 export type DaemonServiceListEntry = Readonly<{

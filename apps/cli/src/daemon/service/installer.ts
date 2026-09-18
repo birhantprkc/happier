@@ -16,10 +16,11 @@ import {
 import { assertDaemonServiceModeSupported } from './assertDaemonServiceModeSupported';
 import {
   discoverInstalledDaemonServiceEntries,
+  readInstalledDaemonServiceAutostartMode,
   type InstalledDaemonServiceEntry,
 } from './discoverInstalledDaemonServiceEntries';
 import { planDaemonServiceInstall, planDaemonServiceUninstall } from './plan';
-import type { DaemonServiceMode, DaemonServiceTargetMode } from './plan';
+import type { DaemonServiceAutostartMode, DaemonServiceMode, DaemonServiceTargetMode } from './plan';
 import { resolveDaemonServiceInstallRuntimeTarget } from './resolveDaemonServiceInstallRuntimeTarget';
 import { resolveDaemonServiceDiscoveryTargets } from './resolveDaemonServiceDiscoveryTargets';
 import type { PublicReleaseRingId } from '@happier-dev/release-runtime/releaseRings';
@@ -110,6 +111,8 @@ export type DaemonServiceInstallPreview = Readonly<{
   exactTargetMatchesExpectedDefinition: boolean;
   strategy: DaemonServiceInstallStrategy;
   conflictPlan: DaemonServiceInstallConflictPlan;
+  /** The mode the plan was built with, after inheriting from any installed service. */
+  autostart: DaemonServiceAutostartMode;
   plan: ReturnType<typeof planDaemonServiceInstall>;
 }>;
 
@@ -122,6 +125,12 @@ export async function previewDaemonServiceInstall(options: Readonly<{
   systemUser?: string;
   channel?: PublicReleaseRingId;
   targetMode?: DaemonServiceTargetMode;
+  /**
+   * Omit to keep whatever the already-installed service declares (and `at-login` when nothing
+   * is installed): a reinstall, repair or drift-refresh must not silently restore a login
+   * trigger the user turned off.
+   */
+  autostart?: DaemonServiceAutostartMode;
   darwinInstallMode?: 'rebootstrap' | 'kickstart';
   instanceId?: string;
   activeServerId?: string;
@@ -192,12 +201,19 @@ export async function previewDaemonServiceInstall(options: Readonly<{
     strategy,
     services: discoveredServices,
   });
-  const plan = planDaemonServiceInstall({
+  const installedTargetService = discoveredServices.find((service) => matchesInstallTarget(service, target)) ?? null;
+  const installedAutostart = installedTargetService
+    ? readInstalledDaemonServiceAutostartMode({ platform, path: installedTargetService.path })
+    : null;
+  const autostart: DaemonServiceAutostartMode = options.autostart ?? installedAutostart ?? 'at-login';
+  const buildPlan = (planAutostart: DaemonServiceAutostartMode, autostartTriggerChangeOnly = false) => planDaemonServiceInstall({
     platform,
     mode: options.mode,
     systemUser: options.systemUser,
     channel,
     targetMode,
+    autostart: planAutostart,
+    autostartTriggerChangeOnly,
     darwinInstallMode: options.darwinInstallMode,
     instanceId,
     activeServerId,
@@ -210,6 +226,22 @@ export async function previewDaemonServiceInstall(options: Readonly<{
     nodePath: runtimeTarget.nodePath,
     entryPath: runtimeTarget.entryPath,
   });
+  // "Otherwise unchanged" is proved, not assumed: render this same install with the mode the
+  // service already declares and compare it against what is on disk. If they match, the mode is
+  // the only difference and linux needs nothing but the login trigger.
+  const installedModeExpectedFile = installedTargetService && installedAutostart && installedAutostart !== autostart
+    ? buildPlan(installedAutostart).files[0] ?? null
+    : null;
+  const autostartTriggerChangeOnly = Boolean(
+    installedTargetService
+    && installedModeExpectedFile
+    && installedModeExpectedFile.path === installedTargetService.path
+    && doesInstalledDaemonServiceDefinitionMatchExpected({
+      installedPath: installedTargetService.path,
+      expectedContents: installedModeExpectedFile.content,
+    }),
+  );
+  const plan = buildPlan(autostart, autostartTriggerChangeOnly);
   const expectedInstalledFile = previewPlanFileForTarget({
     plan,
   });
@@ -229,6 +261,7 @@ export async function previewDaemonServiceInstall(options: Readonly<{
     exactTargetMatchesExpectedDefinition: Boolean(exactTargetMatchesExpectedDefinition),
     strategy,
     conflictPlan,
+    autostart,
     plan,
   };
 }
@@ -275,6 +308,12 @@ export async function installDaemonService(options: Readonly<{
   systemUser?: string;
   channel?: PublicReleaseRingId;
   targetMode?: DaemonServiceTargetMode;
+  /**
+   * Omit to keep whatever the already-installed service declares (and `at-login` when nothing
+   * is installed): a reinstall, repair or drift-refresh must not silently restore a login
+   * trigger the user turned off.
+   */
+  autostart?: DaemonServiceAutostartMode;
   darwinInstallMode?: 'rebootstrap' | 'kickstart';
   instanceId?: string;
   activeServerId?: string;

@@ -29,6 +29,8 @@ import {
   resolveDaemonServiceLaunchdLabel,
   resolveWindowsDaemonServiceLogPaths,
   resolveWindowsDaemonTaskName,
+  DAEMON_SERVICE_AUTOSTART_ENV_KEY,
+  type DaemonServiceAutostartMode,
   type DaemonServiceMode,
   type DaemonServicePlannedCommand,
   type DaemonServiceTargetMode,
@@ -50,7 +52,11 @@ import { restartDaemonAndWait } from '@/daemon/restartDaemonAndWait';
 import { resolveInvokerName } from '@/cli/runtime/resolveInvokerName';
 
 import { discoverInstalledDaemonServiceEntries } from './discoverInstalledDaemonServiceEntries';
-import { isValidInstalledDaemonServiceFile } from './discoverInstalledDaemonServiceEntries';
+import {
+  isValidInstalledDaemonServiceFile,
+  readInstalledDaemonServiceAutostartMode,
+  readInstalledDaemonServiceTargetMode,
+} from './discoverInstalledDaemonServiceEntries';
 import { resolveDaemonServiceDiscoveryTargets } from './resolveDaemonServiceDiscoveryTargets';
 import type { DaemonServiceInstallStrategy } from './daemonInstallConflict';
 import { assertDaemonServiceModeSupported } from './assertDaemonServiceModeSupported';
@@ -156,6 +162,18 @@ function resolveOptionalModeFromText(raw: string, source: string): DaemonService
   return resolveModeFromText(value, source);
 }
 
+function resolveAutostartFromText(raw: string, source: string): DaemonServiceAutostartMode {
+  const value = String(raw ?? '').trim().toLowerCase();
+  if (value === 'at-login' || value === 'on-demand') return value;
+  throw new Error(`Invalid ${source} value "${String(raw ?? '').trim()}" (expected at-login|on-demand)`);
+}
+
+function resolveOptionalAutostartFromText(raw: string, source: string): DaemonServiceAutostartMode | null {
+  const value = String(raw ?? '').trim();
+  if (!value) return null;
+  return resolveAutostartFromText(value, source);
+}
+
 function parseDaemonServiceCliInvocation(argv: readonly string[]): Readonly<{
   argvFiltered: string[];
   flags: Readonly<{
@@ -167,6 +185,7 @@ function parseDaemonServiceCliInvocation(argv: readonly string[]): Readonly<{
     replaceExisting: 'ring' | 'all' | null;
     ring: PublicReleaseRingId | null;
     instanceId: string | null;
+    autostart: DaemonServiceAutostartMode | null;
   }>;
   action: DaemonServiceCliAction;
   mode: DaemonServiceMode;
@@ -182,6 +201,7 @@ function parseDaemonServiceCliInvocation(argv: readonly string[]): Readonly<{
   let replaceExisting: 'ring' | 'all' | null = null;
   let ring: PublicReleaseRingId | null = null;
   let instanceId: string | null = null;
+  let autostart: DaemonServiceAutostartMode | null = null;
 
   for (let i = 0; i < argv.length; i += 1) {
     const a = String(argv[i] ?? '');
@@ -273,6 +293,24 @@ function parseDaemonServiceCliInvocation(argv: readonly string[]): Readonly<{
       continue;
     }
 
+    if (a === '--autostart') {
+      const next = String(argv[i + 1] ?? '');
+      if (!next || next.startsWith('-')) {
+        throw new Error('Missing value for --autostart (expected at-login|on-demand)');
+      }
+      autostart = resolveAutostartFromText(next, '--autostart');
+      i += 1;
+      continue;
+    }
+    if (a.startsWith('--autostart=')) {
+      autostart = resolveAutostartFromText(a.slice('--autostart='.length), '--autostart');
+      continue;
+    }
+    if (a === '--no-autostart') {
+      autostart = 'on-demand';
+      continue;
+    }
+
     if (a === '--system-user') {
       const next = String(argv[i + 1] ?? '');
       if (!next || next.startsWith('-')) {
@@ -300,7 +338,7 @@ function parseDaemonServiceCliInvocation(argv: readonly string[]): Readonly<{
 
   return {
     argvFiltered: filtered,
-    flags: { ...flags, yes, takeover, replaceExisting, ring, instanceId },
+    flags: { ...flags, yes, takeover, replaceExisting, ring, instanceId, autostart },
     action,
     mode,
     modeExplicit,
@@ -845,14 +883,27 @@ export function resolveDaemonServiceInstallationSnapshotFromEnv(options: Readonl
 }> = {}): DaemonServiceInstallationSnapshot {
   const runtime = resolveDaemonServiceCliRuntimeFromEnv(options);
   const paths = resolveDaemonServicePaths(runtime, { mode: options.mode });
+  const installed = isValidInstalledDaemonServiceFile({
+    platform: runtime.platform,
+    path: paths.installedPath,
+    expectedLabel: paths.label,
+  });
   return {
     platform: runtime.platform,
-    installed: isValidInstalledDaemonServiceFile({
+    installed,
+    installedPath: paths.installedPath,
+    label: paths.label,
+    targetMode: readInstalledDaemonServiceTargetMode({
       platform: runtime.platform,
       path: paths.installedPath,
-      expectedLabel: paths.label,
     }),
-    installedPath: paths.installedPath,
+    // A file that is not a readable Happier definition proves no mode, so it contributes none.
+    autostart: installed
+      ? readInstalledDaemonServiceAutostartMode({
+        platform: runtime.platform,
+        path: paths.installedPath,
+      })
+      : null,
   };
 }
 
@@ -907,12 +958,16 @@ export async function resolveDaemonServiceListEntries(
     entryPath: runtime.entryPath,
   }));
 
-  const expectedDefaultPlan = planDaemonServiceInstall({
+  // An installed service declares the autostart mode it was installed with, and the expected
+  // definition has to be built with that same mode — otherwise every on-demand installation
+  // reads as drifted and the repair paths keyed off this field would reinstall it at-login.
+  const buildExpectedDefaultPlan = (autostart: DaemonServiceAutostartMode) => planDaemonServiceInstall({
     platform: runtime.platform,
     mode: options.mode,
     systemUser: options.mode === 'system' ? String(options.systemUser ?? '').trim() : undefined,
     channel: runtime.channel,
     targetMode: 'default-following',
+    autostart,
     instanceId: runtime.instanceId,
     activeServerId: runtime.activeServerId,
     uid: runtime.uid ?? undefined,
@@ -924,7 +979,7 @@ export async function resolveDaemonServiceListEntries(
     nodePath: expectedDefaultRuntimeTarget.nodePath,
     entryPath: expectedDefaultRuntimeTarget.entryPath,
   });
-  const expectedDefaultFile = expectedDefaultPlan.files[0] ?? null;
+  const expectedDefaultFile = buildExpectedDefaultPlan('at-login').files[0] ?? null;
   if (!expectedDefaultFile) {
     return resolvedEntries;
   }
@@ -937,13 +992,24 @@ export async function resolveDaemonServiceListEntries(
       return entry;
     }
 
+    const declaredAutostart = readInstalledDaemonServiceAutostartMode({
+      platform: runtime.platform,
+      path: entry.path,
+    });
+    const expectedFile = declaredAutostart && declaredAutostart !== 'at-login'
+      ? buildExpectedDefaultPlan(declaredAutostart).files[0] ?? null
+      : expectedDefaultFile;
+
+    if (!expectedFile || entry.path !== expectedFile.path) {
+      return { ...entry, installedDefinitionMatchesExpected: false };
+    }
+
     return {
       ...entry,
-      installedDefinitionMatchesExpected: entry.path === expectedDefaultFile.path
-        && doesInstalledDaemonServiceDefinitionMatchExpected({
-          installedPath: entry.path,
-          expectedContents: expectedDefaultFile.content,
-        }),
+      installedDefinitionMatchesExpected: doesInstalledDaemonServiceDefinitionMatchExpected({
+        installedPath: entry.path,
+        expectedContents: expectedFile.content,
+      }),
     };
   });
 }
@@ -1233,6 +1299,12 @@ export async function runDaemonServiceCliCommand(params: Readonly<{
     flags.ring || flags.instanceId
       ? 'pinned'
       : resolveDaemonServiceTargetModeFromText(process.env.HAPPIER_DAEMON_SERVICE_TARGET_MODE || 'default-following');
+  // The env value a process started *by* the background service inherits from its own definition.
+  // It is the weakest input on purpose — see `effectiveAutostart` below.
+  const inheritedAutostart: DaemonServiceAutostartMode | null = resolveOptionalAutostartFromText(
+    process.env[DAEMON_SERVICE_AUTOSTART_ENV_KEY] ?? '',
+    DAEMON_SERVICE_AUTOSTART_ENV_KEY,
+  );
   const runtime = resolveDaemonServiceCliRuntimeFromEnv({
     mode,
     systemUser,
@@ -1252,7 +1324,7 @@ export async function runDaemonServiceCliCommand(params: Readonly<{
         printJson({
           ok: true,
           commands: ['list', 'paths', 'install', 'uninstall', 'repair', 'start', 'stop', 'restart', 'status', 'logs', 'tail'],
-          flags: ['--json', '--dry-run', '--yes', '--takeover', '--replace-existing=ring|all', '--ring', '--instance', '--all'],
+          flags: ['--json', '--dry-run', '--yes', '--takeover', '--replace-existing=ring|all', '--ring', '--instance', '--all', '--autostart=at-login|on-demand', '--no-autostart'],
         });
         return;
     }
@@ -1264,12 +1336,18 @@ export async function runDaemonServiceCliCommand(params: Readonly<{
         '  happier service list [--json]',
         '  happier service paths [--json]',
         '  happier service status [--json]',
-        '  happier service install [--local-relay] [--dry-run] [--yes] [--takeover] [--replace-existing=ring|all] [--json]',
+        '  happier service install [--local-relay] [--dry-run] [--yes] [--takeover] [--replace-existing=ring|all] [--autostart <at-login|on-demand>] [--no-autostart] [--json]',
         '  happier service uninstall [--ring <stable|preview|dev>] [--instance <id>] [--all] [--yes] [--dry-run] [--json]',
         '  happier service repair [--yes] [--json] (legacy alias for `happier doctor repair`)',
         '  happier service start|stop|restart [--dry-run] [--takeover] [--json]',
         '  happier service logs [--json]',
         '  happier service tail',
+        '',
+        'Autostart:',
+        '  --no-autostart installs the background service without a login trigger, so the',
+        '  daemon runs only while something starts it (the desktop app, or `happier service start`).',
+        '  Re-run install with --autostart at-login to start it at login again. Without either',
+        '  flag an existing installation keeps the mode it already has.',
         '',
         'Compatibility aliases:',
         '  happier daemon service ...',
@@ -1396,12 +1474,26 @@ export async function runDaemonServiceCliCommand(params: Readonly<{
       return;
     }
 
+    // Resolution order, weakest last: an explicit flag, then the mode the installed service
+    // already declares — so a reinstall, repair or drift refresh never silently restores a login
+    // trigger the user turned off — then the inherited env, which may only decide when there is no
+    // installed definition to inherit from. A process the service itself started carries that env
+    // from the definition it was launched with, so letting it outrank the file would let a stale
+    // value re-arm the login trigger with no flag and no prompt.
+    const effectiveAutostart: DaemonServiceAutostartMode = flags.autostart
+      ?? readInstalledDaemonServiceAutostartMode({
+        platform: installRuntime.platform,
+        path: paths.installedPath,
+      })
+      ?? inheritedAutostart
+      ?? 'at-login';
     const plan = planDaemonServiceInstall({
       platform: installRuntime.platform,
       mode,
       systemUser,
       channel: installRuntime.channel,
       targetMode: installRuntime.targetMode,
+      autostart: effectiveAutostart,
       instanceId: installRuntime.instanceId,
       activeServerId: installRuntime.activeServerId,
       uid: installRuntime.uid ?? undefined,
@@ -1434,6 +1526,7 @@ export async function runDaemonServiceCliCommand(params: Readonly<{
         systemUser,
         channel: installRuntime.channel,
         targetMode: installRuntime.targetMode,
+        autostart: effectiveAutostart,
         darwinInstallMode: shouldKickstartCurrentDarwinInstall ? 'kickstart' : undefined,
         instanceId: installRuntime.instanceId,
         activeServerId: installRuntime.activeServerId,
@@ -1453,6 +1546,7 @@ export async function runDaemonServiceCliCommand(params: Readonly<{
         printJson({
           ok: true,
           platform: installRuntime.platform,
+          autostart: preview.autostart,
           plan: preview.plan,
           installConflict: installConflict ? {
             blocking: installConflict.blocking,
@@ -1465,6 +1559,11 @@ export async function runDaemonServiceCliCommand(params: Readonly<{
         });
         return;
       }
+      process.stdout.write(
+        preview.autostart === 'on-demand'
+          ? '[dry-run] autostart: on-demand (installed without a login trigger)\n'
+          : '[dry-run] autostart: at-login\n',
+      );
       process.stdout.write(`[dry-run] would write: ${preview.plan.files.map((f) => f.path).join(', ')}\n`);
       for (const c of preview.plan.commands) process.stdout.write(`[dry-run] would run: ${c.cmd} ${c.args.join(' ')}\n`);
       if (installConflict) {
@@ -1499,6 +1598,7 @@ export async function runDaemonServiceCliCommand(params: Readonly<{
             systemUser,
             channel: installRuntime.channel,
             targetMode: installRuntime.targetMode,
+            autostart: effectiveAutostart,
             darwinInstallMode: shouldKickstartCurrentDarwinInstall ? 'kickstart' : undefined,
             instanceId: installRuntime.instanceId,
             activeServerId: installRuntime.activeServerId,
@@ -1758,6 +1858,12 @@ export async function runDaemonServiceCliCommand(params: Readonly<{
           systemUser: mode === 'system' ? systemUser : undefined,
           channel: runtime.channel,
           targetMode: runtime.targetMode,
+          // Refreshing a drifted definition must not re-arm a login trigger the
+          // user turned off, so the installed declaration decides here.
+          autostart: readInstalledDaemonServiceAutostartMode({
+            platform: runtime.platform,
+            path: paths.installedPath,
+          }) ?? 'at-login',
           instanceId: runtime.instanceId,
           activeServerId: runtime.activeServerId,
           uid: runtime.uid ?? undefined,
@@ -1808,23 +1914,36 @@ export async function runDaemonServiceCliCommand(params: Readonly<{
     )
       ? 'restart'
       : action;
-    const lifecyclePlan = planDaemonServiceLifecycle({
-      platform: runtime.platform,
-      action: lifecycleAction,
-      mode,
-      channel: runtime.channel,
-      targetMode: runtime.targetMode,
-      instanceId: runtime.instanceId,
-      userHomeDir: runtime.userHomeDir,
-      happierHomeDir: runtime.happierHomeDir,
-      uid: runtime.uid ?? undefined,
-      darwinStartMode: lifecycleAction === 'start' && shouldKickstartCurrentDarwinService
-        ? 'kickstart'
-        : undefined,
-      darwinRestartMode: lifecycleAction === 'restart' && shouldKickstartCurrentDarwinService && !refreshedInstalledServiceDefinition
-        ? 'kickstart'
-        : undefined,
-    });
+    // `start` means "make sure it is running", and on darwin the only way to start an
+    // already-running launchd job is `kickstart -k` — kill, then start. When this very service
+    // label already owns a compatible, healthy running daemon and its definition is current,
+    // `start` has nothing left to do, so it must run nothing rather than drop the daemon the
+    // user is using. `restart` keeps its meaning: it is asked for when a restart is wanted.
+    const darwinServiceAlreadyStarted = lifecycleAction === 'start'
+      && runtime.platform === 'darwin'
+      && shouldKickstartCurrentDarwinService
+      && ownership.kind === 'compatible'
+      && ownershipHealthCommand !== null
+      && runCommandCaptureBestEffort(ownershipHealthCommand).ok;
+    const lifecyclePlan = darwinServiceAlreadyStarted
+      ? { platform: runtime.platform, commands: [] as DaemonServicePlannedCommand[] }
+      : planDaemonServiceLifecycle({
+        platform: runtime.platform,
+        action: lifecycleAction,
+        mode,
+        channel: runtime.channel,
+        targetMode: runtime.targetMode,
+        instanceId: runtime.instanceId,
+        userHomeDir: runtime.userHomeDir,
+        happierHomeDir: runtime.happierHomeDir,
+        uid: runtime.uid ?? undefined,
+        darwinStartMode: lifecycleAction === 'start' && shouldKickstartCurrentDarwinService
+          ? 'kickstart'
+          : undefined,
+        darwinRestartMode: lifecycleAction === 'restart' && shouldKickstartCurrentDarwinService && !refreshedInstalledServiceDefinition
+          ? 'kickstart'
+          : undefined,
+      });
     const plan = serviceDefinitionReloadCommands.length > 0
       ? { ...lifecyclePlan, commands: [...serviceDefinitionReloadCommands, ...lifecyclePlan.commands] }
       : lifecyclePlan;

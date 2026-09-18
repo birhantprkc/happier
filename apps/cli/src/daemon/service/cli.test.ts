@@ -46,6 +46,7 @@ const SCOPED_ENV_KEYS = [
   'HAPPIER_DAEMON_SERVICE_SYSTEM_USER',
   'HAPPIER_DAEMON_SERVICE_CHANNEL',
   'HAPPIER_DAEMON_SERVICE_TARGET_MODE',
+  'HAPPIER_DAEMON_SERVICE_AUTOSTART',
   'HAPPIER_PUBLIC_RELEASE_CHANNEL',
   'HAPPIER_SERVER_URL',
   'HAPPIER_PUBLIC_SERVER_URL',
@@ -2193,6 +2194,115 @@ describe('runDaemonServiceCliCommand', () => {
     });
   });
 
+  /**
+   * `start` means "make sure it is running". On macOS the only way to start an already-running
+   * launchd job is `kickstart -k`, which kills it first — so starting the healthy, compatible,
+   * service-managed daemon this very service label already owns would drop the daemon the user is
+   * using. Nothing is left to do, so nothing is run. `restart` keeps its meaning.
+   */
+  it('runs nothing when starting the healthy darwin service that already owns the running daemon', async () => {
+    await withTempDir('happier-service-start-same-owner-noop-', async (homeDir) => {
+      const happierHomeDir = `${homeDir}/.happier`;
+      envScope.patch({
+        HAPPIER_HOME_DIR: happierHomeDir,
+        HAPPIER_DAEMON_SERVICE_PLATFORM: 'darwin',
+        HAPPIER_DAEMON_SERVICE_USER_HOME_DIR: homeDir,
+        HAPPIER_DAEMON_SERVICE_HAPPIER_HOME_DIR: happierHomeDir,
+        HAPPIER_DAEMON_SERVICE_TARGET_MODE: 'default-following',
+        HAPPIER_DAEMON_SERVICE_OWNERSHIP_WAIT_TIMEOUT_MS: '500',
+        HAPPIER_DAEMON_SERVICE_OWNERSHIP_WAIT_POLL_MS: '10',
+        HAPPIER_DAEMON_SERVICE_OWNERSHIP_STABLE_MS: '20',
+      });
+      vi.resetModules();
+      const launchctlCalls: string[][] = [];
+      vi.doMock('node:child_process', async (importOriginal) => {
+        const actual = await importOriginal<typeof import('node:child_process')>();
+        return {
+          ...actual,
+          spawnSync: vi.fn((command: string, args: readonly string[] = []) => {
+            if (command === 'launchctl') {
+              launchctlCalls.push([...args]);
+              if (String(args[0] ?? '') === 'print') {
+                return { status: 0, stdout: Buffer.from('state = running'), stderr: Buffer.from('') };
+              }
+            }
+            return { status: 0, stdout: Buffer.from(''), stderr: Buffer.from('') };
+          }),
+        };
+      });
+      vi.doMock('./commandExistsInPath', () => ({
+        commandExistsInPath: vi.fn(() => true),
+      }));
+
+      const [{ runDaemonServiceCliCommand, resolveDaemonServiceCliRuntimeFromEnv, resolveDaemonServicePaths }, { writeDaemonState }, { configuration }, { resolveDaemonServiceInstallRuntimeTarget }] = await Promise.all([
+        loadCliModule(),
+        import('@/persistence'),
+        import('@/configuration'),
+        import('./resolveDaemonServiceInstallRuntimeTarget'),
+      ]);
+
+      const runtime = resolveDaemonServiceCliRuntimeFromEnv({ targetMode: 'default-following' });
+      const paths = resolveDaemonServicePaths(runtime);
+      const installRuntimeTarget = await resolveDaemonServiceInstallRuntimeTarget({
+        currentExecPath: process.execPath,
+        explicitNodePath: process.env.HAPPIER_DAEMON_SERVICE_NODE_PATH ?? '',
+        explicitEntryPath: process.env.HAPPIER_DAEMON_SERVICE_ENTRY_PATH ?? '',
+        targetMode: runtime.targetMode,
+        processEnv: process.env,
+      });
+      mkdirSync(dirname(paths.installedPath), { recursive: true });
+      writeFileSync(paths.installedPath, planDaemonServiceInstall({
+        platform: runtime.platform,
+        channel: runtime.channel,
+        targetMode: runtime.targetMode,
+        instanceId: runtime.instanceId,
+        uid: runtime.uid ?? undefined,
+        userHomeDir: runtime.userHomeDir,
+        happierHomeDir: runtime.happierHomeDir,
+        serverUrl: runtime.serverUrl,
+        webappUrl: runtime.webappUrl,
+        publicServerUrl: runtime.publicServerUrl,
+        nodePath: installRuntimeTarget.nodePath,
+        entryPath: installRuntimeTarget.entryPath,
+      }).files[0]?.content ?? '', 'utf-8');
+
+      writeDaemonState({
+        pid: process.pid,
+        httpPort: 43127,
+        startedAt: Date.now(),
+        startedWithCliVersion: configuration.currentCliVersion,
+        startedWithPublicReleaseChannel: 'stable',
+        startupSource: 'background-service',
+        serviceLabel: paths.label,
+      });
+
+      const output = captureStdoutJsonOutput<{
+        ok: boolean;
+        plan?: { commands: Array<{ cmd: string; args: string[] }> };
+      }>();
+      try {
+        await runDaemonServiceCliCommand({ argv: ['start', '--dry-run', '--json'] });
+        expect(output.json().plan?.commands).toEqual([]);
+      } finally {
+        output.restore();
+      }
+
+      // And the real path: the command succeeds, and the only launchctl call it makes is the
+      // read-only health probe — no `kickstart -k`, which would have killed the daemon first.
+      launchctlCalls.length = 0;
+      const applied = captureStdoutJsonOutput<{ ok: boolean; platform: string }>();
+      try {
+        await runDaemonServiceCliCommand({ argv: ['start', '--json'] });
+        const payload = applied.json();
+        expect(payload.ok).toBe(true);
+        expect(launchctlCalls.map((args) => args[0])).not.toContain('kickstart');
+        expect(launchctlCalls.map((args) => args[0])).not.toContain('bootout');
+      } finally {
+        applied.restore();
+      }
+    });
+  });
+
   it('allows restarting the currently owning background service label', async () => {
     await withTempDir('happier-service-restart-same-owner-', async (homeDir) => {
       const happierHomeDir = `${homeDir}/.happier`;
@@ -2657,6 +2767,136 @@ describe('runDaemonServiceCliCommand', () => {
     } finally {
       output.restore();
     }
+  });
+
+  it('reports the autostart mode in install dry-run JSON and drops the login trigger on request', async () => {
+    const { runDaemonServiceCliCommand } = await loadCliModule();
+    const baseEnv = {
+      HAPPIER_DAEMON_SERVICE_PLATFORM: 'linux',
+      HAPPIER_DAEMON_SERVICE_USER_HOME_DIR: '/tmp',
+      HAPPIER_DAEMON_SERVICE_HAPPIER_HOME_DIR: '/tmp/happier',
+      HAPPIER_DAEMON_SERVICE_NODE_PATH: '/usr/local/bin/happier',
+      HAPPIER_DAEMON_SERVICE_ENTRY_PATH: '',
+      PATH: '/usr/bin',
+    } as const;
+
+    type InstallPreviewPayload = {
+      ok: boolean;
+      autostart: string;
+      plan: { files: Array<{ content: string }>; commands: Array<{ cmd: string; args: string[] }> };
+    };
+    const runInstallPreview = async (argv: readonly string[]): Promise<InstallPreviewPayload> => {
+      envScope.patch({ ...baseEnv });
+      const output = captureStdoutJsonOutput<InstallPreviewPayload>();
+      try {
+        await runDaemonServiceCliCommand({ argv });
+        return output.json();
+      } finally {
+        output.restore();
+      }
+    };
+    const commandText = (payload: InstallPreviewPayload): string =>
+      payload.plan.commands.map((c) => `${c.cmd} ${c.args.join(' ')}`).join('\n');
+
+    const byDefault = await runInstallPreview(['install', '--dry-run', '--json']);
+    expect(byDefault.autostart).toBe('at-login');
+    expect(commandText(byDefault)).toContain('systemctl --user enable happier-daemon.default.service');
+
+    const onDemand = await runInstallPreview(['install', '--dry-run', '--json', '--no-autostart']);
+    expect(onDemand.autostart).toBe('on-demand');
+    expect(commandText(onDemand)).toContain('systemctl --user disable happier-daemon.default.service');
+    expect(commandText(onDemand)).not.toContain('systemctl --user enable happier-daemon.default.service');
+    expect(onDemand.plan.files[0]?.content).toContain('Environment=HAPPIER_DAEMON_SERVICE_AUTOSTART=on-demand');
+
+    const explicit = await runInstallPreview(['install', '--dry-run', '--json', '--autostart=on-demand']);
+    expect(explicit.autostart).toBe('on-demand');
+  });
+
+  /**
+   * Resolution order for the autostart dimension: an explicit flag, then what the installed
+   * service already declares, then `HAPPIER_DAEMON_SERVICE_AUTOSTART` — which a process started
+   * *by* the service inherits, so it may only decide when nothing is installed to inherit from.
+   * Letting it outrank the installed definition re-arms a login trigger the user turned off,
+   * from a stale value, with no flag and no prompt.
+   */
+  it('lets the installed definition outrank the inherited autostart env, and the flag outrank both', async () => {
+    await withTempDir('happier-service-install-autostart-precedence-', async (homeDir) => {
+      const happierHomeDir = `${homeDir}/.happier`;
+      const baseEnv = {
+        HAPPIER_HOME_DIR: happierHomeDir,
+        HAPPIER_DAEMON_SERVICE_PLATFORM: 'linux',
+        HAPPIER_DAEMON_SERVICE_USER_HOME_DIR: homeDir,
+        HAPPIER_DAEMON_SERVICE_HAPPIER_HOME_DIR: happierHomeDir,
+        HAPPIER_DAEMON_SERVICE_NODE_PATH: '/usr/local/bin/happier',
+        HAPPIER_DAEMON_SERVICE_ENTRY_PATH: '',
+        PATH: '/usr/bin',
+      } as const;
+      envScope.patch({ ...baseEnv });
+      vi.resetModules();
+
+      const { runDaemonServiceCliCommand, resolveDaemonServiceCliRuntimeFromEnv, resolveDaemonServicePaths } = await loadCliModule();
+      const runtime = resolveDaemonServiceCliRuntimeFromEnv({ targetMode: 'default-following' });
+      const paths = resolveDaemonServicePaths(runtime);
+
+      type Payload = { ok: boolean; autostart: string };
+      const previewAutostart = async (argv: readonly string[], env: Record<string, string>): Promise<string> => {
+        envScope.patch({ ...baseEnv, ...env });
+        const output = captureStdoutJsonOutput<Payload>();
+        try {
+          await runDaemonServiceCliCommand({ argv });
+          return output.json().autostart;
+        } finally {
+          output.restore();
+        }
+      };
+
+      // Nothing installed yet: the inherited env is the only thing that proves an intent.
+      expect(await previewAutostart(
+        ['install', '--dry-run', '--json'],
+        { HAPPIER_DAEMON_SERVICE_AUTOSTART: 'on-demand' },
+      )).toBe('on-demand');
+
+      // Now a service is installed on-demand. The stale env must not move it.
+      mkdirSync(dirname(paths.installedPath), { recursive: true });
+      writeFileSync(
+        paths.installedPath,
+        planDaemonServiceInstall({
+          platform: runtime.platform,
+          mode: 'user',
+          channel: runtime.channel,
+          targetMode: runtime.targetMode,
+          autostart: 'on-demand',
+          instanceId: runtime.instanceId,
+          activeServerId: runtime.activeServerId,
+          userHomeDir: runtime.userHomeDir,
+          happierHomeDir: runtime.happierHomeDir,
+          serverUrl: runtime.serverUrl,
+          webappUrl: runtime.webappUrl,
+          publicServerUrl: runtime.publicServerUrl,
+          nodePath: '/usr/local/bin/happier',
+          entryPath: '',
+        }).files[0]?.content ?? '',
+        'utf-8',
+      );
+
+      expect(await previewAutostart(
+        ['install', '--dry-run', '--json'],
+        { HAPPIER_DAEMON_SERVICE_AUTOSTART: 'at-login' },
+      )).toBe('on-demand');
+
+      // An explicit request still wins over both.
+      expect(await previewAutostart(
+        ['install', '--dry-run', '--json', '--autostart=at-login'],
+        { HAPPIER_DAEMON_SERVICE_AUTOSTART: 'on-demand' },
+      )).toBe('at-login');
+    });
+  });
+
+  it('rejects invalid --autostart values', async () => {
+    const { runDaemonServiceCliCommand } = await loadCliModule();
+    await expect(runDaemonServiceCliCommand({ argv: ['paths', '--autostart', 'maybe'] })).rejects.toThrow(
+      'Invalid --autostart value "maybe" (expected at-login|on-demand)',
+    );
   });
 
   it('reports competing background services in install dry-run JSON output', async () => {

@@ -50,9 +50,17 @@ vi.mock('./resolveDaemonServiceInstallRuntimeTarget', () => ({
   resolveDaemonServiceInstallRuntimeTarget: resolveDaemonServiceInstallRuntimeTargetMock,
 }));
 
-vi.mock('./discoverInstalledDaemonServiceEntries', () => ({
-  discoverInstalledDaemonServiceEntries: discoverInstalledDaemonServiceEntriesMock,
-}));
+vi.mock('./discoverInstalledDaemonServiceEntries', async () => {
+  // Spread the real module: only discovery is faked here, and the installer also
+  // reads the installed definition's autostart declaration from this owner.
+  const actual = await vi.importActual<typeof import('./discoverInstalledDaemonServiceEntries')>(
+    './discoverInstalledDaemonServiceEntries',
+  );
+  return {
+    ...actual,
+    discoverInstalledDaemonServiceEntries: discoverInstalledDaemonServiceEntriesMock,
+  };
+});
 
 describe('installDaemonService conflict handling', () => {
   afterEach(() => {

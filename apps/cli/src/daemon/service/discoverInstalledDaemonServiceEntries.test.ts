@@ -6,7 +6,7 @@ import { buildLaunchdPlistXml, renderSystemdServiceUnit, renderWindowsScheduledT
 
 import { withTempDir } from '@/testkit/fs/tempDir';
 
-import { discoverInstalledDaemonServiceEntries } from './discoverInstalledDaemonServiceEntries';
+import { discoverInstalledDaemonServiceEntries, readInstalledDaemonServiceAutostartMode } from './discoverInstalledDaemonServiceEntries';
 
 const { spawnSyncMock } = vi.hoisted(() => ({
   spawnSyncMock: vi.fn<typeof import('node:child_process').spawnSync>(),
@@ -65,6 +65,46 @@ describe('discoverInstalledDaemonServiceEntries', () => {
     });
   });
 
+  /**
+   * A stable-ring service pinned to the profile named `default` occupies the same unit name the
+   * default-following installation uses, so the file name cannot decide the mode. The definition
+   * declares it, and a definition that says `pinned` is pinned.
+   */
+  it('reports a pinned definition on the default-segment unit name as pinned', async () => {
+    await withTempDir('happier-discover-service-entry-pinned-default-segment-', async (homeDir) => {
+      const servicesDir = join(homeDir, '.config', 'systemd', 'user');
+      mkdirSync(servicesDir, { recursive: true });
+      const path = join(servicesDir, 'happier-daemon.default.service');
+      writeFileSync(
+        path,
+        renderSystemdServiceUnit({
+          description: 'Happier Daemon',
+          execStart: ['/Users/tester/.happier/cli/current/happier', 'daemon', 'start-sync'],
+          env: {
+            HAPPIER_ACTIVE_SERVER_ID: 'default',
+            HAPPIER_DAEMON_STARTUP_SOURCE: 'background-service',
+            HAPPIER_DAEMON_SERVICE_TARGET_MODE: 'pinned',
+            HAPPIER_PUBLIC_RELEASE_CHANNEL: 'stable',
+          },
+          wantedBy: 'default.target',
+        }),
+        'utf-8',
+      );
+
+      const entries = await discoverInstalledDaemonServiceEntries({
+        platform: 'linux',
+        userHomeDir: homeDir,
+        happierHomeDir: join(homeDir, '.happier'),
+        mode: 'user',
+        serversById: { default: { name: 'Default', serverUrl: 'https://relay.example.test' } },
+      });
+
+      expect(entries).toEqual([
+        expect.objectContaining({ serverId: 'default', targetMode: 'pinned', path }),
+      ]);
+    });
+  });
+
   it('keeps explicit pinned service identity separate from the active relay profile id', async () => {
     await withTempDir('happier-discover-service-entry-pinned-active-profile-', async (homeDir) => {
       const servicesDir = join(homeDir, '.config', 'systemd', 'user');
@@ -109,6 +149,119 @@ describe('discoverInstalledDaemonServiceEntries', () => {
           path,
         }),
       ]);
+    });
+  });
+
+  describe('readInstalledDaemonServiceAutostartMode', () => {
+    /**
+     * The mode a caller acts on has to describe what the platform will actually do. On darwin
+     * the login trigger is the plist's own `RunAtLoad`, so that key decides and the recorded
+     * declaration cannot outvote it: `launchctl`-driven edits or a hand-edited plist would
+     * otherwise leave the desktop toggle claiming this computer answers at login when it does
+     * not.
+     */
+    it('reads the darwin login trigger from RunAtLoad, not from the recorded declaration', async () => {
+      await withTempDir('happier-autostart-darwin-runatload-', async (homeDir) => {
+        const path = join(homeDir, 'Library', 'LaunchAgents', 'com.happier.cli.daemon.default.plist');
+        mkdirSync(join(homeDir, 'Library', 'LaunchAgents'), { recursive: true });
+        writeFileSync(
+          path,
+          buildLaunchdPlistXml({
+            label: 'com.happier.cli.daemon.default',
+            programArgs: ['/Users/tester/.happier/cli/current/happier', 'daemon', 'start-sync'],
+            env: {
+              HAPPIER_DAEMON_STARTUP_SOURCE: 'background-service',
+              HAPPIER_DAEMON_SERVICE_AUTOSTART: 'at-login',
+            },
+            stdoutPath: '/tmp/out.log',
+            stderrPath: '/tmp/err.log',
+            runAtLoad: false,
+            keepAliveOnFailure: false,
+          }),
+          'utf-8',
+        );
+
+        expect(readInstalledDaemonServiceAutostartMode({ platform: 'darwin', path })).toBe('on-demand');
+      });
+    });
+
+    it('reads an at-login darwin definition from RunAtLoad', async () => {
+      await withTempDir('happier-autostart-darwin-runatload-login-', async (homeDir) => {
+        const path = join(homeDir, 'Library', 'LaunchAgents', 'com.happier.cli.daemon.default.plist');
+        mkdirSync(join(homeDir, 'Library', 'LaunchAgents'), { recursive: true });
+        writeFileSync(
+          path,
+          buildLaunchdPlistXml({
+            label: 'com.happier.cli.daemon.default',
+            programArgs: ['/Users/tester/.happier/cli/current/happier', 'daemon', 'start-sync'],
+            env: {
+              HAPPIER_DAEMON_STARTUP_SOURCE: 'background-service',
+              HAPPIER_DAEMON_SERVICE_AUTOSTART: 'on-demand',
+            },
+            stdoutPath: '/tmp/out.log',
+            stderrPath: '/tmp/err.log',
+            runAtLoad: true,
+          }),
+          'utf-8',
+        );
+
+        expect(readInstalledDaemonServiceAutostartMode({ platform: 'darwin', path })).toBe('at-login');
+      });
+    });
+
+    /**
+     * Linux and Windows keep the recorded declaration: their real trigger is a systemd enable
+     * symlink / a scheduled-task trigger, and reading either needs a `systemctl is-enabled` or
+     * `schtasks /Query` subprocess that this synchronous reader runs on the healthy status
+     * fast path. Neither platform is read from the OS here.
+     */
+    /**
+     * The Windows trigger lives in the registered task, not in the wrapper this reader parses, so
+     * the marker stays the only thing that reports the mode — including for the never-due `ONCE`
+     * task an on-demand install registers. Uninstall and drift refresh read the same wrapper.
+     */
+    it('keeps the recorded declaration on win32', async () => {
+      await withTempDir('happier-autostart-win32-declaration-', async (homeDir) => {
+        const path = join(homeDir, '.happier', 'services', 'happier-daemon.default.ps1');
+        mkdirSync(join(homeDir, '.happier', 'services'), { recursive: true });
+        writeFileSync(
+          path,
+          renderWindowsScheduledTaskWrapperPs1({
+            programArgs: ['C:\\Users\\test\\.happier\\cli\\current\\happier.exe', 'daemon', 'start-sync'],
+            env: {
+              HAPPIER_DAEMON_STARTUP_SOURCE: 'background-service',
+              HAPPIER_DAEMON_SERVICE_AUTOSTART: 'on-demand',
+            },
+            stdoutPath: 'C:\\out.log',
+            stderrPath: 'C:\\err.log',
+          }),
+          'utf-8',
+        );
+
+        expect(readInstalledDaemonServiceAutostartMode({ platform: 'win32', path })).toBe('on-demand');
+      });
+    });
+
+    it('keeps the recorded declaration on linux', async () => {
+      await withTempDir('happier-autostart-linux-declaration-', async (homeDir) => {
+        const path = join(homeDir, '.config', 'systemd', 'user', 'happier-daemon.default.service');
+        mkdirSync(join(homeDir, '.config', 'systemd', 'user'), { recursive: true });
+        writeFileSync(
+          path,
+          renderSystemdServiceUnit({
+            description: 'Happier CLI daemon (default)',
+            execStart: ['/usr/local/bin/happier', 'daemon', 'start-sync'],
+            env: {
+              HAPPIER_DAEMON_STARTUP_SOURCE: 'background-service',
+              HAPPIER_DAEMON_SERVICE_AUTOSTART: 'on-demand',
+            },
+            wantedBy: 'default.target',
+          }),
+          'utf-8',
+        );
+
+        expect(readInstalledDaemonServiceAutostartMode({ platform: 'linux', path })).toBe('on-demand');
+      });
     });
   });
 
