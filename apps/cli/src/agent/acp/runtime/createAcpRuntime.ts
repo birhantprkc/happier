@@ -570,7 +570,6 @@ export function createAcpRuntime(params: {
   }> | null = null;
   let accumulatedResponse = '';
   let accumulatedAssistantSegmentResponse = '';
-  let accumulatedAssistantTranscriptSegmentResponse = '';
   let accumulatedThinkingText = '';
   let isResponseInProgress = false;
   let taskStartedSent = false;
@@ -809,7 +808,6 @@ export function createAcpRuntime(params: {
     }
     accumulatedResponse = '';
     accumulatedAssistantSegmentResponse = '';
-    accumulatedAssistantTranscriptSegmentResponse = '';
     accumulatedThinkingText = '';
     isResponseInProgress = false;
     taskStartedSent = false;
@@ -1321,12 +1319,8 @@ export function createAcpRuntime(params: {
 
       switch (msg.type) {
         case 'model-output': {
-          if (msg.startsNewSegment) {
-            accumulatedAssistantSegmentResponse = '';
-          }
           const fullText = typeof (msg as any).fullText === 'string' ? String((msg as any).fullText) : '';
           let deltaRaw = typeof (msg as any).textDelta === 'string' ? String((msg as any).textDelta) : '';
-          let replacesAssistantText = false;
           if (!deltaRaw && fullText) {
             const fullTextScope = msg.fullTextScope ?? 'turn';
             const reconciledText = fullTextScope === 'segment'
@@ -1336,40 +1330,11 @@ export function createAcpRuntime(params: {
               deltaRaw = fullText.slice(reconciledText.length);
             } else {
               // Defensive: if a provider restarts and sends divergent fullText, restart snapshot reconciliation.
-              const retainedTurnPrefixLength = Math.max(
-                0,
-                accumulatedResponse.length - accumulatedAssistantSegmentResponse.length,
-              );
-              const retainedTurnPrefix = accumulatedResponse.slice(0, retainedTurnPrefixLength);
               if (fullTextScope === 'turn') {
-                const flushedTurnPrefixLength = Math.max(
-                  0,
-                  accumulatedResponse.length - accumulatedAssistantTranscriptSegmentResponse.length,
-                );
-                const flushedTurnPrefix = accumulatedResponse.slice(0, flushedTurnPrefixLength);
-                if (fullText.startsWith(flushedTurnPrefix)) {
-                  accumulatedResponse = flushedTurnPrefix;
-                  accumulatedAssistantTranscriptSegmentResponse = '';
-                  deltaRaw = fullText.slice(flushedTurnPrefix.length);
-                } else {
-                  accumulatedResponse = '';
-                  accumulatedAssistantTranscriptSegmentResponse = '';
-                  deltaRaw = fullText;
-                }
-              } else {
-                const retainedTranscriptPrefixLength = Math.max(
-                  0,
-                  accumulatedAssistantTranscriptSegmentResponse.length - accumulatedAssistantSegmentResponse.length,
-                );
-                accumulatedAssistantTranscriptSegmentResponse = accumulatedAssistantTranscriptSegmentResponse.slice(
-                  0,
-                  retainedTranscriptPrefixLength,
-                );
-                accumulatedResponse = retainedTurnPrefix;
-                deltaRaw = fullText;
+                accumulatedResponse = '';
               }
               accumulatedAssistantSegmentResponse = '';
-              replacesAssistantText = true;
+              deltaRaw = fullText;
             }
           }
           if (acpTraceMarkersEnabled && sessionId && deltaRaw.includes('ACP_STUB_')) {
@@ -1392,20 +1357,11 @@ export function createAcpRuntime(params: {
             appendToAccumulatedResponse: (delta) => {
               accumulatedResponse += delta;
               accumulatedAssistantSegmentResponse += delta;
-              accumulatedAssistantTranscriptSegmentResponse += delta;
             },
-            ...(replacesAssistantText ? { replaceBufferedAssistantText: accumulatedResponse + deltaRaw } : {}),
           });
           params.turnAssistantPreviewTracker?.replace(accumulatedResponse);
 
-          if (replacesAssistantText) {
-            if (
-              !streamedTranscriptWriter.overrideAssistantText(accumulatedAssistantTranscriptSegmentResponse)
-              && deltaRaw
-            ) {
-              streamedTranscriptWriter.appendAssistantDelta(deltaRaw);
-            }
-          } else if (deltaRaw) {
+          if (deltaRaw) {
             streamedTranscriptWriter.appendAssistantDelta(deltaRaw);
           }
           break;
@@ -1476,7 +1432,6 @@ export function createAcpRuntime(params: {
           }
 
           accumulatedAssistantSegmentResponse = '';
-          accumulatedAssistantTranscriptSegmentResponse = '';
           void streamedTranscriptWriter.flushAll({ reason: 'tool-call-boundary' });
           params.messageBuffer.addMessage(`Executing: ${msg.toolName}`, 'tool');
           recordToolCall(msg.callId, msg.toolName);
@@ -1640,7 +1595,6 @@ export function createAcpRuntime(params: {
             logger.debug(`[${params.provider}] Failed to run permission-request hook (non-fatal)`, e);
           }
           accumulatedAssistantSegmentResponse = '';
-          accumulatedAssistantTranscriptSegmentResponse = '';
           void streamedTranscriptWriter.flushAll({ reason: 'tool-call-boundary' }).finally(() => {
             forwarder.forward(msg);
           });
