@@ -1484,7 +1484,7 @@ export const ja: TranslationStructure = {
       kiloSubtitleExperimental: "Kilo CLI（実験）",
       kiroSubtitleExperimental: "Kiro CLI（実験）",
       devinSubtitleExperimental: "Devin CLI（実験）",
-      agySubtitleExperimental: "Agy CLI（実験）",
+      agySubtitleExperimental: "Antigravity CLI（実験）",
       fxSubtitleExperimental: "FX CLI（実験）",
       droidSubtitleExperimental: "Factory Droid CLI（実験）",
       customAcpSubtitleExperimental: "カスタム ACP CLI（実験）",
@@ -4516,7 +4516,7 @@ localTailscale: {
                 title: "Kiro"
             },
             devin: { title: "Devin" },
-            agy: { title: 'Agy' },
+            agy: { title: 'Antigravity' },
             fx: { title: "FX" },
             droid: { title: "Factory Droid" },
             grok: {
@@ -6931,7 +6931,7 @@ localTailscale: {
       kilo: "Kilo",
       kiro: "Kiro",
       devin: "Devin",
-      agy: 'Agy',
+      agy: 'Antigravity',
       fx: "FX",
       droid: "Factory Droid",
       customAcp: "カスタム ACP",

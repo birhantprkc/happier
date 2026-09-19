@@ -422,7 +422,7 @@ export const PROVIDER_CLI_RUNTIME_SPECS: Readonly<Record<AgentId, ProviderCliRun
   },
   agy: {
     id: 'agy',
-    title: 'Agy CLI',
+    title: 'Antigravity CLI',
     binaryName: 'agy',
     knownCommandCandidates: [{ kind: 'homeBinDir', relativeDir: '.local/bin' }],
     sourcePreferenceDefault: 'system-first',

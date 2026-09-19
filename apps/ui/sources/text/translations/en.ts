@@ -3948,7 +3948,7 @@ export const en = {
                 title: "Devin"
             },
             agy: {
-                title: "Agy"
+                title: "Antigravity"
             },
             fx: {
                 title: "FX"
@@ -6305,7 +6305,7 @@ export const en = {
             copilot: 'Copilot',
             cursor: 'Cursor',
             grok: 'Grok',
-            agy: 'Agy',
+            agy: 'Antigravity',
         },
         auggieIndexingChip: {
             on: 'Indexing on',
@@ -10246,7 +10246,7 @@ settingsSession: {
             kiloSubtitleExperimental: 'Kilo CLI (experimental)',
             kiroSubtitleExperimental: 'Kiro CLI (experimental)',
             devinSubtitleExperimental: 'Devin CLI (experimental)',
-            agySubtitleExperimental: 'Agy CLI (experimental)',
+            agySubtitleExperimental: 'Antigravity CLI (experimental)',
             fxSubtitleExperimental: 'FX CLI (experimental)',
             droidSubtitleExperimental: 'Factory Droid CLI (experimental)',
             customAcpSubtitleExperimental: 'Custom ACP CLI (experimental)',

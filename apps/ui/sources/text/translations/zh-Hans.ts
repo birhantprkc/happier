@@ -4113,7 +4113,7 @@ export const zhHans: TranslationStructure = {
                 title: "Kiro"
             },
             devin: { title: "Devin" },
-            agy: { title: 'Agy' },
+            agy: { title: 'Antigravity' },
             fx: { title: "FX" },
             droid: { title: "Factory Droid" },
             grok: {
@@ -6452,7 +6452,7 @@ export const zhHans: TranslationStructure = {
       kilo: "Kilo",
       kiro: "Kiro",
       devin: "Devin",
-      agy: 'Agy',
+      agy: 'Antigravity',
       fx: "FX",
       droid: "Factory Droid",
       customAcp: "Custom ACP",
@@ -10448,7 +10448,7 @@ settingsSession: {
       kiloSubtitleExperimental: "Kilo 命令行（实验）",
       kiroSubtitleExperimental: "Kiro 命令行（实验）",
       devinSubtitleExperimental: "Devin 命令行（实验）",
-      agySubtitleExperimental: "Agy 命令行（实验）",
+      agySubtitleExperimental: "Antigravity 命令行（实验）",
       fxSubtitleExperimental: "FX 命令行（实验）",
       droidSubtitleExperimental: "Factory Droid 命令行（实验）",
       customAcpSubtitleExperimental: "自定义 ACP 命令行（实验）",

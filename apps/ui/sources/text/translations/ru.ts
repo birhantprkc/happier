@@ -4184,7 +4184,7 @@ export const ru: TranslationStructure = {
                 title: "Kiro"
             },
             devin: { title: "Devin" },
-            agy: { title: 'Agy' },
+            agy: { title: 'Antigravity' },
             fx: { title: "FX" },
             droid: { title: "Factory Droid" },
             grok: {
@@ -6662,7 +6662,7 @@ export const ru: TranslationStructure = {
       kilo: "Kilo",
       kiro: "Kiro",
       devin: "Devin",
-      agy: 'Agy',
+      agy: 'Antigravity',
       fx: "FX",
       droid: "Factory Droid",
       customAcp: "Пользовательский АКП",
@@ -10828,7 +10828,7 @@ settingsSession: {
       kiloSubtitleExperimental: "Kilo CLI (экспериментально)",
       kiroSubtitleExperimental: "Kiro CLI (экспериментально)",
       devinSubtitleExperimental: "Devin CLI (экспериментально)",
-      agySubtitleExperimental: "Agy CLI (экспериментально)",
+      agySubtitleExperimental: "Antigravity CLI (экспериментально)",
       fxSubtitleExperimental: "FX CLI (экспериментально)",
       droidSubtitleExperimental: "Factory Droid CLI (экспериментально)",
       customAcpSubtitleExperimental: "Пользовательский ACP CLI (экспериментально)",

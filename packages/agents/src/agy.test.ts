@@ -28,6 +28,7 @@ describe('agy shared agent facts (EU-3)', () => {
     const spec = PROVIDER_CLI_RUNTIME_SPECS['agy' as keyof typeof PROVIDER_CLI_RUNTIME_SPECS] as unknown as Record<string, unknown> | undefined;
     expect(spec).toMatchObject({
       id: 'agy',
+      title: 'Antigravity CLI',
       binaryName: 'agy',
       sourcePreferenceDefault: 'system-first',
       managedInstall: null,

@@ -14,7 +14,7 @@ export const AGY_CORE: AgentCoreConfig = {
     permissionModeI18nPrefix: 'agentInput.codexPermissionMode',
     availability: { experimental: true },
     connectedServices: buildAgentConnectedServicesUiConfig({ agentId: 'agy' }),
-    uiConnectedService: { serviceId: null, label: 'Agy', connectRoute: null },
+    uiConnectedService: { serviceId: null, label: 'Antigravity', connectRoute: null },
     flavorAliases: ['agy'],
     cli: buildCatalogProviderCliUiConfig('agy'),
     permissions: {

@@ -1,28 +1,28 @@
 ---
-title: Agy CLI (experimental)
-description: Configure Agy in Happier, including authentication, the pinned ACP server install, resume, execution runs, and MCP tools.
+title: Antigravity CLI (experimental)
+description: Configure Antigravity in Happier, including authentication, the pinned ACP server install, resume, execution runs, and MCP tools.
 ---
 
-Happier runs Agy through the official pinned `agy_acp_server` ACP transport for normal
+Happier runs Antigravity through the official pinned `agy_acp_server` ACP transport for normal
 sessions and execution runs. The interactive `agy` CLI stays a separate system-first
 terminal and login surface; Happier does not claim the two surfaces share session IDs.
 
 ## Requirements and authentication
 
-Install the interactive Agy CLI using the
+Install the interactive Antigravity CLI using the
 [official Antigravity CLI guide](https://antigravity.google/docs/cli/install),
 make sure `agy` is available on `PATH`, and authenticate on the machine where
-Happier runs. Happier does not currently have an Agy status command to inspect,
-and never probes Agy ambiently in the background, so the app may continue to
+Happier runs. Happier does not currently have an Antigravity status command to inspect,
+and never probes Antigravity ambiently in the background, so the app may continue to
 show **Unknown** after login.
 
-You can also open the interactive Agy login flow from
-**Settings → AI & Agents → AI backends → Agy**.
+You can also open the interactive Antigravity login flow from
+**Settings → AI & Agents → AI backends → Antigravity**.
 
 ## Pinned ACP server install
 
 Happier background-installs the official pinned `agy_acp_server` v1.1.1 platform archive
-when you select Agy, and launch reuses that same install instead of downloading twice.
+when you select Antigravity, and launch reuses that same install instead of downloading twice.
 Integrity is verified by SHA-256 on every download, extraction reuses the shared
 archive helpers, and the executable bit is set on Unix. A corrupt or missing artifact
 fails visibly, and the next launch re-runs the authoritative ensure to recover.
@@ -43,24 +43,24 @@ static list.
 
 ## Permissions
 
-Happier sends no static permission-mode override for Agy and preserves your agent
+Happier sends no static permission-mode override for Antigravity and preserves your agent
 configuration unless you choose otherwise in the session.
 
 ## MCP tools
 
-Happier passes its MCP server list through the standard ACP session request for Agy
+Happier passes its MCP server list through the standard ACP session request for Antigravity
 sessions. For shared MCP setup and session selection, see [MCP servers](/extending/mcp-servers).
 
 ## Troubleshooting
 
 - Run `agy --version` on the agent machine to confirm the interactive CLI is installed.
-- If the ACP server is missing, reselect Agy in the app and watch the install progress,
+- If the ACP server is missing, reselect Antigravity in the app and watch the install progress,
   then retry launch.
 - If a model is unavailable, retry after the ACP handshake completes; the model list is
   provider-advertised.
 
 ## Related
 
-- [Agent capabilities](/agents/capabilities) — compare Agy's current session, model, media, and tool support.
+- [Agent capabilities](/agents/capabilities) — compare Antigravity's current session, model, media, and tool support.
 - [Provider authentication](/agents/provider-authentication) — how Happier presents provider-owned login flows.
-- [Subagents and execution runs](/extending/subagents) — run Agy in Happier-managed non-interactive workflows.
+- [Subagents and execution runs](/extending/subagents) — run Antigravity in Happier-managed non-interactive workflows.

@@ -217,6 +217,11 @@ describe('agents/registryCore', () => {
             label: 'OpenCode',
             connectRoute: null,
         });
+        expect(getAgentCore('agy').uiConnectedService).toEqual({
+            serviceId: null,
+            label: 'Antigravity',
+            connectRoute: null,
+        });
     });
 
     it('reads model selection config from @happier-dev/agents', () => {

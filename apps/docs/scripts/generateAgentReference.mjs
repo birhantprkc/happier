@@ -112,7 +112,7 @@ function readBundledStability(bundlePath) {
  * This used to be a hand-written map in this file, which is the one thing a
  * generator must never carry: it drifted the moment three agents shipped, and
  * the published page rendered `agy`, `fx` and `droid` as bare ids while the app
- * showed Agy, FX and Factory Droid. The name is a product decision the client
+ * showed Antigravity, FX and Factory Droid. The name is a product decision the client
  * owns, so it is read where the client owns it — `displayNameKey` on the agent's
  * core config, resolved through the client's English translations.
  */

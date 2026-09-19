@@ -4024,7 +4024,7 @@ export const ca: TranslationStructure = {
                 title: "Kiro"
             },
             devin: { title: "Devin" },
-            agy: { title: 'Agy' },
+            agy: { title: 'Antigravity' },
             fx: { title: "FX" },
             droid: { title: "Factory Droid" },
             grok: {
@@ -6276,7 +6276,7 @@ deps: {
             kilo: 'Kilo',
             kiro: 'Kiro',
             devin: 'Devin',
-            agy: 'Agy',
+            agy: 'Antigravity',
             fx: "FX",
             droid: "Factory Droid",
         customAcp: 'ACP personalitzat',
@@ -10077,7 +10077,7 @@ settingsSession: {
             kiloSubtitleExperimental: 'CLI de Kilo (experimental)',
             kiroSubtitleExperimental: 'CLI de Kiro (experimental)',
             devinSubtitleExperimental: 'CLI de Devin (experimental)',
-            agySubtitleExperimental: "CLI d'Agy (experimental)",
+            agySubtitleExperimental: "CLI d'Antigravity (experimental)",
             fxSubtitleExperimental: "CLI de FX (experimental)",
             droidSubtitleExperimental: "CLI de Factory Droid (experimental)",
             customAcpSubtitleExperimental: 'CLI d’ACP personalitzat (experimental)',

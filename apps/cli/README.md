@@ -97,13 +97,13 @@ subcommand starts Claude Code.
 | `happier grok` | Grok | Experimental |
 | `happier pi` | Pi | Experimental |
 | `happier devin` | Devin | Experimental |
-| `happier agy` | Agy | Experimental |
+| `happier agy` | Antigravity | Experimental |
 | `happier fx` | FX | Experimental |
 | `happier droid` | Factory Droid | Experimental |
 
 Experimental agents are enabled per-account in the app and may change without a
 deprecation window. Each agent needs its own vendor CLI installed and
-authenticated on the machine running the session, except Agy, whose ACP server
+authenticated on the machine running the session, except Antigravity, whose ACP server
 Happier installs and pins itself — the interactive `agy` CLI still has to be
 installed separately for the terminal surface. Per-agent install, auth, resume,
 model, mode and MCP behavior is documented at
