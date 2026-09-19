@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { resolveAgyAcpReleaseAsset } from '@/runtime/managedTools/providers/agyAcpRelease.js';
 import {
   __resetAgyAcpInFlightForTests,
@@ -10,7 +10,22 @@ import {
   resolveExistingAgyAcpManagedBinPath,
 } from './agyAcp.js';
 
-const testConfig = vi.hoisted(() => ({ home: '' }));
+const testConfig = vi.hoisted(() => ({ home: '', homeOnSeparateDevice: false }));
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    rename: async (...args: Parameters<typeof actual.rename>) => {
+      // Model a mounted Happier home while keeping extraction and filesystem I/O real.
+      const homePrefix = `${testConfig.home}${sep}`;
+      if (testConfig.homeOnSeparateDevice
+        && String(args[0]).startsWith(homePrefix) !== String(args[1]).startsWith(homePrefix)) {
+        throw Object.assign(new Error('Cross-device link not permitted'), { code: 'EXDEV' });
+      }
+      return actual.rename(...args);
+    },
+  };
+});
 vi.mock('@/configuration', () => ({
   configuration: {
     get happyHomeDir() { return testConfig.home; },
@@ -34,13 +49,15 @@ afterEach(async () => {
   }
   tempDirs.clear();
   testConfig.home = '';
+  testConfig.homeOnSeparateDevice = false;
 });
 
 describe('agy-acp-server installable (EU-3)', () => {
-  it('installs a flat ZIP with its companion file and reuses the cached executable', async () => {
+  it.each([false, true])('installs a flat ZIP and its companion (home on separate device: %s)', async (homeOnSeparateDevice) => {
     const home = await mkdtemp(join(tmpdir(), 'happier-agy-home-'));
     tempDirs.add(home);
     testConfig.home = home;
+    testConfig.homeOnSeparateDevice = homeOnSeparateDevice;
 
     let downloadCalls = 0;
     const installed = await installAgyAcp({
@@ -63,6 +80,7 @@ describe('agy-acp-server installable (EU-3)', () => {
     expect(status.installed).toBe(true);
     expect(status.binPath).toBe(binPath);
     expect(status.installedVersion).toBe('1.1.1');
+    expect((await readdir(status.installDir)).sort()).toEqual(['current', 'install-state.json']);
   });
 
   it('rejects a managed executable whose contents changed after verified installation', async () => {
@@ -91,6 +109,27 @@ describe('agy-acp-server installable (EU-3)', () => {
     const status = await getAgyAcpDepStatus();
     expect(status.installed).toBe(false);
     expect(status.binPath).toBeNull();
+  });
+
+  it('cleans failed staging without removing the installed server', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'happier-agy-failed-update-'));
+    tempDirs.add(home);
+    testConfig.home = home;
+
+    expect((await installAgyAcp({
+      downloadArchive: async ({ destinationPath }) => { await writeFile(destinationPath, flatArchive); },
+    })).ok).toBe(true);
+    const installedBinPath = resolveExistingAgyAcpManagedBinPath();
+
+    const failed = await installAgyAcp({
+      downloadArchive: async ({ destinationPath }) => { await writeFile(destinationPath, 'invalid ZIP'); },
+    });
+    expect(failed.ok).toBe(false);
+    const status = await getAgyAcpDepStatus();
+    expect(status.installed).toBe(true);
+    expect(status.binPath).toBe(installedBinPath);
+    expect(await readFile(status.binPath!, 'utf8')).toBe('server-fixture');
+    expect((await readdir(status.installDir)).sort()).toEqual(['current', 'install-state.json']);
   });
 
   it('coalesces concurrent installs into one download', async () => {

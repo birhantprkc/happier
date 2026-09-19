@@ -1,9 +1,7 @@
 import { createReadStream, accessSync, constants as fsConstants, existsSync } from 'node:fs';
-import { access, chmod, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { basename, dirname, isAbsolute, join, relative } from 'node:path';
-import { mkdtemp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { AGY_ACP_SERVER_VERSION } from '@happier-dev/protocol';
 import { downloadGitHubReleaseAsset } from '@happier-dev/cli-common/providers';
 import { extractArchivePayloadToDirectory } from '@happier-dev/release-runtime/archiveExtraction';
@@ -162,11 +160,14 @@ async function installPinnedAgyAcpRelease(
   executableMtimeMs: number;
 }>> {
   const asset = resolveAgyAcpReleaseAsset();
-  const scratchDir = await mkdtemp(join(tmpdir(), 'happier-agy-acp-'));
+  const installDir = agyAcpInstallDir();
+  await mkdir(installDir, { recursive: true });
+  // Promotion uses rename, so staging must share the destination filesystem.
+  const scratchDir = await mkdtemp(join(installDir, '.install-'));
   try {
     const archivePath = join(scratchDir, basename(asset.name));
     const extractDir = join(scratchDir, 'extract');
-    const nextDir = join(agyAcpInstallDir(), 'next');
+    const nextDir = join(installDir, 'next');
 
     await deps.downloadArchive({
       url: asset.url,
