@@ -208,8 +208,7 @@ describe('mobileMaestroRunner sync performance log capture', () => {
         );
 
         const signals = logcatProcess.kill.mock.calls.map(([signal]) => signal);
-        expect(signals[0]).toBe('SIGTERM');
-        expect(signals).toContain('SIGKILL');
+        expect(signals).toEqual(['SIGTERM', 'SIGKILL']);
     });
 
     it('does not pass restore material to Android logcat capture', async () => {
@@ -356,8 +355,7 @@ describe('mobileMaestroRunner sync performance log capture', () => {
         );
 
         const signals = logcatProcess.kill.mock.calls.map(([signal]) => signal);
-        expect(signals[0]).toBe('SIGTERM');
-        expect(signals).toContain('SIGKILL');
+        expect(signals).toEqual(['SIGTERM', 'SIGKILL']);
     });
 
     it('redacts generated terminal-connect deep links from runtime log artifacts', async () => {

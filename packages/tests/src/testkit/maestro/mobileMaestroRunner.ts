@@ -281,9 +281,6 @@ function startAndroidLogcatCapture(params: Readonly<{
     stop: async () => {
       if (stopped) return;
       stopped = true;
-      if (!child.killed) {
-        child.kill('SIGTERM');
-      }
       const timeoutMs = readPositiveInteger(
         params.env.HAPPIER_E2E_ANDROID_LOGCAT_STOP_TIMEOUT_MS,
         DEFAULT_ANDROID_LOGCAT_STOP_TIMEOUT_MS,
@@ -352,9 +349,6 @@ function startIosSimulatorLogCapture(params: Readonly<{
     stop: async () => {
       if (stopped) return;
       stopped = true;
-      if (!child.killed) {
-        child.kill('SIGTERM');
-      }
       const timeoutMs = readPositiveInteger(
         params.env.HAPPIER_E2E_IOS_SIMULATOR_LOG_STOP_TIMEOUT_MS,
         DEFAULT_IOS_SIMULATOR_LOG_STOP_TIMEOUT_MS,
