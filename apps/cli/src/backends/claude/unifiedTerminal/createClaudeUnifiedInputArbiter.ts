@@ -1,6 +1,7 @@
 import { resolveTerminalInjectionReadiness } from '@/agent/runtime/terminal/injection/arbiter';
 import type { TerminalInputInjectionResult, TerminalLifecycleObservation, TerminalTurnState } from '@/agent/runtime/terminal/_types';
 import { isNonSteerablePromptPayload, parseSpecialCommand } from '@/cli/parsers/specialCommands';
+import { logger } from '@/ui/logger';
 
 import type {
   ClaudeUnifiedInFlightSteerEvaluator,
@@ -590,7 +591,44 @@ export function createClaudeUnifiedInputArbiter<Mode = unknown>(opts: Readonly<{
         : providerAcceptanceByBatch.get(next) ?? resolvePromptAcceptance(turnState);
   }
 
-  async function reconcileTerminalCustodyWithCanonicalPending(): Promise<void> {
+  function forgetRetiredBatchDelivery(batch: ClaudeUnifiedPromptBatch<Mode>): void {
+    providerAcceptanceByBatch.delete(batch);
+    clearInjectionAcceptanceForBatch(batch);
+    if (lastInjectedNotifiedBatch === batch) {
+      lastInjectedNotifiedBatch = null;
+    }
+  }
+
+  /**
+   * Release the submitted queue head once canonical Pending state proves its row is no longer
+   * live. Provider acceptance is correlated by prompt text, which a provider may re-render across
+   * the terminal round-trip, so text evidence can legitimately never arrive; retirement is the
+   * authoritative delivery outcome and the head must consume it exactly as terminal custody does.
+   * Without it the head holds provider-acceptance backpressure forever, the pending-queue pump
+   * stays paused, and every later Pending row starves (live incident 2026-09-18, session
+   * cmtyf86rp1a1ttm237czmr4ts).
+   */
+  function releaseRetiredSubmittedHead(): void {
+    const submitted = pendingProviderAcceptance;
+    if (!submitted || queue[0] !== submitted.batch) return;
+    if (readPromptDeliveryState(submitted.batch) !== 'retired') return;
+    // File-only: agent-session paths must not write to the console or they disturb the
+    // provider terminal UI (apps/cli/AGENTS.md).
+    logger.infoFile(
+      '[unified]: releasing a submitted prompt whose canonical Pending row was retired without provider acceptance evidence',
+      {
+        acceptedAs: submitted.acceptance.acceptedAs,
+        localIds: submitted.batch.userMessageLocalIds ?? [],
+      },
+    );
+    pendingProviderAcceptance = null;
+    pendingAcceptanceCompletedCompaction = false;
+    clearPendingSteerArming();
+    queue.shift();
+    forgetRetiredBatchDelivery(submitted.batch);
+  }
+
+  async function reconcileCanonicalPendingDeliveryHolders(): Promise<void> {
     for (let index = terminalCustody.length - 1; index >= 0; index -= 1) {
       const custody = terminalCustody[index];
       if (!custody) continue;
@@ -601,12 +639,9 @@ export function createClaudeUnifiedInputArbiter<Mode = unknown>(opts: Readonly<{
         await acceptTerminalCustody(custody);
         continue;
       }
-      providerAcceptanceByBatch.delete(custody.batch);
-      clearInjectionAcceptanceForBatch(custody.batch);
-      if (lastInjectedNotifiedBatch === custody.batch) {
-        lastInjectedNotifiedBatch = null;
-      }
+      forgetRetiredBatchDelivery(custody.batch);
     }
+    releaseRetiredSubmittedHead();
     if (!pendingProviderAcceptance && queue.length === 0) {
       headInputState = terminalCustody.length > 0 ? 'terminal_custody' : null;
     }
@@ -715,7 +750,7 @@ export function createClaudeUnifiedInputArbiter<Mode = unknown>(opts: Readonly<{
 
   const runDrain = async (): Promise<void> => {
     clearRetryDrainTimer();
-    await reconcileTerminalCustodyWithCanonicalPending();
+    await reconcileCanonicalPendingDeliveryHolders();
     while (!disposed && queue.length > 0) {
       const knownProviderDeliveryAcceptance = resolveQueueHeadKnownProviderDeliveryAcceptance();
       if (knownProviderDeliveryAcceptance) {

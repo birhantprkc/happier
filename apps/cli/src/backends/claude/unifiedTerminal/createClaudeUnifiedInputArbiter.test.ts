@@ -332,6 +332,52 @@ describe('createClaudeUnifiedInputArbiter', () => {
     await arbiter.dispose();
   });
 
+  it('releases a submitted queue head once its canonical Pending row is retired', async () => {
+    // Live incident 2026-09-18 (session cmtyf86rp1a1ttm237czmr4ts): provider acceptance is
+    // correlated by prompt text, which a provider may re-render across the terminal round-trip.
+    // Canonical Pending retirement is the authoritative "this row is done" signal; without
+    // consuming it at the queue head the arbiter keeps provider-acceptance backpressure forever
+    // and every later Pending row starves.
+    let deliveryState: 'pending' | 'accepted' | 'retired' = 'pending';
+    const arbiter = createClaudeUnifiedInputArbiter({
+      nowMs: () => 10_000,
+      quietPeriodMs: 0,
+      injectPrompt: vi.fn(async () => ({
+        status: 'injected' as const,
+        at: 10_001,
+        bytesWritten: 12,
+      })),
+      resolvePromptDeliveryState: () => deliveryState,
+    });
+
+    arbiter.observeLifecycle({ type: 'turn_state', state: 'idle', observedAtMs: 10_000 });
+    arbiter.observeLifecycle({ type: 'output', observedAtMs: 10_000 });
+    await arbiter.enqueueUiMessage({
+      message: 'delivered but never text-correlated',
+      origin: { kind: 'ui_pending' },
+      userMessageLocalIds: ['stuck-local'],
+    });
+    await arbiter.drainWhenSafe();
+    expect(arbiter.snapshot()).toMatchObject({
+      queuedCount: 1,
+      providerAcceptancePendingCount: 1,
+    });
+
+    const backpressuredVersion = arbiter.snapshot().pendingQueuePumpStateVersion;
+    deliveryState = 'retired';
+    await arbiter.drainWhenSafe();
+
+    expect(arbiter.snapshot()).toMatchObject({
+      queuedCount: 0,
+      providerAcceptancePendingCount: 0,
+      terminalCustodyCount: 0,
+    });
+    // The pending-queue pump parks on this version until the backpressure state changes.
+    expect(arbiter.snapshot().pendingQueuePumpStateVersion).not.toBe(backpressuredVersion);
+
+    await arbiter.dispose();
+  });
+
   it('keeps a submitted prompt available for late acceptance after terminal observation is lost', async () => {
     const acceptedLocalIds: string[] = [];
     const onInjectionFailure = vi.fn(async () => ({ action: 'claimed_pending_delivery' as const }));
