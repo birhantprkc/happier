@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { resolveAgyAcpReleaseAsset } from '@/runtime/managedTools/providers/agyAcpRelease.js';
@@ -20,6 +20,13 @@ vi.mock('@/configuration', () => ({
 
 const tempDirs = new Set<string>();
 
+// Stored ZIPs with the official flat layout, using tiny executable and harness
+// contents so installation exercises the real extractor without a network fetch.
+const flatArchive = Buffer.from(process.platform === 'win32'
+  ? 'UEsDBBQAAAAAAKCqIl2/ze6ZDgAAAA4AAAASAAAAYWd5X2FjcF9zZXJ2ZXIuZXhlc2VydmVyLWZpeHR1cmVQSwMEFAAAAAAAoKoiXeOBVF8PAAAADwAAABkAAABsb2NhbGhhcm5lc3NfZXh0ZXJuYWwuZXhlaGFybmVzcy1maXh0dXJlUEsBAhQDFAAAAAAAoKoiXb/N7pkOAAAADgAAABIAAAAAAAAAAAAAAO2BAAAAAGFneV9hY3Bfc2VydmVyLmV4ZVBLAQIUAxQAAAAAAKCqIl3jgVRfDwAAAA8AAAAZAAAAAAAAAAAAAADtgT4AAABsb2NhbGhhcm5lc3NfZXh0ZXJuYWwuZXhlUEsFBgAAAAACAAIAhwAAAIQAAAAAAA=='
+  : 'UEsDBBQAAAAAAKCqIl2/ze6ZDgAAAA4AAAASAAAAYWd5X2FjcF9zZXJ2ZXIucGFyc2VydmVyLWZpeHR1cmVQSwMEFAAAAAAAoKoiXeOBVF8PAAAADwAAABUAAABsb2NhbGhhcm5lc3NfZXh0ZXJuYWxoYXJuZXNzLWZpeHR1cmVQSwECFAMUAAAAAACgqiJdv83umQ4AAAAOAAAAEgAAAAAAAAAAAAAA7YEAAAAAYWd5X2FjcF9zZXJ2ZXIucGFyUEsBAhQDFAAAAAAAoKoiXeOBVF8PAAAADwAAABUAAAAAAAAAAAAAAO2BPgAAAGxvY2FsaGFybmVzc19leHRlcm5hbFBLBQYAAAAAAgACAIMAAACAAAAAAAA=',
+  'base64');
+
 afterEach(async () => {
   __resetAgyAcpInFlightForTests();
   for (const dir of tempDirs) {
@@ -30,34 +37,27 @@ afterEach(async () => {
 });
 
 describe('agy-acp-server installable (EU-3)', () => {
-  it('installs the pinned archive and reuses the cached executable', async () => {
+  it('installs a flat ZIP with its companion file and reuses the cached executable', async () => {
     const home = await mkdtemp(join(tmpdir(), 'happier-agy-home-'));
     tempDirs.add(home);
     testConfig.home = home;
 
     let downloadCalls = 0;
-    let extractCalls = 0;
     const installed = await installAgyAcp({
       downloadArchive: async ({ destinationPath }) => {
         downloadCalls += 1;
-        await writeFile(destinationPath, 'mock-agy-archive', 'utf8');
-      },
-      extractArchive: async ({ extractDir }) => {
-        extractCalls += 1;
-        const asset = resolveAgyAcpReleaseAsset();
-        await mkdir(extractDir, { recursive: true });
-        const executablePath = join(extractDir, asset.executableSubpath);
-        await mkdir(join(executablePath, '..'), { recursive: true });
-        await writeFile(executablePath, '#!/bin/sh\necho agy_acp_server\n', 'utf8');
-        return extractDir;
+        await writeFile(destinationPath, flatArchive);
       },
     });
-    expect(installed.ok).toBe(true);
+    expect(installed.ok, !installed.ok ? installed.errorMessage : undefined).toBe(true);
     expect(downloadCalls).toBe(1);
-    expect(extractCalls).toBe(1);
 
     const binPath = resolveExistingAgyAcpManagedBinPath();
     expect(binPath).not.toBeNull();
+    expect(await readFile(binPath!, 'utf8')).toBe('server-fixture');
+    const companionName = process.platform === 'win32' ? 'localharness_external.exe' : 'localharness_external';
+    expect(await readFile(join(home, 'tools', 'agy-acp-server', 'current', companionName), 'utf8'))
+      .toBe('harness-fixture');
 
     const status = await getAgyAcpDepStatus();
     expect(status.installed).toBe(true);
@@ -80,7 +80,6 @@ describe('agy-acp-server installable (EU-3)', () => {
         const executablePath = join(extractDir, asset.executableSubpath);
         await mkdir(join(executablePath, '..'), { recursive: true });
         await writeFile(executablePath, '#!/bin/sh\necho agy_acp_server\n', 'utf8');
-        return extractDir;
       },
     });
     expect(installed.ok).toBe(true);
@@ -111,7 +110,6 @@ describe('agy-acp-server installable (EU-3)', () => {
         const asset = resolveAgyAcpReleaseAsset();
         await mkdir(extractDir, { recursive: true });
         await writeFile(join(extractDir, asset.executableSubpath), 'bin', 'utf8');
-        return extractDir;
       },
     };
 

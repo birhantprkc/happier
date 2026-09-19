@@ -56,7 +56,6 @@ describe('agy-acp-server runtime installable (EU-3)', () => {
         const asset = resolveAgyAcpReleaseAsset();
         await mkdir(extractDir, { recursive: true });
         await writeFile(join(extractDir, asset.executableSubpath), 'bin', 'utf8');
-        return extractDir;
       },
     };
     const fakeAdapter = {

@@ -3,6 +3,14 @@ import { describe, expect, it } from 'vitest';
 import { resolveAgyAcpReleaseAsset } from './agyAcpRelease.js';
 
 describe('agy_acp_server pinned release (EU-3)', () => {
+  it('admits the verified Linux x64 archive and expanded payload within its own budget', () => {
+    const asset = resolveAgyAcpReleaseAsset({ platform: 'linux', arch: 'x64' });
+    // Google v1.1.1 ZIP, SHA-256 38f62d01b32deb0907b3d39a71ec301fd36369f6ffd1cf262d4af385177f79df.
+    expect(asset.archiveExtractionLimits?.maxArchiveBytes).toBeGreaterThanOrEqual(681_969_407);
+    expect(asset.archiveExtractionLimits?.maxFileBytes).toBeGreaterThanOrEqual(1_880_360_328);
+    expect(asset.archiveExtractionLimits?.maxExpandedBytes).toBeGreaterThanOrEqual(2_009_327_248);
+  });
+
   it('resolves the pinned v1.1.1 darwin-arm64 archive', () => {
     const asset = resolveAgyAcpReleaseAsset({ platform: 'darwin', arch: 'arm64' });
     expect(asset.version).toBe('1.1.1');

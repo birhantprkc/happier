@@ -6,7 +6,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { AGY_ACP_SERVER_VERSION } from '@happier-dev/protocol';
 import { downloadGitHubReleaseAsset } from '@happier-dev/cli-common/providers';
-import { extractReleasePayloadRootFromArchive } from '@happier-dev/cli-common/firstPartyRuntime';
+import { extractArchivePayloadToDirectory } from '@happier-dev/release-runtime/archiveExtraction';
 
 import { configuration } from '@/configuration';
 import { readRuntimeInstallableLastCheckAtMs } from '@/installables/runtime/runtimeInstallableUpdateState';
@@ -26,12 +26,12 @@ type LatestVersionCheck =
 
 type AgyAcpInstallDeps = Readonly<{
   downloadArchive: typeof downloadGitHubReleaseAsset;
-  extractArchive: typeof extractReleasePayloadRootFromArchive;
+  extractArchive: typeof extractArchivePayloadToDirectory;
 }>;
 
 const DEFAULT_INSTALL_DEPS: AgyAcpInstallDeps = {
   downloadArchive: downloadGitHubReleaseAsset,
-  extractArchive: extractReleasePayloadRootFromArchive,
+  extractArchive: extractArchivePayloadToDirectory,
 };
 
 export const agyAcpInstallDir = () => join(configuration.happyHomeDir, 'tools', 'agy-acp-server');
@@ -177,12 +177,13 @@ async function installPinnedAgyAcpRelease(
 
     await rm(nextDir, { recursive: true, force: true });
     await rm(extractDir, { recursive: true, force: true });
-    const payloadRoot = await deps.extractArchive({
+    await deps.extractArchive({
       archivePath,
       archiveName: asset.name,
       extractDir,
+      limits: asset.archiveExtractionLimits,
     });
-    const candidateExecutable = safeExecutablePath(payloadRoot, asset.executableSubpath);
+    const candidateExecutable = safeExecutablePath(extractDir, asset.executableSubpath);
     if (!candidateExecutable) {
       throw new Error('Pinned agy-acp-server executable path is unsafe');
     }
@@ -192,12 +193,11 @@ async function installPinnedAgyAcpRelease(
       throw new Error(`Pinned agy-acp-server executable missing at ${asset.executableSubpath}`);
     }
 
-    // Promote the extracted payload root as the next install root, preserving the
-    // archive-relative executable subpath (current/<subpath>), mirroring the 0.3
-    // pinned-archive owner without adding an Agy-only installer manager.
+    // Google's ZIP has no wrapper directory. Keep the server and its companion
+    // localharness executable together at current/<subpath>.
     await rm(nextDir, { recursive: true, force: true });
     await mkdir(dirname(nextDir), { recursive: true });
-    await rename(payloadRoot, nextDir);
+    await rename(extractDir, nextDir);
     const installedExecutable = safeExecutablePath(nextDir, asset.executableSubpath);
     if (!installedExecutable) {
       throw new Error('Pinned agy-acp-server executable path is unsafe');

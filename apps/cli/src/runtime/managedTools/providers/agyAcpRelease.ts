@@ -18,7 +18,19 @@
 // Unsupported platforms (notably darwin-x64, for which Google publishes no v1.1.1 archive)
 // fail clearly instead of being emulated.
 
+import type { ArchiveExtractionLimits } from '@happier-dev/release-runtime/archiveExtraction';
+
 export const AGY_ACP_SERVER_VERSION = '1.1.1' as const;
+
+// The pinned v1.1.1 Linux x64 ZIP is 681,969,407 bytes and expands to
+// 2,009,327,248 bytes, including a 1,880,360,328-byte agy_acp_server.par.
+// It is the largest of the five pinned payloads. Keep these bounds local to
+// this checksum-verified release instead of relaxing generic archive limits.
+const ARCHIVE_EXTRACTION_LIMITS = Object.freeze({
+  maxArchiveBytes: 1024 * 1024 * 1024,
+  maxFileBytes: 2 * 1024 * 1024 * 1024,
+  maxExpandedBytes: 2 * 1024 * 1024 * 1024,
+});
 
 export type AgyAcpReleaseAsset = Readonly<{
   name: string;
@@ -28,6 +40,7 @@ export type AgyAcpReleaseAsset = Readonly<{
   version: string | null;
   executableSubpath: string;
   args: readonly string[];
+  archiveExtractionLimits: Pick<ArchiveExtractionLimits, 'maxArchiveBytes' | 'maxFileBytes' | 'maxExpandedBytes'>;
 }>;
 
 type PinnedAsset = Readonly<{
@@ -117,5 +130,6 @@ export function resolveAgyAcpReleaseAsset(
     version: AGY_ACP_SERVER_VERSION,
     executableSubpath: pinned.executableSubpath,
     args: pinned.args ?? [],
+    archiveExtractionLimits: ARCHIVE_EXTRACTION_LIMITS,
   };
 }
