@@ -119,6 +119,7 @@ CLI lane rule:
 - When shared process helpers change, rerun a broader lane that can reveal leaked handles or child-process cleanup regressions.
 - Before starting Metro/Playwright in a shared development VM, inspect current compiler, Vitest, and Metro load. A bundle-fetch timeout while several unrelated compilers or Metro servers saturate the same VM is not valid RED evidence. Wait for capacity or use the configured execution target, then rerun the same command; do not encode local contention as a larger repository timeout.
 - Preserve the runner's original stack, phase label, browser diagnostics, and focused artifacts. If the hosted log omits the deciding state, download the bounded Playwright shard artifact before rerunning; inspect metadata first and avoid blindly fetching oversized diagnostics trees.
+- When a failure involves a timeout, retry count, request/body cap, or other bound, first prove which lifecycle or resource owner should govern it. Do not turn one slow run or fixture size into a new production limit. A deciding regression test should show reuse of the canonical budget/boundary and accept valid work beyond the incorrect local cutoff it replaces.
 
 ## Live Validation Gates
 
