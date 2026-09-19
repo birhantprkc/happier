@@ -7,7 +7,7 @@
  *
  * The closing marker repeats the id, so this is not XML. The markers describe how the text
  * reached the composer, never what the prompt says, so prompt identity is the unwrapped text on
- * both sides of the terminal round-trip. Observed on Claude Code 2.1.277 (live incident
+ * both sides of the terminal round-trip. Observed on Claude Code 2.1.259 (live incident
  * 2026-09-18, session cmtyf86rp1a1ttm237czmr4ts): without this, every multi-line prompt Happier
  * pastes reads back as different text, so provider acceptance never correlates and the delivered
  * message stays "delivering" forever.

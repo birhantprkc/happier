@@ -199,7 +199,7 @@ describe('createClaudeUnifiedHookLifecycleBridge', () => {
   });
 
   it('correlates a UserPromptSubmit that echoes the injected prompt wrapped in paste markers', async () => {
-    // Claude Code 2.1.277 records a bracketed-paste prompt wrapped in its own paste markers, so
+    // Claude Code 2.1.259 records a bracketed-paste prompt wrapped in its own paste markers, so
     // the hook echo is not byte-identical to the injected text. Without unwrapping, acceptance for
     // every multi-line Pending prompt never correlates and the row stays "delivering" forever
     // (live incident 2026-09-18, session cmtyf86rp1a1ttm237czmr4ts).

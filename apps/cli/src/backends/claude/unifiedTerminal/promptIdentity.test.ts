@@ -6,7 +6,7 @@ import {
 } from './promptIdentity';
 
 /**
- * Observed contract (Claude Code 2.1.277, live incident 2026-09-18 session
+ * Observed contract (Claude Code 2.1.259, live incident 2026-09-18 session
  * cmtyf86rp1a1ttm237czmr4ts): a bracketed-paste prompt is recorded wrapped in paste markers.
  * The injected payload measured 2904 bytes / 12 newlines while the transcript row measured
  * 2962 bytes / 17 newlines — exactly the 26 + 27 marker characters plus 5 newlines.

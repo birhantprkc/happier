@@ -26,7 +26,7 @@ describe('createClaudeUnifiedPromptEchoSuppressor', () => {
   });
 
   it('suppresses an accepted prompt echo that the provider wrapped in paste markers', () => {
-    // Claude Code 2.1.277 records a bracketed-paste prompt wrapped in its own paste markers. If
+    // Claude Code 2.1.259 records a bracketed-paste prompt wrapped in its own paste markers. If
     // the echo is not recognised it is forwarded as a second, visible transcript message showing
     // the raw markers to the user (live incident 2026-09-18, session cmtyf86rp1a1ttm237czmr4ts).
     const suppressor = createClaudeUnifiedPromptEchoSuppressor({
