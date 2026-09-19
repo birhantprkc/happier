@@ -790,7 +790,9 @@ async function ensureSessionMode(page: Page, optionId: 'plan' | 'default'): Prom
 }
 
 test.describe('ui e2e: Codex app-server dynamic controls', () => {
-    test.describe.configure({ mode: 'serial' });
+    // Apply the budget before Playwright resolves the page fixture. On a retry, runner setup can
+    // exceed Playwright's 30s default before the test body gets a chance to call setTimeout().
+    test.describe.configure({ mode: 'serial', timeout: 540_000 });
 
     const suiteDir = run.testDir('session-codex-app-server-dynamic-controls-suite');
 
@@ -849,7 +851,6 @@ test.describe('ui e2e: Codex app-server dynamic controls', () => {
     });
 
     test('uses preflight Codex app-server controls on /new before the first prompt', async ({ page }) => {
-        test.setTimeout(540_000);
         if (!server || !uiBaseUrl) throw new Error('missing server/ui fixtures');
 
         const testDir = resolve(join(suiteDir, 't1-codex-app-server-preflight-controls'));
@@ -904,7 +905,6 @@ test.describe('ui e2e: Codex app-server dynamic controls', () => {
     });
 
     test('applies live Codex app-server mode and model changes to the next session turn', async ({ page }) => {
-        test.setTimeout(540_000);
         if (!server || !uiBaseUrl) throw new Error('missing server/ui fixtures');
 
         const testDir = resolve(join(suiteDir, 't2-codex-app-server-live-controls'));
@@ -988,7 +988,6 @@ test.describe('ui e2e: Codex app-server dynamic controls', () => {
     });
 
     test('shows the eligible Codex app-server Fast control for the selected model and applies it on the first turn', async ({ page }) => {
-        test.setTimeout(540_000);
         if (!server || !uiBaseUrl) throw new Error('missing server/ui fixtures');
 
         const testDir = resolve(join(suiteDir, 't3-codex-app-server-speed-controls'));
