@@ -198,6 +198,62 @@ describe('createClaudeUnifiedHookLifecycleBridge', () => {
     }
   });
 
+  it('correlates a UserPromptSubmit that echoes the injected prompt wrapped in paste markers', async () => {
+    // Claude Code 2.1.277 records a bracketed-paste prompt wrapped in its own paste markers, so
+    // the hook echo is not byte-identical to the injected text. Without unwrapping, acceptance for
+    // every multi-line Pending prompt never correlates and the row stays "delivering" forever
+    // (live incident 2026-09-18, session cmtyf86rp1a1ttm237czmr4ts).
+    let subscribedHook: ((data: SessionHookData) => void) | undefined;
+    const injectedMessage = 'first line\n\nsecond line\nthird line';
+    const submittedBatch = {
+      message: injectedMessage,
+      origin: { kind: 'ui_pending' as const },
+      userMessageLocalIds: ['pasted-local'],
+    };
+    const matchedBatches: unknown[] = [];
+    const confirmPromptAcceptedByProviderIf = vi.fn(
+      async (matcher: (batch: typeof submittedBatch) => boolean) => {
+        if (!matcher(submittedBatch)) return false;
+        matchedBatches.push(submittedBatch);
+        return true;
+      },
+    );
+    const bridge = createClaudeUnifiedHookLifecycleBridge({
+      subscribeClaudeSessionHooks: (callback) => {
+        subscribedHook = callback;
+        return () => {
+          subscribedHook = undefined;
+        };
+      },
+      arbiter: {
+        observeLifecycle: vi.fn(),
+        confirmPromptAcceptedByProvider: vi.fn().mockResolvedValue(true),
+        confirmPromptAcceptedByProviderIf,
+        drainWhenSafe: vi.fn().mockResolvedValue(undefined),
+      } as unknown as Parameters<typeof createClaudeUnifiedHookLifecycleBridge>[0]['arbiter'],
+      completionQuiescenceMs: 0,
+    });
+
+    try {
+      bridge.start({ abortSignal: new AbortController().signal });
+      const hook = subscribedHook;
+      if (typeof hook !== 'function') throw new Error('Claude session hook subscription was not registered');
+
+      hook({
+        hook_event_name: 'UserPromptSubmit',
+        session_id: 'claude-session-id',
+        prompt_id: 'pasted-prompt',
+        prompt: `\n\n<pasted_content id="9b65">\n${injectedMessage}\n</pasted_content id="9b65">\n`,
+      });
+
+      await vi.waitFor(() => {
+        expect(matchedBatches).toEqual([submittedBatch]);
+      });
+    } finally {
+      bridge.dispose();
+    }
+  });
+
   it('keeps the first task notification after SessionStart resume foreground-inert', async () => {
     let subscribedHook: ((data: SessionHookData) => void) | undefined;
     const onProviderPromptStarted = vi.fn();

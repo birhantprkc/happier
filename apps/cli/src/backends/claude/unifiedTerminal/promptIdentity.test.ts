@@ -1,0 +1,48 @@
+import { describe, expect, it } from 'vitest';
+
+import {
+  isClaudeUnifiedComposerTextMatch,
+  normalizeClaudeUnifiedPromptIdentityText,
+} from './promptIdentity';
+
+/**
+ * Observed contract (Claude Code 2.1.277, live incident 2026-09-18 session
+ * cmtyf86rp1a1ttm237czmr4ts): a bracketed-paste prompt is recorded wrapped in paste markers.
+ * The injected payload measured 2904 bytes / 12 newlines while the transcript row measured
+ * 2962 bytes / 17 newlines — exactly the 26 + 27 marker characters plus 5 newlines.
+ */
+const PASTE_OPEN = '<pasted_content id="9b65">';
+const PASTE_CLOSE = '</pasted_content id="9b65">';
+
+describe('normalizeClaudeUnifiedPromptIdentityText', () => {
+  it('reads a pasted prompt as the text Happier injected', () => {
+    const injected = 'first line\n\nsecond line\nthird line';
+    const recordedByProvider = `\n\n${PASTE_OPEN}\n${injected}\n${PASTE_CLOSE}\n`;
+
+    expect(normalizeClaudeUnifiedPromptIdentityText(recordedByProvider))
+      .toBe(normalizeClaudeUnifiedPromptIdentityText(injected));
+  });
+
+  it('keeps marker-looking prose that is not a standalone paste marker', () => {
+    const prompt = `explain ${PASTE_OPEN} in the parser`;
+
+    expect(normalizeClaudeUnifiedPromptIdentityText(prompt)).toBe(prompt);
+  });
+
+  it('distinguishes two different pasted prompts', () => {
+    const left = `${PASTE_OPEN}\nship the release\n${PASTE_CLOSE}`;
+    const right = `${PASTE_OPEN}\nrevert the release\n${PASTE_CLOSE}`;
+
+    expect(normalizeClaudeUnifiedPromptIdentityText(left))
+      .not.toBe(normalizeClaudeUnifiedPromptIdentityText(right));
+  });
+
+  it('matches a pasted prompt against the composer rendering of the injected text', () => {
+    const injected = 'please review the queue drain\nand report back';
+
+    expect(isClaudeUnifiedComposerTextMatch({
+      promptText: `${PASTE_OPEN}\n${injected}\n${PASTE_CLOSE}`,
+      composerText: injected,
+    })).toBe(true);
+  });
+});
