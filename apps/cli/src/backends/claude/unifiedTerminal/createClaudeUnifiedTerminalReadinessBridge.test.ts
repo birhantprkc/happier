@@ -3,8 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { TerminalHostHandle } from '@/integrations/terminalHost/_types';
 
 import {
+  ClaudeUnifiedTerminalProviderRefusedStartError,
   ClaudeUnifiedTerminalReadinessTimeoutError,
   createClaudeUnifiedTerminalReadinessBridge,
+  isClaudeUnifiedTerminalProviderRefusedStartError,
   isClaudeUnifiedTerminalReadinessTimeoutError,
 } from './createClaudeUnifiedTerminalReadinessBridge';
 import { createPermissionHandlerSessionStub } from '../utils/permissionHandler.testkit';
@@ -120,6 +122,45 @@ describe('createClaudeUnifiedTerminalReadinessBridge', () => {
     expect(evaluateLiveness).toHaveBeenCalledTimes(1);
     bridge.dispose();
     await started;
+  });
+
+  it('fails fast with the classified refusal when Claude refuses to start', async () => {
+    // Observed 2026-09-19: the provider prints this and exits 1 before any session exists, so
+    // readiness can never arrive. Waiting out the window would report a timeout the launcher then
+    // retries, burning the whole relaunch budget on a verdict Claude already gave.
+    // Deliberately real timers: the refusal must be raised on the first screen, before any poll
+    // or timeout window, so this test needs no clock control and cannot hold a worker open.
+    const arbiter = createArbiter();
+    const evaluateLiveness = vi.fn().mockResolvedValue({ paneAlive: true, observedAt: 10 });
+    const captureInputState = vi.fn().mockResolvedValue({
+      stable: true,
+      currentInput: 'Error: Session 726be323 is running as a background session (726be323). '
+        + 'Run `claude attach 726be323` to open it, or `claude stop 726be323` first to resume it here.',
+      cursor: undefined,
+      observedAt: 10,
+    });
+    const onStartupReady = vi.fn();
+    const bridge = createClaudeUnifiedTerminalReadinessBridge({
+      hostAdapter: { evaluateLiveness, captureInputState },
+      handle,
+      arbiter,
+      pollIntervalMs: 250,
+      timeoutMs: 15_000,
+      nowMs: () => 0,
+      onStartupReady,
+    });
+
+    const error = await Promise.resolve(bridge.start({ abortSignal: new AbortController().signal }))
+      .then(() => null, (thrown: unknown) => thrown);
+    expect(isClaudeUnifiedTerminalProviderRefusedStartError(error)).toBe(true);
+    expect((error as ClaudeUnifiedTerminalProviderRefusedStartError).refusal).toMatchObject({
+      code: 'session_held_by_background',
+      retryable: false,
+    });
+    // The verdict arrives immediately, not after the readiness window.
+    expect(isClaudeUnifiedTerminalReadinessTimeoutError(error)).toBe(false);
+    expect(onStartupReady).not.toHaveBeenCalled();
+    bridge.dispose();
   });
 
   it('retries after a transient liveness probe failure and still reports startup readiness', async () => {

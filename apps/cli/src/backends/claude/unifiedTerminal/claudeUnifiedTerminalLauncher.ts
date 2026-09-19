@@ -35,7 +35,11 @@ import { resolveCliFeatureDecision } from '@/features/featureDecisionService';
 import { bindClaudeUnifiedTerminalSession } from './bindClaudeUnifiedTerminalSession';
 import { createTerminalComposerDraftBlockedEvent } from './terminalComposerDraftBlockedEvent';
 import { isClaudeUnifiedTerminalHostDeadError } from './createClaudeUnifiedController';
-import { isClaudeUnifiedTerminalReadinessTimeoutError } from './createClaudeUnifiedTerminalReadinessBridge';
+import {
+  isClaudeUnifiedTerminalProviderRefusedStartError,
+  isClaudeUnifiedTerminalReadinessTimeoutError,
+} from './createClaudeUnifiedTerminalReadinessBridge';
+import type { ClaudeStartupRefusal } from '../claudeStartupRefusal';
 import {
   isClaudeUnifiedTerminalRuntimeIssueError,
   surfaceClaudeUnifiedTerminalRuntimeIssue,
@@ -761,6 +765,32 @@ export async function claudeUnifiedTerminalLauncher(
     parkedMessage = batch;
     return true;
   };
+  /**
+   * Terminal outcome for a refusal the provider will repeat for these launch arguments. Mirrors
+   * the budget-exhaustion park (pause the durable row so the park wait cannot immediately re-feed
+   * it) but is reached on the FIRST refusal, and reports the fix Claude named instead of a retry
+   * count.
+   */
+  const parkAfterProviderRefusedStart = async (refusal: ClaudeStartupRefusal): Promise<boolean> => {
+    const paused = await pauseExhaustedRelaunchBatchRows();
+    if (paused) {
+      consecutiveParkRelaunches = 0;
+      parkedMessage = null;
+      inFlightStartupMessage = null;
+      lastStartupBatchUserMessageLocalIds = [];
+    }
+    session.client.sendSessionEvent({
+      type: 'message',
+      message: paused
+        ? `${refusal.guidance} Your queued message is paused (not lost) — retry it once that is resolved.`
+        : `${refusal.guidance} Your queued message stays on the server and will be redelivered when the session restarts.`,
+    });
+    await flushUnifiedStartupFailureSurface(session, `provider_refused_start_${refusal.code}`);
+    const batch = await waitForNextParkedSessionInputBatch();
+    if (!batch) return false;
+    parkedMessage = batch;
+    return true;
+  };
   const parkForNextMessageAfterRuntimeIssue = async (reason: string): Promise<boolean> => {
     session.client.sendSessionEvent({
       type: 'message',
@@ -1250,6 +1280,23 @@ export async function claudeUnifiedTerminalLauncher(
           noteRecoveryProbeInconclusiveAndMaybeEscalate(error);
         } else {
           resetRecoveryProbeInconclusiveEscalation();
+        }
+        // The provider refused these launch arguments before any session existed. Relaunching
+        // reproduces it exactly, so this never spends the relaunch budget: surface the fix Claude
+        // named and park for genuinely new input (live reports 2026-09-19 burned all four
+        // relaunches on one refusal before pausing the message).
+        if (isClaudeUnifiedTerminalProviderRefusedStartError(error)) {
+          session.onThinkingChange(false);
+          logger.debug('[unified]: Claude refused to start', {
+            code: error.refusal.code,
+            retryable: error.refusal.retryable,
+          });
+          if (error.refusal.retryable) {
+            restoreInFlightStartupMessageAfterHostStartupFailure();
+            if (consumeParkRelaunchBudget() === 'within_budget') continue;
+          }
+          if (await parkAfterProviderRefusedStart(error.refusal)) continue;
+          return { type: 'exit', code: 1 };
         }
         if (isClaudeUnifiedTerminalHostDeadError(error)) {
           session.onThinkingChange(false);
