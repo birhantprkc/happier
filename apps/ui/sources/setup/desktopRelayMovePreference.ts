@@ -1,4 +1,5 @@
 import { getStorage } from '@/sync/domains/state/storageStore';
+import { applyLocalSettingsFromUi } from '@/sync/store/settingsWriters';
 
 /**
  * UD5's one device-local preference: "always move my default-following background service with my
@@ -10,8 +11,5 @@ export function readAlwaysMoveDefaultFollowingService(): boolean {
 }
 
 export function rememberAlwaysMoveDefaultFollowingService(): void {
-    getStorage().getState().applyLocalSettings(
-        { desktopAlwaysMoveDefaultFollowingService: true },
-        { source: 'ui' },
-    );
+    applyLocalSettingsFromUi({ desktopAlwaysMoveDefaultFollowingService: true });
 }

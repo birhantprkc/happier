@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Platform, Pressable, ScrollView, useWindowDimensions, View, type ViewStyle } from 'react-native';
+import { Pressable, ScrollView, useWindowDimensions, View, type ViewStyle } from 'react-native';
 import Animated, {
     useAnimatedStyle,
     useSharedValue,
@@ -16,19 +16,11 @@ import { reanimatedMotionTokens } from '@/components/ui/motion/reanimatedMotionT
 import { resolveMotionPresentation } from '@/components/ui/motion/reducedMotionTable';
 import { STATUS_TRANSITION_TIMELINE } from '@/components/ui/motion/StatusTransition';
 import { Text } from '@/components/ui/text/Text';
-import { DesktopMainContentDragSurface } from '@/components/navigation/desktopWindowChrome/DesktopMainContentDragSurface';
-import {
-    DESKTOP_SIDEBAR_CHROME_HORIZONTAL_PADDING_PX,
-    DESKTOP_SIDEBAR_CHROME_TOP_PADDING_PX,
-} from '@/components/navigation/shell/desktopChrome/desktopChromeMetrics';
-import { DesktopShellWindowControlsHost } from '@/components/navigation/shell/desktopChrome/DesktopShellWindowControlsHost';
-import { useResolvedDesktopWindowControls } from '@/components/navigation/shell/desktopChrome/useResolvedDesktopWindowControls';
 import { SystemTaskProgressCard } from '@/components/systemTasks/SystemTaskProgressCard';
 import type { SystemTaskRunState } from '@/components/systemTasks/types';
 import { Typography } from '@/constants/Typography';
 import { useReducedMotionPreference } from '@/hooks/ui/useReducedMotionPreference';
 import { t } from '@/text';
-import { isTauriDesktop } from '@/utils/platform/tauri';
 
 import { SetupMark } from './SetupMark';
 import { deriveSetupStageModel, type SetupLocalFacts, type SetupStageModel } from './setupStageModel';
@@ -50,9 +42,8 @@ import { deriveSetupStageModel, type SetupLocalFacts, type SetupStageModel } fro
  *   - `'veil'` — `GlassSurface` over the running app, for blocking in-session maintenance only.
  *     `GlassSurface` already turns solid under Reduce Transparency.
  *
- * Both materials carry the SAME desktop window chrome and drag wrapper: while either is up it owns
- * the whole window, so minimise/maximise/close and the titlebar drag region must belong to it
- * rather than to the shell chrome it is covering.
+ * The app shell remains the one owner of desktop window controls and titlebar dragging across both
+ * materials. The setup surface never creates a second desktop chrome or drag host.
  *
  * Every fact the surface shows comes from `deriveSetupStageModel` (the one stage derivation,
  * INV6). Nothing here reads a clock.
@@ -123,13 +114,6 @@ const styles = StyleSheet.create((theme) => ({
     },
     scroll: {
         flex: 1,
-    },
-    /** The controls land on the shell's own title-row pixels, so the reveal does not jump. */
-    chrome: {
-        position: 'absolute',
-        top: DESKTOP_SIDEBAR_CHROME_TOP_PADDING_PX,
-        left: DESKTOP_SIDEBAR_CHROME_HORIZONTAL_PADDING_PX,
-        zIndex: 10,
     },
     main: {
         flexGrow: 1,
@@ -328,16 +312,6 @@ function useStatusSentenceSwap(sentence: string, reducedMotion: boolean) {
     return { displayed, style };
 }
 
-function DesktopGroundChrome(): React.ReactElement | null {
-    const controls = useResolvedDesktopWindowControls({ variant: 'expanded' });
-    if (!controls) return null;
-    return (
-        <View pointerEvents="box-none" style={styles.chrome} testID="setup-surface-desktop-chrome">
-            <DesktopShellWindowControlsHost>{controls}</DesktopShellWindowControlsHost>
-        </View>
-    );
-}
-
 /**
  * The disclosure, mounted only while blocked and only with something true to show. It arrives on
  * the same `rowEnter` beat as everything else rather than appearing from nowhere.
@@ -491,7 +465,6 @@ export function SetupSurface(props: SetupSurfaceProps): React.ReactElement {
     const { run, facts } = props;
     const model = React.useMemo(() => deriveSetupStageModel(run, facts), [run, facts]);
     const testID = props.testID ?? 'setup-surface';
-    const desktop = Platform.OS === 'web' && isTauriDesktop();
     const exiting = props.exiting === true;
     const departure = useDeparture({
         exiting,
@@ -500,17 +473,12 @@ export function SetupSurface(props: SetupSurfaceProps): React.ReactElement {
     });
 
     const body = (
-        <>
-            {desktop ? <DesktopGroundChrome /> : null}
-            <DesktopMainContentDragSurface enabled={desktop} leftOffsetPx={0} style={styles.fill}>
-                <SetupSurfaceContent
-                    {...props}
-                    model={model}
-                    reducedMotion={reducedMotion}
-                    departureStyle={departure.contentStyle}
-                />
-            </DesktopMainContentDragSurface>
-        </>
+        <SetupSurfaceContent
+            {...props}
+            model={model}
+            reducedMotion={reducedMotion}
+            departureStyle={departure.contentStyle}
+        />
     );
 
     // While the surface is leaving, the shell beneath is already live: the beat is the departure,

@@ -44,6 +44,33 @@ async function navigateSpa(page: Page, path: string) {
     }, path);
 }
 
+async function materializeDeterministicTerminalAuthRequest(params: Readonly<{
+    page: Page;
+    serverBaseUrl: string;
+}>): Promise<void> {
+    await params.page.route('**/v1/auth/request/status?**', async (route) => {
+        const statusUrl = new URL(route.request().url());
+        const publicKey = statusUrl.searchParams.get('publicKey');
+        if (!publicKey) {
+            await route.continue();
+            return;
+        }
+
+        // The deterministic desktop bridge stands in for the CLI process. Materialize the CLI's
+        // real unauthenticated request at the server boundary before the app checks it, then let
+        // the product's real status/approval path run unchanged.
+        const response = await fetch(`${params.serverBaseUrl}/v1/auth/request`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ publicKey, supportsV2: true }),
+        });
+        if (!response.ok) {
+            throw new Error(`failed to materialize deterministic auth request (status=${response.status})`);
+        }
+        await route.continue();
+    });
+}
+
 test.describe('ui e2e: setup control panel flow (deterministic runner)', () => {
     test.describe.configure({ mode: 'serial' });
 
@@ -93,11 +120,18 @@ test.describe('ui e2e: setup control panel flow (deterministic runner)', () => {
         await server?.stop().catch(() => {});
     });
 
-    test('runs local machine setup and shows deterministic progress + success', async ({ page }) => {
+    test('runs deterministic setup through pairing and fails closed until the simulated machine is reachable', async ({ page }) => {
         test.setTimeout(420_000);
-        if (!uiBaseUrl) throw new Error('missing ui base url');
+        if (!server || !uiBaseUrl) throw new Error('missing server/ui fixtures');
 
         await page.setViewportSize({ width: 1440, height: 900 });
+        await materializeDeterministicTerminalAuthRequest({ page, serverBaseUrl: server.baseUrl });
+        const pairingResponses: string[] = [];
+        page.on('request', (request) => {
+            if (request.method() === 'POST' && request.url().includes('/v1/auth/response')) {
+                pairingResponses.push(request.url());
+            }
+        });
 
         await gotoDomContentLoadedWithRetries(page, `${uiBaseUrl}/?happier_hmr=0`, 180_000);
         await setFakeTauriInternalsInExistingDocument(page);
@@ -108,34 +142,12 @@ test.describe('ui e2e: setup control panel flow (deterministic runner)', () => {
         await page.getByTestId('setup.continueToAuth').click();
 
         await ensureAccountReadyForConnect({ page, timeoutMs: 180_000 });
-        await navigateSpa(page, '/setup?happier_hmr=0');
+        await navigateSpa(page, '/?happier_hmr=0');
 
-        // Completing auth may land on the shell; navigate back to setup and exercise the setup task surface.
-        await expect
-            .poll(
-                async () => {
-                    const postAuthCount = await page.getByTestId('setup.postAuth').count();
-                    const startTaskCount = await page.getByTestId('settings.machineSetup.startLocalTask').count();
-                    return postAuthCount + startTaskCount;
-                },
-                { timeout: 180_000 },
-            )
-            .toBeGreaterThan(0);
-        await expect(page.getByTestId('settings.machineSetup.startLocalTask')).toHaveCount(1, { timeout: 180_000 });
-
-        // If auto-start is disabled for any reason, fall back to starting the task explicitly.
-        const progressCard = page.getByTestId('system-task-progress-card');
-        try {
-            await expect(progressCard).toHaveCount(1, { timeout: 30_000 });
-        } catch {
-            await page.getByTestId('settings.machineSetup.startLocalTask').click();
-            await expect(progressCard).toHaveCount(1, { timeout: 180_000 });
-        }
-
-        await expect(page.getByTestId('system-task-progress-card')).toHaveCount(1, { timeout: 120_000 });
-
-        // Deterministic bridge finishes quickly; assert on stable status ids instead of copy.
-        await expect(page.getByTestId('system-task-progress-status-succeeded')).toHaveCount(1, { timeout: 120_000 });
-        await expect(page.getByTestId('system-task-step-label')).toHaveCount(1, { timeout: 120_000 });
+        // The deterministic bridge exercises the real pairing request and approval exchange.
+        // It deliberately does not register a live machine socket with the relay, so the final
+        // reachability proof must block instead of treating task completion as readiness.
+        await expect.poll(() => pairingResponses.length, { timeout: 120_000 }).toBeGreaterThan(0);
+        await expect(page.getByTestId('desktop-setup-gate:retry')).toHaveCount(1, { timeout: 120_000 });
     });
 });
