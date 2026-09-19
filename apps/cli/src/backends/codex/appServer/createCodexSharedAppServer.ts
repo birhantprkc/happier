@@ -12,6 +12,7 @@ import {
   sanitizeCodexAppServerEnv,
   type DisposableCodexAppServerClient,
 } from './client/createCodexAppServerClient';
+import { readCodexAppServerStartupRpcTimeoutMs } from './client/codexAppServerRpcTimeout';
 import { appendCodexCliConfigOverridesArgs } from '../utils/appendCodexCliConfigOverridesArgs';
 import { resolveCodexCliInvocation } from '../utils/resolveCodexCliInvocation';
 
@@ -25,14 +26,13 @@ type SharedServerDependencies = Readonly<{
   createRuntimeDirectory: () => Promise<string>;
   resolveInvocation: InvocationResolver;
   spawnProcess: typeof spawn;
-  waitForSocket: (socketPath: string, child: ChildProcess) => Promise<void>;
+  waitForSocket: (socketPath: string, child: ChildProcess, timeoutMs: number) => Promise<void>;
   createClient: typeof createCodexAppServerClient;
   terminateProcess: (child: ChildProcess) => Promise<void>;
   removeRuntimeDirectory: (directory: string) => Promise<void>;
 }>;
 
-async function waitForSocket(socketPath: string, child: ChildProcess): Promise<void> {
-  const timeoutMs = 10_000;
+async function waitForSocket(socketPath: string, child: ChildProcess, timeoutMs: number): Promise<void> {
   const startedAt = Date.now();
   let terminalError: Error | null = null;
   child.once('error', (error) => { terminalError = error; });
@@ -111,7 +111,11 @@ export async function createCodexSharedAppServer(params: Readonly<{
     child.stderr?.on('data', (chunk) => {
       logger.debug('[codex-shared-app-server] stderr', String(chunk).trim());
     });
-    await dependencies.waitForSocket(socketPath, child);
+    await dependencies.waitForSocket(
+      socketPath,
+      child,
+      readCodexAppServerStartupRpcTimeoutMs(processEnv),
+    );
   } catch (error) {
     if (child) await dependencies.terminateProcess(child);
     await dependencies.removeRuntimeDirectory(runtimeDirectory);

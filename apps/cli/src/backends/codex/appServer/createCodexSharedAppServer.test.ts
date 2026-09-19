@@ -15,7 +15,10 @@ describe('createCodexSharedAppServer', () => {
 
     const server = await createCodexSharedAppServer({
       directory: '/workspace',
-      processEnv: { HOME: '/home/test' },
+      processEnv: {
+        HOME: '/home/test',
+        HAPPIER_CODEX_APP_SERVER_STARTUP_RPC_TIMEOUT_MS: '90000',
+      },
       configOverrides: ['model="gpt-5"'],
       dependencies: {
         createRuntimeDirectory: async () => '/tmp/happier-codex-private',
@@ -37,7 +40,11 @@ describe('createCodexSharedAppServer', () => {
       ],
       expect.objectContaining({ cwd: '/workspace', stdio: ['ignore', 'ignore', 'pipe'] }),
     );
-    expect(waitForSocket).toHaveBeenCalledWith('/tmp/happier-codex-private/private/app-server.sock', child);
+    expect(waitForSocket).toHaveBeenCalledWith(
+      '/tmp/happier-codex-private/private/app-server.sock',
+      child,
+      90_000,
+    );
 
     await server.createClient();
     expect(createClient).toHaveBeenCalledWith(expect.objectContaining({
