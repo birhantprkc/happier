@@ -45,8 +45,17 @@ test('nightly-dev verifies exact immutable candidates before promoting rolling r
     /docker:[\s\S]*?needs:\s*\[prepare_release_candidate, cli, server_runtime, release_verify\][\s\S]*?server_version:\s*\$\{\{ needs\.server_runtime\.outputs\.version \}\}[\s\S]*?cli_version:\s*\$\{\{ needs\.cli\.outputs\.version \}\}/,
     'Docker should wait for grouped verification and consume the exact verified CLI and server candidate versions',
   );
-  assert.match(raw, /verify_promoted:[\s\S]*?needs:\s*\[prepare_release_candidate, promote_server, promote_hstack, promote_cli, promote_ui_web\][\s\S]*?for tag in server-dev stack-dev cli-dev ui-web-dev/);
+  assert.match(
+    raw,
+    /verify_promoted:[\s\S]*?needs:\s*\[prepare_release_candidate, promote_server, promote_hstack, promote_cli, promote_ui_web, ui_mobile, ui_desktop\][\s\S]*?for tag in server-dev stack-dev cli-dev ui-web-dev ui-mobile-dev ui-desktop-dev/,
+    'terminal promotion verification must wait for and inspect every user-facing rolling GitHub Release',
+  );
   assert.match(raw, /resolve_tag_commit\(\)/, 'rolling verification should dereference annotated as well as lightweight tags');
+  assert.match(
+    raw,
+    /releases\/tags\/\$\{tag\}[\s\S]*?--jq '\.target_commitish'[\s\S]*?test "\$release_target" = "\$EXPECTED_SHA"/,
+    'rolling verification must reject stale GitHub Release target metadata even when the git tag is current',
+  );
 
   assert.doesNotMatch(
     releaseVerifyBlock,
@@ -54,11 +63,7 @@ test('nightly-dev verifies exact immutable candidates before promoting rolling r
     'candidate verification must not depend on jobs that already publish user-consumed mobile, desktop, or Docker outputs',
   );
   const promotedVerificationBlock = raw.slice(raw.indexOf('\n  verify_promoted:'), raw.indexOf('\n  advance_source_issues_to_dev:'));
-  assert.doesNotMatch(
-    promotedVerificationBlock,
-    /needs:\s*\[[^\]]*(?:ui_mobile|ui_desktop|docker)/,
-    'optional downstream publication must not delay or prevent core rolling-reference verification',
-  );
+  assert.doesNotMatch(promotedVerificationBlock, /needs:\s*\[[^\]]*docker/, 'Docker publication has no GitHub rolling Release to verify');
 });
 
 test('nightly-dev publishes the newest forward-only CI-certified dev SHA and reports blocked newer heads', async () => {
