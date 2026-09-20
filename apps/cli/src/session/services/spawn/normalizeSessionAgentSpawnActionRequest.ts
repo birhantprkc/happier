@@ -387,13 +387,15 @@ function shouldInheritParentConnectedServices(params: Readonly<{
   if (!isKnownAgentId(targetAgentId)) return false;
   if (!agentSupportsSpawnConnectedServicesDefaults(targetAgentId)) return false;
 
-  // Bindings are Agent-scoped. A cross-Agent child must resolve the target's
-  // account default rather than carrying the source Agent's service selection.
-  const parentAgentId = resolveAgentIdFromSessionMetadata(params.parentMetadata)
-    ?? (params.currentBackendTarget?.kind === 'builtInAgent'
-      ? params.currentBackendTarget.agentId
-      : null);
-  return parentAgentId === null || parentAgentId === targetAgentId;
+  // Bindings are Agent-scoped. Only inherit them when the known live source,
+  // or persisted source when no live target exists, is the same Agent.
+  const sourceAgentId = params.currentBackendTarget
+    ? (params.currentBackendTarget.kind === 'builtInAgent'
+      && isKnownAgentId(params.currentBackendTarget.agentId)
+        ? params.currentBackendTarget.agentId
+        : null)
+    : resolveAgentIdFromSessionMetadata(params.parentMetadata);
+  return sourceAgentId === targetAgentId;
 }
 
 export async function resolveSessionAgentSpawnPolicy(params: Readonly<{

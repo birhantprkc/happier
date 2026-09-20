@@ -79,6 +79,7 @@ describe('normalizeSessionAgentSpawnActionRequest', () => {
         path: '/repo/current',
         host: 'leeroy-mbp',
         machineId: 'machine-1',
+        backendTarget: { kind: 'builtInAgent', agentId: 'codex' },
       },
       spawnPolicy: policy(),
       resolveConnectedServicesDefaults: noConnectedServiceDefaults,
@@ -390,6 +391,76 @@ describe('normalizeSessionAgentSpawnActionRequest', () => {
     expect(resolveConnectedServicesDefaults).toHaveBeenCalledWith({
       backendTarget: { kind: 'builtInAgent', agentId: 'claude' },
       credentials,
+    });
+  });
+
+  it('uses the target Agent auth default when the parent Agent identity is unknown', async () => {
+    const targetConnectedServices = connectedServices('claude-subscription');
+    const resolveConnectedServicesDefaults: SessionAgentSpawnActionConnectedServicesDefaultResolver = vi.fn(async () => ({
+      connectedServices: targetConnectedServices,
+      connectedServicesUpdatedAt: 202,
+    }));
+
+    const result = await normalizeSessionAgentSpawnActionRequest({
+      credentials,
+      surface: 'cli',
+      input: { backendTargetKey: 'agent:claude' },
+      parentMetadata: {
+        connectedServices: connectedServices('openai-codex'),
+        connectedServicesUpdatedAt: 200,
+      },
+      currentSession: {
+        path: '/repo/current',
+        host: 'leeroy-mbp',
+        machineId: 'machine-1',
+      },
+      resolveConnectedServicesDefaults,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected normalized spawn request');
+
+    expect(result.createParams.connectedServices).toEqual(targetConnectedServices);
+    expect(result.createParams.connectedServicesUpdatedAt).toBe(202);
+    expect(result.sources.connectedServices).toEqual({
+      kind: 'default',
+      key: 'connectedServicesDefaults',
+    });
+  });
+
+  it('uses the live source backend instead of stale parent Agent metadata', async () => {
+    const targetConnectedServices = connectedServices('claude-subscription');
+    const resolveConnectedServicesDefaults: SessionAgentSpawnActionConnectedServicesDefaultResolver = vi.fn(async () => ({
+      connectedServices: targetConnectedServices,
+      connectedServicesUpdatedAt: 203,
+    }));
+
+    const result = await normalizeSessionAgentSpawnActionRequest({
+      credentials,
+      surface: 'cli',
+      input: { backendTargetKey: 'agent:claude' },
+      parentMetadata: {
+        flavor: 'claude',
+        connectedServices: connectedServices('openai-codex'),
+        connectedServicesUpdatedAt: 200,
+      },
+      currentSession: {
+        path: '/repo/current',
+        host: 'leeroy-mbp',
+        machineId: 'machine-1',
+        backendTarget: { kind: 'builtInAgent', agentId: 'codex' },
+      },
+      resolveConnectedServicesDefaults,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected normalized spawn request');
+
+    expect(result.createParams.connectedServices).toEqual(targetConnectedServices);
+    expect(result.createParams.connectedServicesUpdatedAt).toBe(203);
+    expect(result.sources.connectedServices).toEqual({
+      kind: 'default',
+      key: 'connectedServicesDefaults',
     });
   });
 
