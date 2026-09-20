@@ -1,11 +1,17 @@
 export type {
   InstallProviderCliResult,
+  ManagedInstallPromotionDeps,
   ProviderCliInstallCommand,
   ProviderCliInstallMode,
   ProviderCliInstallPlan,
   ProviderCliInstallPlanResult,
 } from './install.js';
-export { installProviderCli, planProviderCliInstall, resolvePlatformFromNodePlatform } from './install.js';
+export {
+  installProviderCli,
+  planProviderCliInstall,
+  promoteManagedInstallCandidate,
+  resolvePlatformFromNodePlatform,
+} from './install.js';
 export type {
   ProviderCliCommandResolution,
   ProviderCliResolutionSource,

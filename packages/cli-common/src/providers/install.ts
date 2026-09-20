@@ -172,18 +172,23 @@ async function promoteVersionedManagedInstallCandidate(params: Readonly<{
   });
 }
 
-async function promoteManagedInstallCandidate(params: Readonly<{
+export type ManagedInstallPromotionDeps = Readonly<{
+  removeManagedInstallPath?: typeof rm;
+  renameManagedInstallPath?: typeof rename;
+}>;
+
+export async function promoteManagedInstallCandidate(params: Readonly<{
   installRoot: string;
   candidateDir: string;
   logPath: string;
-  deps: InstallProviderCliDeps;
+  deps?: ManagedInstallPromotionDeps;
   activateVersionedRelease?: boolean;
 }>): Promise<void> {
   const currentDir = join(params.installRoot, 'current');
   const previousDir = join(params.installRoot, `previous-${randomUUID()}`);
   const activePath = join(params.installRoot, 'active');
-  const removePath = params.deps.removeManagedInstallPath ?? rm;
-  const renamePath = params.deps.renameManagedInstallPath ?? rename;
+  const removePath = params.deps?.removeManagedInstallPath ?? rm;
+  const renamePath = params.deps?.renameManagedInstallPath ?? rename;
 
   await mkdir(params.installRoot, { recursive: true });
   let waitReported = false;

@@ -1,9 +1,12 @@
 import { createReadStream, accessSync, constants as fsConstants, existsSync } from 'node:fs';
-import { access, chmod, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { basename, dirname, isAbsolute, join, relative } from 'node:path';
-import { AGY_ACP_SERVER_VERSION } from '@happier-dev/protocol';
-import { downloadGitHubReleaseAsset } from '@happier-dev/cli-common/providers';
+import {
+  downloadGitHubReleaseAsset,
+  promoteManagedInstallCandidate,
+} from '@happier-dev/cli-common/providers';
+import { AGY_ACP_SERVER_VERSION } from '@happier-dev/protocol/installables';
 import { extractArchivePayloadToDirectory } from '@happier-dev/release-runtime/archiveExtraction';
 
 import { configuration } from '@/configuration';
@@ -167,7 +170,6 @@ async function installPinnedAgyAcpRelease(
   try {
     const archivePath = join(scratchDir, basename(asset.name));
     const extractDir = join(scratchDir, 'extract');
-    const nextDir = join(installDir, 'next');
 
     await deps.downloadArchive({
       url: asset.url,
@@ -176,7 +178,6 @@ async function installPinnedAgyAcpRelease(
       userAgent: 'happier-cli',
     });
 
-    await rm(nextDir, { recursive: true, force: true });
     await rm(extractDir, { recursive: true, force: true });
     await deps.extractArchive({
       archivePath,
@@ -196,10 +197,7 @@ async function installPinnedAgyAcpRelease(
 
     // Google's ZIP has no wrapper directory. Keep the server and its companion
     // localharness executable together at current/<subpath>.
-    await rm(nextDir, { recursive: true, force: true });
-    await mkdir(dirname(nextDir), { recursive: true });
-    await rename(extractDir, nextDir);
-    const installedExecutable = safeExecutablePath(nextDir, asset.executableSubpath);
+    const installedExecutable = safeExecutablePath(extractDir, asset.executableSubpath);
     if (!installedExecutable) {
       throw new Error('Pinned agy-acp-server executable path is unsafe');
     }
@@ -221,9 +219,11 @@ async function installPinnedAgyAcpRelease(
         `# executableSha256: ${executableSha256}`,
       ],
     });
-    await rm(currentRoot(), { recursive: true, force: true });
-    await mkdir(agyAcpInstallDir(), { recursive: true });
-    await rename(nextDir, currentRoot());
+    await promoteManagedInstallCandidate({
+      installRoot: installDir,
+      candidateDir: extractDir,
+      logPath,
+    });
     return {
       version: asset.version,
       executableSha256,
