@@ -41,6 +41,7 @@ export type IconActionProps = Readonly<{
     onPress?: (event: GestureResponderEvent) => void;
     /** Required: a glyph alone is not an accessible name, and it doubles as the web tooltip. */
     accessibilityLabel: string;
+    tooltipPlacement?: 'top' | 'bottom' | 'left' | 'right';
     accessibilityRole?: AccessibilityRole;
     accessibilityState?: AccessibilityState;
     size?: IconActionSize;
@@ -117,6 +118,7 @@ export const IconAction = React.memo((props: IconActionProps) => {
             accessibilityRole={props.accessibilityRole}
             accessibilityState={props.accessibilityState}
             webTooltip={props.accessibilityLabel}
+            tooltipPlacement={props.tooltipPlacement}
             focusRingRadius={ICON_ACTION_RADIUS_PX[size]}
             style={[
                 styles.base,

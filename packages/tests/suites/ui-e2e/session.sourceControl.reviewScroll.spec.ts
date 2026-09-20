@@ -147,19 +147,12 @@ test.describe('ui e2e: SCM review position + tab state', () => {
     // Some RN-web render paths don't forward `testID` onto the segmented tab buttons; fall back to role/name.
     const rightPane = rightPaneLocator(page);
 	    await clickScopedButtonByTestIdOrRole({
-	      scope: rightPane,
-	      testId: 'session-rightpanel-tab:git',
+	      scope: page.getByTestId('session-action-rail'),
+	      testId: 'session-action-rail:git',
 	      roleName: 'Source control',
 	      timeoutMs: 60_000,
 	    });
-    const openReviewByTestId = rightPane.getByTestId('session-rightpanel-git-open-review');
-    if (await openReviewByTestId.count()) {
-      await openReviewByTestId.click();
-    } else {
-      const reviewTab = rightPane.getByRole('button', { name: 'Review' });
-      await expect(reviewTab).toHaveCount(1, { timeout: 60_000 });
-      await reviewTab.click({ timeout: 60_000, force: true });
-    }
+    await page.getByTestId('session-action-rail:review').click();
 
     await expect(detailsPaneLocator(page)).toHaveCount(1, { timeout: 60_000 });
     const reviewList = detailsPaneLocator(page).getByTestId('scm-review-list');
@@ -227,8 +220,8 @@ test.describe('ui e2e: SCM review position + tab state', () => {
     // Exercise the actual file viewer too: refreshed repository bytes must
     // replace the rendered patch without depending on renderer-internal DOM ids.
     await clickScopedButtonByTestIdOrRole({
-      scope: rightPane,
-      testId: 'session-rightpanel-tab:files',
+      scope: page.getByTestId('session-action-rail'),
+      testId: 'session-action-rail:files',
       roleName: 'Files',
       timeoutMs: 60_000,
     });
