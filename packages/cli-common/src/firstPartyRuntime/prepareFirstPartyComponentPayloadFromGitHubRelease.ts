@@ -210,9 +210,14 @@ function wrapFirstPartyReleaseSourceError(params: Readonly<{
   const rawMessage = params.error instanceof Error && params.error.message.trim()
     ? params.error.message.trim()
     : String(params.error ?? '').trim();
-  const tokenHint = params.githubToken
-    ? 'Verify the repository, release tag, and release assets.'
-    : 'No GitHub token was configured; if the release repository is private, set HAPPIER_FIRST_PARTY_RELEASE_TOKEN, HAPPIER_GITHUB_TOKEN, or GH_TOKEN.';
+  const shouldSuggestToken = !params.githubToken && (
+    status === 401
+    || status === 403
+    || (status === 404 && params.stage === 'resolve release tag')
+  );
+  const tokenHint = shouldSuggestToken
+    ? 'No GitHub token was configured; if the release repository is private, set HAPPIER_FIRST_PARTY_RELEASE_TOKEN, HAPPIER_GITHUB_TOKEN, or GH_TOKEN.'
+    : 'Verify the repository, release tag, and release assets.';
   const statusHint =
     status === 404
       ? 'GitHub returned 404, which usually means the repository is private, the tag is missing, or the token does not have release access.'
