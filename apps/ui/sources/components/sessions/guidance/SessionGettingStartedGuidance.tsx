@@ -16,7 +16,10 @@ import { useConnectTerminal } from '@/hooks/session/useConnectTerminal';
 import type { FeatureId } from '@happier-dev/protocol';
 import { getFeatureBuildPolicyDecision } from '@/sync/domains/features/featureBuildPolicy';
 import { config } from '@/config';
-import { resolveCurrentAppVariant } from '@/sync/runtime/currentAppVariant';
+import {
+    resolveCurrentAppVariant,
+    resolvePreferredPublicReleaseRingLabelForCurrentApp,
+} from '@/sync/runtime/currentAppVariant';
 import { isTauriDesktop } from '@/utils/platform/tauri';
 
 import type { SessionGettingStartedDecisionKind } from './gettingStartedModel';
@@ -228,14 +231,16 @@ function buildCliInstallCommand(options?: Readonly<{ suppressAutomaticSetup?: bo
     return buildHappierCliInstallCommand({
         appVariant: resolveCurrentAppVariant(),
         distTagOverride: config.cliNpmDistTag,
+        channelOverride: resolvePreferredPublicReleaseRingLabelForCurrentApp(),
         suppressAutomaticSetup: options?.suppressAutomaticSetup,
     });
 }
 
-function buildCliCommandName(): 'happier' | 'hprev' {
+function buildCliCommandName(): 'happier' | 'hprev' | 'hdev' {
     return buildHappierCliCommandName({
         appVariant: resolveCurrentAppVariant(),
         distTagOverride: config.cliNpmDistTag,
+        channelOverride: resolvePreferredPublicReleaseRingLabelForCurrentApp(),
     });
 }
 

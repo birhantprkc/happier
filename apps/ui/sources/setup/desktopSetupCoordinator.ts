@@ -10,7 +10,7 @@ import { getActiveServerAccountScope } from '@/sync/domains/scope/activeServerAc
 import { getActiveServerSnapshot } from '@/sync/domains/server/serverRuntime';
 import { resolveWebappUrlFromServerUrl } from '@/sync/domains/server/url/resolveWebappUrlFromServerUrl';
 import { machineRpcWithServerScope } from '@/sync/runtime/orchestration/serverScopedRpc/serverScopedMachineRpc';
-import { resolveManagedCliChannel } from '@/sync/runtime/currentAppVariant';
+import { resolvePreferredPublicReleaseRingLabelForCurrentApp } from '@/sync/runtime/currentAppVariant';
 
 import {
     readAlwaysMoveDefaultFollowingService,
@@ -241,7 +241,7 @@ export function resolveDesktopSetupTarget(): LocalMachineSetupTarget {
         activeWebappUrl: resolveWebappUrlFromServerUrl(activeRelayUrl),
         activeLocalRelayUrl: readString(activeServer.activeLocalRelayUrl),
         expectedAccountId: accountId,
-        channel: resolveManagedCliChannel(),
+        channel: resolvePreferredPublicReleaseRingLabelForCurrentApp(),
     };
 }
 

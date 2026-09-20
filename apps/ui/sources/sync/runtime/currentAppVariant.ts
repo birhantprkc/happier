@@ -1,6 +1,12 @@
 import Constants from 'expo-constants';
 import * as Updates from 'expo-updates';
 
+import {
+    getReleaseRingPublicLabel,
+    normalizePublicReleaseRingId,
+    type PublicReleaseRingLabel,
+} from '@happier-dev/release-runtime/releaseRings';
+
 import { config } from '@/config';
 
 import { resolveAppVariant, type AppVariant } from './appVariant';
@@ -36,15 +42,27 @@ export function resolveCurrentAppVariant(): AppVariant {
     );
 }
 
-export type ManagedCliChannel = 'stable' | 'preview' | 'dev';
+export function resolvePreferredPublicReleaseRingLabelForApp(params: Readonly<{
+    identityVariant: string | null | undefined;
+    variant: AppVariant;
+}>): PublicReleaseRingLabel {
+    const identityRing = normalizePublicReleaseRingId(params.identityVariant);
+    if (identityRing) {
+        return getReleaseRingPublicLabel(identityRing);
+    }
+
+    if (params.variant === 'preview') return 'preview';
+    if (params.variant === 'development') return 'dev';
+    return 'stable';
+}
 
 /**
- * The release ring the desktop app acquires the managed Happier CLI from. Acquisition depends
- * only on this ring, never on the relay, so a relay change never invalidates it (plan C3).
+ * The public release ring selected by this app identity. Release acquisition depends only on this
+ * ring, never on the relay, so a relay change never invalidates it (plan C3).
  */
-export function resolveManagedCliChannel(): ManagedCliChannel {
-    const variant = resolveCurrentAppVariant();
-    if (variant === 'preview') return 'preview';
-    if (variant === 'development') return 'dev';
-    return 'stable';
+export function resolvePreferredPublicReleaseRingLabelForCurrentApp(): PublicReleaseRingLabel {
+    return resolvePreferredPublicReleaseRingLabelForApp({
+        identityVariant: config.identityVariant,
+        variant: resolveCurrentAppVariant(),
+    });
 }
