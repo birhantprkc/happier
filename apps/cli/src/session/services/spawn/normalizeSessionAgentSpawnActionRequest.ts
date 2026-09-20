@@ -24,6 +24,7 @@ import {
 import type { Credentials } from '@/persistence';
 import { bootstrapAccountSettingsContext } from '@/settings/accountSettings/bootstrapAccountSettingsContext';
 import {
+  CHILD_SESSION_INHERITANCE_FIELDS,
   CHILD_SESSION_INHERITANCE_FIELD_SETS,
   resolveChildSessionInheritedContextFromMetadata,
 } from '@/session/inheritance/resolveChildSessionInheritedContextFromMetadata';
@@ -372,6 +373,24 @@ function sourceForExplicitOrInherited(
   return hasValue(explicitValue) ? { kind: 'explicit', key: explicitKey } : inheritedSource;
 }
 
+function shouldInheritParentConnectedServices(params: Readonly<{
+  parentMetadata: Record<string, unknown> | null;
+  currentBackendTarget?: BackendTargetRefV1 | null;
+  targetBackend: BackendTargetRefV1;
+}>): boolean {
+  if (params.targetBackend.kind !== 'builtInAgent') return false;
+  const targetAgentId = params.targetBackend.agentId;
+  if (!agentSupportsSpawnConnectedServicesDefaults(targetAgentId)) return false;
+
+  // Bindings are Agent-scoped. A cross-Agent child must resolve the target's
+  // account default rather than carrying the source Agent's service selection.
+  const parentAgentId = resolveAgentIdFromSessionMetadata(params.parentMetadata)
+    ?? (params.currentBackendTarget?.kind === 'builtInAgent'
+      ? params.currentBackendTarget.agentId
+      : null);
+  return parentAgentId === null || parentAgentId === targetAgentId;
+}
+
 export async function resolveSessionAgentSpawnPolicy(params: Readonly<{
   credentials: Credentials;
 }>): Promise<SessionAgentSpawnPolicyV1> {
@@ -485,10 +504,19 @@ export async function normalizeSessionAgentSpawnActionRequest(params: Readonly<{
     };
   }
 
+  const inheritanceFields = shouldInheritParentConnectedServices({
+    parentMetadata: params.parentMetadata,
+    currentBackendTarget: params.currentSession.backendTarget,
+    targetBackend: backend.backendTarget,
+  })
+    ? CHILD_SESSION_INHERITANCE_FIELD_SETS.sessionAgentSpawn
+    : CHILD_SESSION_INHERITANCE_FIELD_SETS.sessionAgentSpawn.filter(
+        (field) => field !== CHILD_SESSION_INHERITANCE_FIELDS.connectedServices,
+      );
   const inherited = resolveChildSessionInheritedContextFromMetadata({
     metadata: params.parentMetadata,
     providerId: backend.backendTarget.kind === 'builtInAgent' ? backend.backendTarget.agentId : null,
-    fields: CHILD_SESSION_INHERITANCE_FIELD_SETS.sessionAgentSpawn,
+    fields: inheritanceFields,
   });
 
   const sources: SessionAgentSpawnActionSources = {

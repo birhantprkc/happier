@@ -352,6 +352,81 @@ describe('normalizeSessionAgentSpawnActionRequest', () => {
     });
   });
 
+  it('uses the target Agent auth default instead of inheriting another Agent binding', async () => {
+    const targetConnectedServices = connectedServices('claude-subscription');
+    const resolveConnectedServicesDefaults: SessionAgentSpawnActionConnectedServicesDefaultResolver = vi.fn(async () => ({
+      connectedServices: targetConnectedServices,
+      connectedServicesUpdatedAt: 201,
+    }));
+
+    const result = await normalizeSessionAgentSpawnActionRequest({
+      credentials,
+      surface: 'cli',
+      input: { backendTargetKey: 'agent:claude' },
+      parentMetadata: {
+        flavor: 'codex',
+        connectedServices: connectedServices('openai-codex'),
+        connectedServicesUpdatedAt: 200,
+      },
+      currentSession: {
+        path: '/repo/current',
+        host: 'leeroy-mbp',
+        machineId: 'machine-1',
+        backendTarget: { kind: 'builtInAgent', agentId: 'codex' },
+      },
+      resolveConnectedServicesDefaults,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected normalized spawn request');
+
+    expect(result.createParams.backendTarget).toEqual({ kind: 'builtInAgent', agentId: 'claude' });
+    expect(result.createParams.connectedServices).toEqual(targetConnectedServices);
+    expect(result.createParams.connectedServicesUpdatedAt).toBe(201);
+    expect(result.sources.connectedServices).toEqual({
+      kind: 'default',
+      key: 'connectedServicesDefaults',
+    });
+    expect(resolveConnectedServicesDefaults).toHaveBeenCalledWith({
+      backendTarget: { kind: 'builtInAgent', agentId: 'claude' },
+      credentials,
+    });
+  });
+
+  it('does not inherit connected services when the target Agent does not support them', async () => {
+    const resolveConnectedServicesDefaults: SessionAgentSpawnActionConnectedServicesDefaultResolver = vi.fn(async () => null);
+
+    const result = await normalizeSessionAgentSpawnActionRequest({
+      credentials,
+      surface: 'cli',
+      input: { backendTargetKey: 'agent:agy' },
+      parentMetadata: {
+        flavor: 'codex',
+        connectedServices: connectedServices('openai-codex'),
+        connectedServicesUpdatedAt: 200,
+      },
+      currentSession: {
+        path: '/repo/current',
+        host: 'leeroy-mbp',
+        machineId: 'machine-1',
+        backendTarget: { kind: 'builtInAgent', agentId: 'codex' },
+      },
+      resolveConnectedServicesDefaults,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected normalized spawn request');
+
+    expect(result.createParams.backendTarget).toEqual({ kind: 'builtInAgent', agentId: 'agy' });
+    expect(result.createParams).not.toHaveProperty('connectedServices');
+    expect(result.createParams).not.toHaveProperty('connectedServicesUpdatedAt');
+    expect(result.sources.connectedServices).toBeUndefined();
+    expect(resolveConnectedServicesDefaults).toHaveBeenCalledWith({
+      backendTarget: { kind: 'builtInAgent', agentId: 'agy' },
+      credentials,
+    });
+  });
+
   it('rejects malformed backend target inputs instead of falling back to the default agent', async () => {
     for (const input of [
       { backendTargetKey: 'not-a-backend-target' },
