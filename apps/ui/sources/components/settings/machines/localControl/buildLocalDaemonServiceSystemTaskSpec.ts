@@ -1,7 +1,7 @@
 import { SYSTEM_TASK_PROTOCOL_VERSION, type SystemTaskSpec } from '@happier-dev/protocol';
 
 import type { DesktopBackgroundServiceAutostartMode } from '@/setup/deriveDesktopLocalSetupSnapshot';
-import { resolveManagedCliChannel } from '@/sync/runtime/currentAppVariant';
+import { resolvePreferredPublicReleaseRingLabelForCurrentApp } from '@/sync/runtime/currentAppVariant';
 
 type LocalDaemonServiceTaskKind =
     | 'daemon.service.status.v1'
@@ -32,7 +32,7 @@ export function buildLocalDaemonServiceSystemTaskSpec(
             target: { kind: 'local' },
             surface: 'desktop.ui',
             mode: 'user',
-            channel: resolveManagedCliChannel(),
+            channel: resolvePreferredPublicReleaseRingLabelForCurrentApp(),
             ...(options ? { autostart: options.autostart } : {}),
         },
     };

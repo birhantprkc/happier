@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, sep } from 'node:path';
+import { basename, join, sep } from 'node:path';
 import { resolveAgyAcpReleaseAsset } from '@/runtime/managedTools/providers/agyAcpRelease.js';
 import {
   __resetAgyAcpInFlightForTests,
@@ -10,12 +10,24 @@ import {
   resolveExistingAgyAcpManagedBinPath,
 } from './agyAcp.js';
 
-const testConfig = vi.hoisted(() => ({ home: '', homeOnSeparateDevice: false }));
+const testConfig = vi.hoisted(() => ({
+  home: '',
+  homeOnSeparateDevice: false,
+  failNextPromotion: false,
+}));
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>();
   return {
     ...actual,
     rename: async (...args: Parameters<typeof actual.rename>) => {
+      if (
+        testConfig.failNextPromotion
+        && basename(String(args[1])) === 'current'
+        && !basename(String(args[0])).startsWith('previous-')
+      ) {
+        testConfig.failNextPromotion = false;
+        throw Object.assign(new Error('Injected final promotion failure'), { code: 'EIO' });
+      }
       // Model a mounted Happier home while keeping extraction and filesystem I/O real.
       const homePrefix = `${testConfig.home}${sep}`;
       if (testConfig.homeOnSeparateDevice
@@ -35,6 +47,17 @@ vi.mock('@/configuration', () => ({
 
 const tempDirs = new Set<string>();
 
+function expectNoTransientInstallEntries(entries: readonly string[]): void {
+  expect(entries).toContain('current');
+  expect(entries).toContain('install-state.json');
+  expect(entries.some((entry) => (
+    entry === 'next'
+    || entry === 'candidate'
+    || entry.startsWith('.install-')
+    || entry.startsWith('previous-')
+  ))).toBe(false);
+}
+
 // Stored ZIPs with the official flat layout, using tiny executable and harness
 // contents so installation exercises the real extractor without a network fetch.
 const flatArchive = Buffer.from(process.platform === 'win32'
@@ -50,6 +73,7 @@ afterEach(async () => {
   tempDirs.clear();
   testConfig.home = '';
   testConfig.homeOnSeparateDevice = false;
+  testConfig.failNextPromotion = false;
 });
 
 describe('agy-acp-server installable (EU-3)', () => {
@@ -80,7 +104,7 @@ describe('agy-acp-server installable (EU-3)', () => {
     expect(status.installed).toBe(true);
     expect(status.binPath).toBe(binPath);
     expect(status.installedVersion).toBe('1.1.1');
-    expect((await readdir(status.installDir)).sort()).toEqual(['current', 'install-state.json']);
+    expectNoTransientInstallEntries(await readdir(status.installDir));
   });
 
   it('rejects a managed executable whose contents changed after verified installation', async () => {
@@ -111,6 +135,29 @@ describe('agy-acp-server installable (EU-3)', () => {
     expect(status.binPath).toBeNull();
   });
 
+  it('forwards the pinned release extraction budget to the archive extractor', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'happier-agy-limits-'));
+    tempDirs.add(home);
+    testConfig.home = home;
+    const asset = resolveAgyAcpReleaseAsset();
+    const extractArchive = vi.fn(async ({ extractDir }: { extractDir: string }) => {
+      await mkdir(extractDir, { recursive: true });
+      await writeFile(join(extractDir, asset.executableSubpath), 'server-fixture', 'utf8');
+    });
+
+    const installed = await installAgyAcp({
+      downloadArchive: async ({ destinationPath }) => {
+        await writeFile(destinationPath, 'archive-fixture', 'utf8');
+      },
+      extractArchive,
+    });
+
+    expect(installed.ok, !installed.ok ? installed.errorMessage : undefined).toBe(true);
+    expect(extractArchive).toHaveBeenCalledWith(expect.objectContaining({
+      limits: asset.archiveExtractionLimits,
+    }));
+  });
+
   it('cleans failed staging without removing the installed server', async () => {
     const home = await mkdtemp(join(tmpdir(), 'happier-agy-failed-update-'));
     tempDirs.add(home);
@@ -129,7 +176,45 @@ describe('agy-acp-server installable (EU-3)', () => {
     expect(status.installed).toBe(true);
     expect(status.binPath).toBe(installedBinPath);
     expect(await readFile(status.binPath!, 'utf8')).toBe('server-fixture');
-    expect((await readdir(status.installDir)).sort()).toEqual(['current', 'install-state.json']);
+    expectNoTransientInstallEntries(await readdir(status.installDir));
+  });
+
+  it('restores the installed server when final promotion fails', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'happier-agy-failed-promotion-'));
+    tempDirs.add(home);
+    testConfig.home = home;
+
+    expect((await installAgyAcp({
+      downloadArchive: async ({ destinationPath }) => { await writeFile(destinationPath, flatArchive); },
+    })).ok).toBe(true);
+    const installedBinPath = resolveExistingAgyAcpManagedBinPath();
+    expect(installedBinPath).not.toBeNull();
+    const statePath = join(home, 'tools', 'agy-acp-server', 'install-state.json');
+    const previousState = JSON.parse(await readFile(statePath, 'utf8'));
+
+    testConfig.failNextPromotion = true;
+    const failed = await installAgyAcp({
+      downloadArchive: async ({ destinationPath }) => { await writeFile(destinationPath, 'replacement-archive'); },
+      extractArchive: async ({ extractDir }) => {
+        const asset = resolveAgyAcpReleaseAsset();
+        await mkdir(extractDir, { recursive: true });
+        await writeFile(join(extractDir, asset.executableSubpath), 'replacement-server', 'utf8');
+      },
+    });
+
+    expect(failed.ok).toBe(false);
+    const status = await getAgyAcpDepStatus();
+    expect(status.installed).toBe(true);
+    expect(status.binPath).toBe(installedBinPath);
+    expect(await readFile(status.binPath!, 'utf8')).toBe('server-fixture');
+    const restoredState = JSON.parse(await readFile(statePath, 'utf8'));
+    expect(restoredState).toMatchObject({
+      installedVersion: previousState.installedVersion,
+      executableSha256: previousState.executableSha256,
+      executableSize: previousState.executableSize,
+      executableMtimeMs: previousState.executableMtimeMs,
+    });
+    expectNoTransientInstallEntries(await readdir(status.installDir));
   });
 
   it('coalesces concurrent installs into one download', async () => {

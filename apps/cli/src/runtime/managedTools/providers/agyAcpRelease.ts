@@ -19,8 +19,7 @@
 // fail clearly instead of being emulated.
 
 import type { ArchiveExtractionLimits } from '@happier-dev/release-runtime/archiveExtraction';
-
-export const AGY_ACP_SERVER_VERSION = '1.1.1' as const;
+import { AGY_ACP_SERVER_VERSION } from '@happier-dev/protocol/installables';
 
 // The pinned v1.1.1 Linux x64 ZIP is 681,969,407 bytes and expands to
 // 2,009,327,248 bytes, including a 1,880,360,328-byte agy_acp_server.par.

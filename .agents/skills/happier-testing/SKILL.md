@@ -41,8 +41,8 @@ Apply strict RED-GREEN-REFACTOR while following Happier-specific lane, fixture, 
 - Keep file responsibilities focused.
 
 6. **Broaden validation**
-- After a targeted green run in a shared area, rerun one broader related lane.
-- Before handoff, rerun the touched package typecheck/build-enforcing lane and the relevant repo lanes.
+- After focused GREEN, run risk-selected adjacent checks; batch expensive package/build and broader checks at the coherent integration boundary under root **Validation**. Reuse applicable execution evidence under that policy instead of rerunning it for each handoff.
+- Intermediate handoffs name any deferred check, later owning boundary, and prerequisite. Final handoffs require applicable successful evidence for each required lane or report the missing gate blocked.
 - Validate the current moving source and the existing development stack. Feature validation must not create, freeze, pack, install, identify, or certify a separate release representation; archive production and publication verification belong only to release automation during an explicitly dispatched release.
 
 ## Test Value Gate
@@ -51,7 +51,7 @@ Apply strict RED-GREEN-REFACTOR while following Happier-specific lane, fixture, 
 - TDD proves an observable contract; it does not require a new test for every changed function, branch, helper, or file.
 - Prefer strengthening or consolidating the canonical owner-level test over adding overlapping coverage.
 - One discriminating test is more valuable than many shallow permutations. Add cases only for materially different contracts, boundaries, or failure modes.
-- A useful test distinguishes the intended implementation from at least one plausible incorrect implementation. Prove it by execution rather than by reading: for load-bearing assertions, delete or invert the behavior and confirm the test goes red for that reason. A test never observed failing is not evidence.
+- A useful test distinguishes the intended implementation from at least one plausible incorrect implementation. A meaningful original RED proves sensitivity while it still exercises the relevant defect. If that evidence is absent or no longer applicable, demonstrate the failure with a focused mutation/reproduction through the owner boundary; do not repeat a mutation merely for another handoff. Preserve unrelated shared edits.
 - When a check passes too easily or contradicts visible behavior, challenge the observation method before trusting the system. Verify that fixture state reaches the deciding branch, the assertion reads the field production writes (accessor-backed objects such as `Headers` do not expose plain properties), the instrument can observe the claimed cost or state, and the code under test cannot swallow its own failure and read as a pass.
 - Do not add runtime tests that merely restate TypeScript types, mirror implementation structure, assert pass-through wiring or incidental call counts, or police wording, formatting, raw styles, or example values.
 - Exercise real internal behavior through the canonical/public owner boundary whenever practical.
@@ -87,7 +87,7 @@ CLI lane rule:
 - Do not partially mock central shared modules such as `@/sync/domains/state/storage`.
 - Prefer package-local shared factories/testkits for repeated boundary mocks.
 - Keep cross-repo primitives in `packages/tests/src/testkit`.
-- Before adding a new helper or mock family, inspect the codebase for the existing canonical testkit/helper for that boundary.
+- Before adding a new helper or mock family, inspect the codebase for the existing canonical testkit/helper for that boundary. On a structural fixture/setup mismatch, trace the real producer-to-consumer input graph before another rerun; repair coherent fixtures rather than adding internal stubs one failure at a time.
 - Prefer reusing, extending, generalizing, or extracting from canonical helpers over introducing similar-but-different variants.
 - When a new canonical helper replaces older local variants, migrate or remove the overlapping variants instead of leaving parallel helper families behind.
 - Be careful with repeat-offender boundaries: prefer canonical helpers over fresh inline mocks for UI boundaries such as `expo-router`, `@/text`, `@/modal`, `react-native`, and `react-native-unistyles`; prefer existing server route/DB harnesses over direct storage mocks when available.
@@ -114,7 +114,7 @@ CLI lane rule:
 
 ## Anti-Flake Process Rules
 
-- Keep only one active rerun per spec/lane.
+- Within this task and its delegates, reuse an active run of the same spec/lane instead of launching an equivalent rerun. Follow root waiting/recovery policy; this requires no cross-session monitor coordination.
 - If a runner hangs or is killed, inspect whether the failure is repo-owned, harness-owned, or environmental before retrying blindly.
 - When shared process helpers change, rerun a broader lane that can reveal leaked handles or child-process cleanup regressions.
 - Before starting Metro/Playwright in a shared development VM, inspect current compiler, Vitest, and Metro load. A bundle-fetch timeout while several unrelated compilers or Metro servers saturate the same VM is not valid RED evidence. Wait for capacity or use the configured execution target, then rerun the same command; do not encode local contention as a larger repository timeout.
@@ -140,5 +140,5 @@ When reporting testing work, summarize:
 - failing area and classification
 - root cause
 - targeted RED/GREEN evidence
-- broader lane rerun performed
+- broader validation performed or applicable evidence reused; outstanding checks and prerequisites
 - residual risk, if any
