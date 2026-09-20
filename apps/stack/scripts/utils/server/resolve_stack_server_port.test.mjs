@@ -734,6 +734,7 @@ test('non-main stack errors when pinned server port health responds 200 for anot
           runtimeStatePath: null,
           defaultPort: 3005,
           listenerObservationScope,
+          waitForTcpPortFreeImpl: async () => ({ status: 'occupied' }),
         }),
       /HAPPIER_STACK_SERVER_PORT/
     );
