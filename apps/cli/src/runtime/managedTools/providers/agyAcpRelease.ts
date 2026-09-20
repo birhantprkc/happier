@@ -26,10 +26,12 @@ export const AGY_ACP_SERVER_VERSION = '1.1.1' as const;
 // 2,009,327,248 bytes, including a 1,880,360,328-byte agy_acp_server.par.
 // It is the largest of the five pinned payloads. Keep these bounds local to
 // this checksum-verified release instead of relaxing generic archive limits.
+// Expansion of this 2 GB payload can exceed the generic two-minute timeout.
 const ARCHIVE_EXTRACTION_LIMITS = Object.freeze({
   maxArchiveBytes: 1024 * 1024 * 1024,
   maxFileBytes: 2 * 1024 * 1024 * 1024,
   maxExpandedBytes: 2 * 1024 * 1024 * 1024,
+  timeoutMs: 10 * 60_000,
 });
 
 export type AgyAcpReleaseAsset = Readonly<{
@@ -40,7 +42,10 @@ export type AgyAcpReleaseAsset = Readonly<{
   version: string | null;
   executableSubpath: string;
   args: readonly string[];
-  archiveExtractionLimits: Pick<ArchiveExtractionLimits, 'maxArchiveBytes' | 'maxFileBytes' | 'maxExpandedBytes'>;
+  archiveExtractionLimits: Pick<
+    ArchiveExtractionLimits,
+    'maxArchiveBytes' | 'maxFileBytes' | 'maxExpandedBytes' | 'timeoutMs'
+  >;
 }>;
 
 type PinnedAsset = Readonly<{

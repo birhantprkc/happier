@@ -9,6 +9,7 @@ describe('agy_acp_server pinned release (EU-3)', () => {
     expect(asset.archiveExtractionLimits?.maxArchiveBytes).toBeGreaterThanOrEqual(681_969_407);
     expect(asset.archiveExtractionLimits?.maxFileBytes).toBeGreaterThanOrEqual(1_880_360_328);
     expect(asset.archiveExtractionLimits?.maxExpandedBytes).toBeGreaterThanOrEqual(2_009_327_248);
+    expect(asset.archiveExtractionLimits?.timeoutMs).toBeGreaterThanOrEqual(10 * 60_000);
   });
 
   it('resolves the pinned v1.1.1 darwin-arm64 archive', () => {
