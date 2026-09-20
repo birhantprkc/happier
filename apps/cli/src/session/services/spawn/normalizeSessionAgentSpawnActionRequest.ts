@@ -170,6 +170,10 @@ function hasString(value: unknown): boolean {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
+function isKnownAgentId(value: string): value is AgentId {
+  return AGENT_IDS.includes(value as AgentId);
+}
+
 function buildPolicyDeniedResult(field: string): SessionAgentSpawnActionErrorResult {
   return {
     type: 'error',
@@ -380,7 +384,7 @@ function shouldInheritParentConnectedServices(params: Readonly<{
 }>): boolean {
   if (params.targetBackend.kind !== 'builtInAgent') return false;
   const targetAgentId = params.targetBackend.agentId;
-  if (!AGENT_IDS.includes(targetAgentId as AgentId)) return false;
+  if (!isKnownAgentId(targetAgentId)) return false;
   if (!agentSupportsSpawnConnectedServicesDefaults(targetAgentId)) return false;
 
   // Bindings are Agent-scoped. A cross-Agent child must resolve the target's
