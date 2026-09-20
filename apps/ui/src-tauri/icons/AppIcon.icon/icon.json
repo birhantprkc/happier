@@ -1,0 +1,63 @@
+{
+  "fill": "none",
+  "groups": [
+    {
+      "layers": [
+        {
+          "fill": {
+            "solid": "extended-srgb:0.14510,0.14118,0.16863,1.00000"
+          },
+          "glass": true,
+          "image-name": "HappierBag.svg",
+          "name": "Happier bag",
+          "position": {
+            "scale": 0.88,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "lighting": "individual",
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0.5
+      }
+    },
+    {
+      "layers": [
+        {
+          "fill": {
+            "solid": "extended-gray:1.00000,1.00000"
+          },
+          "glass": false,
+          "image-name": "HappierSmile.svg",
+          "name": "Happier smile",
+          "position": {
+            "scale": 0.88,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "shadow": {
+        "kind": "none",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0.5
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}
