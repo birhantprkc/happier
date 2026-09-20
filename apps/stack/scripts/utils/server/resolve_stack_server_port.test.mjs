@@ -412,6 +412,7 @@ test('non-main stack rejects a pinned healthy server port without stack-owned li
           runtimeStatePath: null,
           defaultPort: 3005,
           listenerObservationScope,
+          waitForTcpPortFreeImpl: async () => ({ status: 'occupied' }),
         }),
       /HAPPIER_STACK_SERVER_PORT/
     );
@@ -708,6 +709,7 @@ test('non-main stack errors when pinned server port is occupied by a non-happier
           runtimeStatePath: null,
           defaultPort: 3005,
           listenerObservationScope,
+          waitForTcpPortFreeImpl: async () => ({ status: 'occupied' }),
         }),
       /HAPPIER_STACK_SERVER_PORT/
     );

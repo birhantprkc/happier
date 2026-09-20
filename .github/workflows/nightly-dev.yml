@@ -527,7 +527,7 @@ jobs:
 
   verify_promoted:
     name: Verify promoted nightly references
-    needs: [prepare_release_candidate, promote_server, promote_hstack, promote_cli, promote_ui_web]
+    needs: [prepare_release_candidate, promote_server, promote_hstack, promote_cli, promote_ui_web, ui_mobile, ui_desktop]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -553,9 +553,11 @@ jobs:
             test "$object_type" = "commit"
             printf '%s\n' "$object_sha"
           }
-          for tag in server-dev stack-dev cli-dev ui-web-dev; do
+          for tag in server-dev stack-dev cli-dev ui-web-dev ui-mobile-dev ui-desktop-dev; do
             actual="$(resolve_tag_commit "$tag")"
             test "$actual" = "$EXPECTED_SHA"
+            release_target="$(gh api "repos/${GH_REPO}/releases/tags/${tag}" --jq '.target_commitish')"
+            test "$release_target" = "$EXPECTED_SHA"
           done
 
   advance_source_issues_to_dev:

@@ -337,6 +337,48 @@ function ensureImmutableTagViaGithubApi(params) {
   return true;
 }
 
+/**
+ * Keep the GitHub Release object's target metadata aligned with its rolling tag.
+ * `gh release edit --target` cannot accept the raw commit SHA used by the release
+ * pipeline, so this exact-SHA mutation belongs at the same GitHub API boundary as
+ * the rolling tag update.
+ *
+ * @param {{ repo: string; tag: string; sha: string; env: Record<string, string>; dryRun: boolean }} params
+ */
+function updateRollingReleaseTargetViaGithubApi(params) {
+  const releaseId = run(
+    'gh',
+    ['api', `repos/${params.repo}/releases/tags/${params.tag}`, '--jq', '.id'],
+    { env: params.env, dryRun: params.dryRun },
+  ).trim();
+  if (!releaseId && !params.dryRun) {
+    fail(`GitHub Release ${params.tag} does not exist after it was created.`);
+  }
+
+  const targetReleaseId = releaseId || '{release-id}';
+  /** @type {unknown} */
+  let mutationError;
+  try {
+    run(
+      'gh',
+      ['api', '-X', 'PATCH', `repos/${params.repo}/releases/${targetReleaseId}`, '-f', `target_commitish=${params.sha}`],
+      { env: params.env, dryRun: params.dryRun },
+    );
+  } catch (error) {
+    mutationError = error;
+  }
+
+  if (params.dryRun) return;
+  const actualTarget = run(
+    'gh',
+    ['api', `repos/${params.repo}/releases/${targetReleaseId}`, '--jq', '.target_commitish'],
+    { env: params.env },
+  ).trim();
+  if (actualTarget === params.sha) return;
+  if (mutationError) throw mutationError;
+  fail(`GitHub Release ${params.tag} targets ${actualTarget || '<empty>'}, expected ${params.sha}.`);
+}
+
 async function main() {
   const { values } = parseArgs({
     options: {
@@ -487,6 +529,10 @@ async function main() {
         { env: ghEnv, dryRun },
       );
     }
+  }
+
+  if (rollingTag && repo) {
+    updateRollingReleaseTargetViaGithubApi({ repo, tag, sha, env: ghEnv, dryRun });
   }
 
   // Update rolling release notes with commit summary.
