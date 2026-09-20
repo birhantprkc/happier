@@ -380,6 +380,7 @@ function shouldInheritParentConnectedServices(params: Readonly<{
 }>): boolean {
   if (params.targetBackend.kind !== 'builtInAgent') return false;
   const targetAgentId = params.targetBackend.agentId;
+  if (!AGENT_IDS.includes(targetAgentId as AgentId)) return false;
   if (!agentSupportsSpawnConnectedServicesDefaults(targetAgentId)) return false;
 
   // Bindings are Agent-scoped. A cross-Agent child must resolve the target's
