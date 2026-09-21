@@ -81,6 +81,7 @@ import type { Session } from './domains/state/storageTypes';
 import { buildServerFeaturesResponse } from '@/hooks/server/serverFeaturesTestUtils';
 import { resetServerFeaturesClientForTests } from '@/sync/api/capabilities/serverFeaturesClient';
 import { markSessionHidden, markSessionVisible } from './domains/session/activeViewingSession';
+import { createDeferred } from '@/dev/testkit/hooks/createDeferred';
 
 const initialStorageState = storage.getState();
 
@@ -1433,6 +1434,47 @@ describe('sync.fetchMessages server-scoped known-session checks', () => {
         expect(Object.values(storage.getState().sessionMessages[sessionId]?.messagesById ?? {}))
             .toEqual([expect.objectContaining({ realID: 'new-source' })]);
         expect(sync.hasDeferredNewerMessages(sessionId)).toBe(false);
+    });
+
+    it.each(['ordinary tail growth', 'source replacement'] as const)('admits a held older direct page only while its accepted window survives %s', async (change) => {
+        const sessionId = `direct_held_older_${change}`;
+        storage.getState().applySessions([createDirectSession(sessionId)]);
+        const row = (text: string) => ({ id: text, createdAtMs: 1,
+            raw: { role: 'user' as const, content: { type: 'text' as const, text } } });
+        // Reuse both cursor strings after replacement: byte/index positions
+        // alone cannot establish that this is still the same accepted window.
+        const page = (text: string) => ({ ok: true as const, items: [row(text)],
+            nextCursor: 'same-older', tailCursor: 'same-tail', hasMore: true });
+        machineDirectSessionTranscriptPageMock.mockResolvedValueOnce(page('initial'));
+        const { sync } = await import('./sync');
+        const internals = sync as unknown as {
+            fetchMessages: (id: string) => Promise<void>;
+            handleDirectSessionTranscriptEphemeralUpdate: (update: {
+                sessionId: string; items: ReturnType<typeof row>[]; fromCursor: string; nextCursor: string;
+                truncated: boolean; truncationReason?: 'source_discontinuity';
+            }) => Promise<void>;
+        };
+        await internals.fetchMessages(sessionId);
+        const held = createDeferred<ReturnType<typeof page>>();
+        machineDirectSessionTranscriptPageMock.mockImplementationOnce(() => held.promise)
+            .mockResolvedValue(page('replacement'));
+        const older = sync.loadOlderMessages(sessionId);
+        await vi.waitFor(() => expect(machineDirectSessionTranscriptPageMock).toHaveBeenCalledTimes(2));
+        await internals.handleDirectSessionTranscriptEphemeralUpdate({
+            sessionId, items: change === 'source replacement' ? [] : [row('tail-growth')],
+            fromCursor: 'same-tail', nextCursor: 'grown-tail', truncated: change === 'source replacement',
+            ...(change === 'source replacement' ? { truncationReason: 'source_discontinuity' as const } : {}),
+        });
+        const accepted = storage.getState().sessionMessages[sessionId];
+        held.resolve(page('held-older'));
+        await expect(older).resolves.toMatchObject({ loaded: change === 'source replacement' ? 0 : 1 });
+        if (change === 'source replacement') {
+            expect(storage.getState().sessionMessages[sessionId]).toBe(accepted);
+            expect(Object.values(accepted?.messagesById ?? {}).map((message) => message.realID)).toEqual(['replacement']);
+        } else {
+            expect(Object.values(storage.getState().sessionMessages[sessionId]?.messagesById ?? {}).map((message) => message.realID))
+                .toEqual(expect.arrayContaining(['initial', 'tail-growth', 'held-older']));
+        }
     });
 
     it('resumes only direct transcripts with a current live-content consumer', async () => {

@@ -1007,7 +1007,7 @@ class Sync {
       private directSessionHasMoreOlderBySessionId = new Map<string, boolean>();
       // An observed source reset cannot be forgotten: index/offset cursors may become valid
       // again after the replacement source grows, without restoring the accepted history.
-      private directSessionTailStateBySessionId = new Map<string, Readonly<{ cursor: string | null; requiresRefresh: boolean }>>();
+      private directSessionTailStateBySessionId = new Map<string, { cursor: string | null; readonly requiresRefresh: boolean }>();
       private sessionViewport = new Map<string, SessionViewportSnapshot>();
       private sessionViewportHydratedStorageKey: string | null = null;
       /**
@@ -5796,10 +5796,11 @@ class Sync {
 
       private setDirectSessionTailCursor(sessionId: string, cursor: string | null): void {
           const normalized = typeof cursor === 'string' && cursor.trim().length > 0 ? cursor.trim() : null;
-          this.directSessionTailStateBySessionId.set(sessionId, {
-              cursor: normalized,
-              requiresRefresh: this.directSessionTailStateBySessionId.get(sessionId)?.requiresRefresh === true,
-          });
+          const accepted = this.directSessionTailStateBySessionId.get(sessionId);
+          // Tail growth keeps the accepted window alive for concurrent older
+          // paging. Only discontinuity/reset replaces this owner record.
+          if (accepted) accepted.cursor = normalized;
+          else this.directSessionTailStateBySessionId.set(sessionId, { cursor: normalized, requiresRefresh: false });
           saveDirectSessionTailCursor(sessionId, normalized, this.getDirectSessionCursorScope(sessionId));
       }
 
@@ -6159,6 +6160,12 @@ class Sync {
               const session = storage.getState().sessions[params.sessionId] ?? null;
               const directSessionLink = readDirectSessionLink(session?.metadata);
               if (directSessionLink) {
+                  if (this.directSessionTailStateBySessionId.get(params.sessionId)?.requiresRefresh) {
+                      if (this.isDirectSessionLiveTail(params.sessionId)) {
+                          await this.fetchDirectSessionMessages(params.sessionId, directSessionLink, { replaceExisting: true });
+                      }
+                      return { loaded: 0, hasMore: this.directSessionHasMoreOlderBySessionId.get(params.sessionId) ?? true, status: 'not_ready' };
+                  }
                   const loadingKey = `${params.sessionId}:direct`;
                   if (this.sessionMessagesLoadingOlderByKey.has(loadingKey)) {
                       return {
@@ -6181,6 +6188,7 @@ class Sync {
                   this.sessionMessagesLoadingOlderByKey.add(loadingKey);
                   try {
                       const shouldContinue = this.createServerScopeGuard();
+                      const acceptedWindow = this.directSessionTailStateBySessionId.get(params.sessionId);
                       const requestedLimit =
                           typeof params.limit === 'number' && Number.isFinite(params.limit)
                               ? this.getSessionMessagesPageSize({ limit: params.limit })
@@ -6194,7 +6202,7 @@ class Sync {
                           cursor,
                           ...(requestedLimit !== null ? { maxItems: requestedLimit } : {}),
                       }, { serverId: this.getDirectSessionServerScope(params.sessionId) });
-                      if (!shouldContinue()) {
+                      if (!shouldContinue() || this.directSessionTailStateBySessionId.get(params.sessionId) !== acceptedWindow) {
                           return { loaded: 0, hasMore: knownHasMore ?? true, status: 'not_ready' };
                       }
 
