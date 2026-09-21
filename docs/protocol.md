@@ -212,6 +212,8 @@ The shared message-page pipeline publishes coverage and received revisions only 
 
 Revision repair uses message identities and available sequence hints to fetch bounded affected ranges, rather than replaying every row between distant edits. Each group uses the configured page size and can refresh already-known neighbors without inserting unseen, unrequested rows. It suppresses historical lifecycle events and does not change the visible target window or forward paging cursor. Already-current revisions count as repaired; missing or unavailable rows remain outstanding. Account-change hints are coalesced per session and retain only the latest hint, not a complete journal of edited message identities. Consequently, bounded repair cannot certify the freshness of every historical row outside the fetched ranges.
 
+A repair captures the existing immutable stale-marker sequence map before reading. It can acknowledge those markers only while that exact snapshot remains current. Every new stale mark replaces the snapshot, including another edit to the same row at the same sequence position, so an older response cannot clear newer repair demand after a clear or reset.
+
 ### Direct transcript continuation
 
 The development direct-session RPC response retains each agent's existing `truncated` boolean and adds optional `truncationReason: "page_limit" | "source_discontinuity"`. Old readers continue to see the original boolean; new readers use the explicit reason when present to distinguish an ordinary bounded page from invalidated source history. In particular, Claude can report `page_limit` while retaining its legacy `truncated: false`. A legacy response without a reason remains conservative.
