@@ -190,8 +190,13 @@ describe('sessionDraftSyncRuntime', () => {
         };
         contextAvailable = false;
 
-        await expect(repository.materializeExact(SCOPE, payload.address))
-            .rejects.toBeInstanceOf(SessionDraftContextUnavailableError);
+        await expect(materializeVisibleExistingSessionDraft({
+            sessionId: payload.address.sessionId,
+            capturedScope: SCOPE,
+            readActiveScope: () => SCOPE,
+            ensureRuntimeReady: async () => undefined,
+            materializeExact: (scope, address) => repository.materializeExact(scope, address),
+        })).rejects.toBeInstanceOf(SessionDraftContextUnavailableError);
         expect(repository.getSessionDraftSnapshot(SCOPE, payload.address)).toMatchObject({
             status: 'clean',
             document: { composer: { text: { value: 'first remote' } } },
