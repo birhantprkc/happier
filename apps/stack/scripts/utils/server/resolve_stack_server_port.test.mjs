@@ -684,6 +684,9 @@ test('non-main stack does not reuse runtime port with only a live pid and non-ha
       runtimeStatePath,
       defaultPort: 3005,
       listenerObservationScope,
+      waitForTcpPortFreeImpl: async (candidatePort) => candidatePort === port
+        ? { status: 'occupied' }
+        : { status: 'free' },
     });
 
     assert.notEqual(out, port);
