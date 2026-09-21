@@ -2642,6 +2642,10 @@ function SessionViewLoaded({
         }>
         | null
     >(null);
+    // One owner for the live composer operation. While it is true, the send
+    // control's progress state is authoritative; settled pending/recovery
+    // presentations must wait for the operation to answer.
+    const [isComposerSendPending, setIsComposerSendPending] = React.useState(false);
     const [
         resolvedStaleSessionRunnerFingerprint,
         setResolvedStaleSessionRunnerFingerprint,
@@ -2692,15 +2696,24 @@ function SessionViewLoaded({
         [agentId, enabledAgentIds, session],
     );
     const hasWriteAccess = hasSessionWriteAccess(session.accessLevel);
-    const pendingActivationPresentation = React.useMemo(() => resolvePendingActivationBanner({
-        authorization: session.pendingActivationAuthorization,
-        activeAt: session.activeAt,
-        active: session.active,
-        machineReachable: isMachineReachable,
-        canWrite: hasWriteAccess,
-        resumingAt: sessionRuntimeStatusSource.resumingAt,
-        pendingMessages,
-    }), [hasWriteAccess, isMachineReachable, pendingMessages, session.active, session.activeAt, session.pendingActivationAuthorization, sessionRuntimeStatusSource.resumingAt]);
+    const pendingActivationPresentation = React.useMemo(() => {
+        // The composer spinner owns the live submit. A Pending row can sync
+        // before that submit (including an Agent transition) answers; presenting
+        // the settled inactive-session recovery at the same time falsely implies
+        // that the operation failed and that the source Agent needs a manual
+        // resume. Once the submit settles, the canonical pending owner is shown
+        // unchanged if the Session still needs attention.
+        if (isComposerSendPending) return null;
+        return resolvePendingActivationBanner({
+            authorization: session.pendingActivationAuthorization,
+            activeAt: session.activeAt,
+            active: session.active,
+            machineReachable: isMachineReachable,
+            canWrite: hasWriteAccess,
+            resumingAt: sessionRuntimeStatusSource.resumingAt,
+            pendingMessages,
+        });
+    }, [hasWriteAccess, isComposerSendPending, isMachineReachable, pendingMessages, session.active, session.activeAt, session.pendingActivationAuthorization, sessionRuntimeStatusSource.resumingAt]);
     const [pendingActivationActionBusy, setPendingActivationActionBusy] = React.useState(false);
     const providerSupportsEditableSessionGoals = React.useMemo(
         () => supportsEditableSessionGoals({ agentId, session, daemonGoalControlsSupported }),
@@ -3988,6 +4001,12 @@ function SessionViewLoaded({
     }), [currentAgentLabel, sessionAgentCatalogEntries]);
     const restoredArmedContinuationOutcomeKeyRef = React.useRef<string | null>(null);
     React.useLayoutEffect(() => {
+        // `recordArmedContinuationSubmission` persists before the RPC leaves the
+        // current mount. That is crash/remount custody, not proof that this live
+        // call lost its result. The composer's existing pending state owns the
+        // operation until it answers; only a later mount may need to reconstruct
+        // an indeterminate outcome from the durable submission.
+        if (isComposerSendPending) return;
         const intent = inSessionAgentPicker.armedContinuation
             ?? inSessionAgentPicker.armedContinuationSubmissionIntent;
         const submission = inSessionAgentPicker.armedContinuationSubmission;
@@ -4026,6 +4045,7 @@ function SessionViewLoaded({
         inSessionAgentPicker.armedContinuationLocalId,
         inSessionAgentPicker.armedContinuationSubmission,
         inSessionAgentPicker.armedContinuationSubmissionIntent,
+        isComposerSendPending,
         sessionId,
     ]);
 
@@ -4247,7 +4267,6 @@ function SessionViewLoaded({
         });
     }, [addPickedAttachments]);
     const [isUploadingAttachments, setIsUploadingAttachments] = React.useState(false);
-    const [isComposerSendPending, setIsComposerSendPending] = React.useState(false);
     const recipientState = useSessionRecipientState({
         targets: participantTargets,
         autoRecipient: null,
