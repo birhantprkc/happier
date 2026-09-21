@@ -40,7 +40,7 @@ describe('agy shared agent facts (EU-3)', () => {
     expect(localCli).toMatchObject({
       agentId: 'agy',
       authSupport: 'login_terminal',
-      authLaunches: [{ kind: 'primary', command: 'happier', args: ['agy', 'auth', 'login'] }],
+      authLaunches: [{ kind: 'primary', target: 'happier_cli', args: ['agy', 'auth', 'login'] }],
     });
   });
 

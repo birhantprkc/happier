@@ -68,7 +68,7 @@ describe('provider local auth registry', () => {
             resolvedCommand: '/opt/antigravity/agy',
         })).toEqual([{
             kind: 'primary',
-            initialCommand: 'happier agy auth login',
+            launch: { kind: 'happier_cli', args: ['agy', 'auth', 'login'] },
         }]);
     });
 
