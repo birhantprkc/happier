@@ -1201,20 +1201,34 @@ export function useAllMachines(): Machine[] {
   );
 }
 
+function resolveFirstVisibleMachineId(state: StorageState): string | null {
+  const machines = resolveVisibleMachinesForActiveServerFromState(
+    state.isDataReady
+      ? state
+      : {
+          ...state,
+          machineListByServerId: {},
+        }
+  );
+  const machineId = machines[0]?.id;
+  return typeof machineId === 'string' && machineId.trim().length > 0 ? machineId.trim() : null;
+}
+
+function subscribeToNoMachineUpdates(): () => void {
+  return () => undefined;
+}
+
 export function useFirstVisibleMachineId(enabled: boolean = true): string | null {
-  return getStorage()((state) => {
-    if (!enabled) return null;
-    const machines = resolveVisibleMachinesForActiveServerFromState(
-      state.isDataReady
-        ? state
-        : {
-            ...state,
-            machineListByServerId: {},
-          }
-    );
-    const machineId = machines[0]?.id;
-    return typeof machineId === 'string' && machineId.trim().length > 0 ? machineId.trim() : null;
-  });
+  const store = getStorage();
+  const getSnapshot = React.useCallback(
+    () => enabled ? resolveFirstVisibleMachineId(store.getState()) : null,
+    [enabled, store],
+  );
+  return React.useSyncExternalStore(
+    enabled ? store.subscribe : subscribeToNoMachineUpdates,
+    getSnapshot,
+    getSnapshot,
+  );
 }
 
 type LaunchSelectionMachinesCache = Readonly<{

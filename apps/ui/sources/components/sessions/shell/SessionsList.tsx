@@ -633,13 +633,13 @@ export const SessionsListContent = React.memo(function SessionsListContent(props
     const [refreshingSessions, setRefreshingSessions] = React.useState(false);
     const refreshingSessionsRef = React.useRef(false);
     const searchFocusTransferTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-    const sessionListMemoryCandidateKeys = React.useMemo(
+    const getSessionListMemoryCandidateKeys = React.useCallback(
         () => buildSessionCandidateKeySet(data ?? EMPTY_SESSION_LIST_VIEW_ITEMS),
         [data],
     );
     const memorySearch = useSessionListMemorySearchAugmentation({
         searchQuery,
-        candidateSessionKeys: sessionListMemoryCandidateKeys,
+        getCandidateSessionKeys: getSessionListMemoryCandidateKeys,
         enabled: surfaceOwnership.dataActive,
     });
     const activeMemoryMatchedSessionKeys = React.useMemo(() => {
