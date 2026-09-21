@@ -16,7 +16,6 @@ export type DeferredTranscriptState = Readonly<{
     deferredDurableSeqBySessionId: Readonly<Record<string, number>>;
     staleMessageIdsBySessionId: Readonly<Record<string, readonly string[]>>;
     staleMessageSeqsBySessionId: Readonly<Record<string, Readonly<Record<string, number>>>>;
-    staleMarkerVersionBySessionId: Readonly<Record<string, number>>;
     // Retain the lower bound for snapshots and the exact hints for bounded sparse repair.
     staleMinSeqBySessionId: Readonly<Record<string, number>>;
     gapsBySessionId: Readonly<Record<string, DeferredTranscriptGap>>;
@@ -28,7 +27,6 @@ export function createDeferredTranscriptState(): DeferredTranscriptState {
         deferredDurableSeqBySessionId: {},
         staleMessageIdsBySessionId: {},
         staleMessageSeqsBySessionId: {},
-        staleMarkerVersionBySessionId: {},
         staleMinSeqBySessionId: {},
         gapsBySessionId: {},
     };
@@ -150,16 +148,15 @@ export function markTranscriptStale(
         ? remoteState.staleMinSeqBySessionId
         : { ...remoteState.staleMinSeqBySessionId, ...(nextMinSeq !== undefined ? { [sessionId]: nextMinSeq } : {}) };
     const existingSeqs = remoteState.staleMessageSeqsBySessionId[sessionId] ?? {};
-    const staleMessageSeqsBySessionId = normalizedSeq === null || existingSeqs[marker.messageId] === normalizedSeq
-        ? remoteState.staleMessageSeqsBySessionId
-        : { ...remoteState.staleMessageSeqsBySessionId, [sessionId]: { ...existingSeqs, [marker.messageId]: normalizedSeq } };
-    const staleMarkerVersionBySessionId = {
-        ...remoteState.staleMarkerVersionBySessionId,
-        [sessionId]: (remoteState.staleMarkerVersionBySessionId[sessionId] ?? 0) + 1,
+    // A repeated same-row edit is new demand even when its sequence is unchanged.
+    // The immutable snapshot also survives clear/recreate without counter reuse.
+    const staleMessageSeqsBySessionId = {
+        ...remoteState.staleMessageSeqsBySessionId,
+        [sessionId]: { ...existingSeqs, ...(normalizedSeq === null ? {} : { [marker.messageId]: normalizedSeq }) },
     };
     const existing = remoteState.staleMessageIdsBySessionId[sessionId] ?? [];
     if (existing.includes(marker.messageId)) {
-        return { ...remoteState, staleMinSeqBySessionId, staleMessageSeqsBySessionId, staleMarkerVersionBySessionId };
+        return { ...remoteState, staleMinSeqBySessionId, staleMessageSeqsBySessionId };
     }
     return {
         ...remoteState,
@@ -169,7 +166,6 @@ export function markTranscriptStale(
         },
         staleMinSeqBySessionId,
         staleMessageSeqsBySessionId,
-        staleMarkerVersionBySessionId,
     };
 }
 
@@ -198,46 +194,27 @@ export function readStaleTranscriptMessageSeqs(
     return state.staleMessageSeqsBySessionId[sessionId] ?? {};
 }
 
-export function readStaleTranscriptMarkerVersion(state: DeferredTranscriptState, sessionId: string): number {
-    return state.staleMarkerVersionBySessionId[sessionId] ?? 0;
-}
-
 export function readDeferredTranscriptDurableSeq(state: DeferredTranscriptState, sessionId: string): number | null {
     return normalizeSeq(state.deferredDurableSeqBySessionId[sessionId]);
-}
-
-function areStringArraysEqual(a: readonly string[], b: readonly string[]): boolean {
-    if (a.length !== b.length) return false;
-    for (let i = 0; i < a.length; i++) {
-        if (a[i] !== b[i]) return false;
-    }
-    return true;
 }
 
 export function acknowledgeStaleTranscriptRepair(
     state: DeferredTranscriptState,
     sessionId: string,
-    expected: Readonly<{ messageIds: readonly string[]; minSeq: number | null; markerVersion?: number }>,
+    expectedMessageSeqs: Readonly<Record<string, number>>,
 ): DeferredTranscriptState {
     const currentMessageIds = state.staleMessageIdsBySessionId[sessionId] ?? [];
     if (currentMessageIds.length === 0) return state;
-    if (!areStringArraysEqual(currentMessageIds, expected.messageIds)) return state;
-    if (readStaleTranscriptMinSeq(state, sessionId) !== expected.minSeq) return state;
-    if (
-        expected.markerVersion !== undefined
-        && readStaleTranscriptMarkerVersion(state, sessionId) !== expected.markerVersion
-    ) return state;
+    if (state.staleMessageSeqsBySessionId[sessionId] !== expectedMessageSeqs) return state;
 
     const { [sessionId]: _stale, ...staleMessageIdsBySessionId } = state.staleMessageIdsBySessionId;
     const { [sessionId]: _staleMinSeq, ...staleMinSeqBySessionId } = state.staleMinSeqBySessionId;
     const { [sessionId]: _staleMessageSeqs, ...staleMessageSeqsBySessionId } = state.staleMessageSeqsBySessionId;
-    const { [sessionId]: _staleMarkerVersion, ...staleMarkerVersionBySessionId } = state.staleMarkerVersionBySessionId;
     return {
         ...state,
         staleMessageIdsBySessionId,
         staleMinSeqBySessionId,
         staleMessageSeqsBySessionId,
-        staleMarkerVersionBySessionId,
     };
 }
 
@@ -250,7 +227,6 @@ export function clearDeferredTranscriptStateForSession(
         && !(sessionId in state.staleMessageIdsBySessionId)
         && !(sessionId in state.staleMinSeqBySessionId)
         && !(sessionId in state.staleMessageSeqsBySessionId)
-        && !(sessionId in state.staleMarkerVersionBySessionId)
         && !(sessionId in state.gapsBySessionId)
     ) {
         return state;
@@ -259,7 +235,6 @@ export function clearDeferredTranscriptStateForSession(
     const { [sessionId]: _stale, ...staleMessageIdsBySessionId } = state.staleMessageIdsBySessionId;
     const { [sessionId]: _staleMinSeq, ...staleMinSeqBySessionId } = state.staleMinSeqBySessionId;
     const { [sessionId]: _staleMessageSeqs, ...staleMessageSeqsBySessionId } = state.staleMessageSeqsBySessionId;
-    const { [sessionId]: _staleMarkerVersion, ...staleMarkerVersionBySessionId } = state.staleMarkerVersionBySessionId;
     const { [sessionId]: _gap, ...gapsBySessionId } = state.gapsBySessionId;
     return {
         ...state,
@@ -267,7 +242,6 @@ export function clearDeferredTranscriptStateForSession(
         staleMessageIdsBySessionId,
         staleMinSeqBySessionId,
         staleMessageSeqsBySessionId,
-        staleMarkerVersionBySessionId,
         gapsBySessionId,
     };
 }

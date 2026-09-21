@@ -70,7 +70,7 @@ type SyncStaleReopenTestAccess = {
     sessionMaterializedMaxSeqById: Record<string, number>;
     sessionReceivedMessages: Map<string, Map<string, number>>;
     deferredTranscriptState: DeferredTranscriptState;
-    repairDeferredStaleTranscriptRegion: (sessionId: string, snapshot: { minSeq: number; messageIds: string[]; messageSeqs?: Readonly<Record<string, number>>; markerVersion?: number }) => Promise<void>;
+    repairDeferredStaleTranscriptRegion: (sessionId: string, snapshot: { minSeq: number; messageIds: string[]; messageSeqs?: Readonly<Record<string, number>> }) => Promise<void>;
     repairSessionTranscriptRevision: (repair: { sessionId: string; minSeq: number; messageIds: string[]; messageSeqs?: Readonly<Record<string, number>> }) => Promise<void>;
     markSessionTranscriptStale: (sessionId: string, marker: DeferredTranscriptMarker) => void;
 };
@@ -375,7 +375,6 @@ describe('sync stale-reopen targeted refetch (C6/D2a)', () => {
             minSeq: 15,
             messageIds: ['mm15'],
             messageSeqs: { mm15: 15 },
-            markerVersion: syncForTest.deferredTranscriptState.staleMarkerVersionBySessionId[SESSION_ID],
         };
 
         const repair = syncForTest.repairDeferredStaleTranscriptRegion(SESSION_ID, snapshot);

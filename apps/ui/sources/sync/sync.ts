@@ -73,7 +73,6 @@ import {
     readDeferredTranscriptDurableSeq,
     readStaleTranscriptMessageIds,
     readStaleTranscriptMessageSeqs,
-    readStaleTranscriptMarkerVersion,
     readStaleTranscriptMinSeq,
     readTranscriptGap,
     type DeferredTranscriptMarker,
@@ -2243,7 +2242,6 @@ class Sync {
                     minSeq: staleMinSeq,
                     messageIds: staleMessageIds,
                     messageSeqs: readStaleTranscriptMessageSeqs(this.deferredTranscriptState, sessionId),
-                    markerVersion: readStaleTranscriptMarkerVersion(this.deferredTranscriptState, sessionId),
                 }), {
                     tag: 'Sync.onSessionVisible.staleRefetch',
                 });
@@ -7052,7 +7050,7 @@ class Sync {
        */
       private async fetchStaleTranscriptRegion(
           sessionId: string,
-          staleSnapshot: Readonly<{ minSeq: number | null; messageIds: readonly string[]; messageSeqs?: Readonly<Record<string, number>>; markerVersion?: number }>,
+          staleSnapshot: Readonly<{ minSeq: number | null; messageIds: readonly string[]; messageSeqs?: Readonly<Record<string, number>> }>,
       ): Promise<ReadonlySet<string>> {
           const staleMinSeq = staleSnapshot.minSeq;
           if (typeof staleMinSeq !== 'number' || !Number.isFinite(staleMinSeq) || staleMinSeq <= 0) {
@@ -7105,18 +7103,15 @@ class Sync {
 
       private async repairDeferredStaleTranscriptRegion(
           sessionId: string,
-          staleSnapshot: Readonly<{ minSeq: number | null; messageIds: readonly string[]; messageSeqs?: Readonly<Record<string, number>>; markerVersion?: number }>,
+          staleSnapshot: Readonly<{ minSeq: number | null; messageIds: readonly string[]; messageSeqs?: Readonly<Record<string, number>> }>,
       ): Promise<void> {
+          const expectedMessageSeqs = readStaleTranscriptMessageSeqs(this.deferredTranscriptState, sessionId);
           const resolvedMessageIds = await this.fetchStaleTranscriptRegion(sessionId, staleSnapshot);
           if (!staleSnapshot.messageIds.every((messageId) => resolvedMessageIds.has(messageId))) return;
           this.deferredTranscriptState = acknowledgeStaleTranscriptRepair(
               this.deferredTranscriptState,
               sessionId,
-              {
-                  messageIds: staleSnapshot.messageIds,
-                  minSeq: staleSnapshot.minSeq,
-                  markerVersion: staleSnapshot.markerVersion,
-              },
+              expectedMessageSeqs,
           );
       }
 
