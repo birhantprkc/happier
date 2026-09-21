@@ -29,9 +29,9 @@ separate from availability of a feature; see
 | **OpenCode** | `happier opencode` | Stable | Queried from the agent, custom ids allowed | `opencode-ai` |
 | **Gemini** | `happier gemini` | Experimental | Queried from the agent, custom ids allowed | `@google/gemini-cli` |
 | **Auggie** | `happier auggie` | Experimental | Queried from the agent | `@augmentcode/auggie` |
-| **Qwen Code** | `happier qwen` | Experimental | Fixed list | `@qwen-code/qwen-code` |
+| **Qwen Code** | `happier qwen` | Experimental | Queried from the agent | `@qwen-code/qwen-code` |
 | **Kimi** | `happier kimi` | Experimental | Queried from the agent | Vendor recipe |
-| **Kilo** | `happier kilo` | Experimental | Queried from the agent, custom ids allowed | `@kilocode/cli` |
+| **Kilo** | `happier kilo` | Experimental | Queried from the agent | `@kilocode/cli` |
 | **Kiro** | `happier kiro` | Experimental | Fixed list, custom ids allowed | Vendor's own installer |
 | **Devin** | `happier devin` | Experimental | Queried from the agent | Vendor's own installer |
 | **Custom ACP** | `happier customAcp` | Experimental | Queried from the agent, custom ids allowed | Vendor recipe |
@@ -63,17 +63,17 @@ work everywhere. They do not.
 | --- | --- | --- | --- | --- | --- |
 | **Claude** | Yes | — | — | — | Yes |
 | **Codex** | Experimental | Yes | — | Yes | Yes |
-| **OpenCode** | Yes | Yes | Yes | — | Yes |
+| **OpenCode** | Yes | — | — | — | Yes |
 | **Gemini** | Yes | — | — | — | — |
-| **Auggie** | Yes | — | — | — | — |
-| **Qwen Code** | Yes | — | — | — | — |
+| **Auggie** | Yes | — | — | — | Yes |
+| **Qwen Code** | Yes | — | — | — | Yes |
 | **Kimi** | Yes | Yes | — | — | Yes |
-| **Kilo** | Yes | — | — | — | — |
+| **Kilo** | Yes | — | — | — | Yes |
 | **Kiro** | Experimental | — | — | — | — |
-| **Devin** | Yes | — | — | — | — |
+| **Devin** | Yes | — | — | — | Yes |
 | **Custom ACP** | — | — | — | — | — |
 | **Pi** | Yes | — | — | — | — |
-| **Copilot** | Yes | — | — | — | — |
+| **Copilot** | Yes | — | — | — | Yes |
 | **Cursor** | Experimental | — | — | — | — |
 | **Grok** | Experimental | — | — | — | — |
 | **Antigravity** | Yes | — | — | — | — |
@@ -106,7 +106,7 @@ continuation paths.
 | **OpenCode** | — | Agent modes, from the agent | Yes | — |
 | **Gemini** | — | — | — | — |
 | **Auggie** | — | — | — | — |
-| **Qwen Code** | — | — | — | — |
+| **Qwen Code** | — | Agent modes, from the agent | Yes | — |
 | **Kimi** | — | — | — | — |
 | **Kilo** | — | Agent modes, from the agent | Yes | — |
 | **Kiro** | — | Agent modes, from the agent | Yes | — |
@@ -139,16 +139,16 @@ mode. Codex, for instance, reaches `plan` through the Mode control.
 | **Codex** | Yes | Yes | Yes | Yes (`native_mcp`) | `openai-codex`, `openai` |
 | **OpenCode** | Yes | Experimental | — | Yes (`native_mcp`) | `openai-codex`, `openai`, `claude-subscription`, `anthropic` |
 | **Gemini** | — | Yes | — | Yes (`native_mcp`) | `gemini` |
-| **Auggie** | Experimental | Experimental | — | Experimental (`shell_bridge`) | — |
-| **Qwen Code** | Yes | Experimental | — | Experimental (`shell_bridge`) | — |
+| **Auggie** | Experimental | Experimental | — | Experimental (`native_mcp`) | — |
+| **Qwen Code** | Yes | Experimental | — | Experimental (`native_mcp`) | — |
 | **Kimi** | Yes | Experimental | — | Experimental (`native_mcp`) | — |
-| **Kilo** | Yes | Experimental | — | Experimental (`shell_bridge`) | — |
+| **Kilo** | Yes | Experimental | — | Experimental (`native_mcp`) | — |
 | **Kiro** | Yes | Experimental | — | Yes (`native_mcp`) | — |
 | **Devin** | Yes | Experimental | — | Yes (`native_mcp`) | — |
 | **Custom ACP** | Yes | Experimental | — | Yes (`native_mcp`) | — |
 | **Pi** | Experimental | Experimental | — | Experimental (`shell_bridge`) | `openai-codex`, `openai`, `claude-subscription`, `anthropic` |
-| **Copilot** | Yes | Experimental | — | Experimental (`shell_bridge`) | — |
-| **Cursor** | Yes | — | Yes | Experimental (`shell_bridge`) | — |
+| **Copilot** | Yes | Experimental | — | Experimental (`native_mcp`) | — |
+| **Cursor** | Yes | — | Yes | Experimental (`native_mcp`) | — |
 | **Grok** | — | — | — | Experimental (`native_mcp`) | — |
 | **Antigravity** | Yes | Experimental | — | Yes (`native_mcp`) | — |
 | **FX** | Yes | Yes | — | Yes (`native_mcp`) | — |
