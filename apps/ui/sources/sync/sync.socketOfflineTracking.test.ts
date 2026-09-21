@@ -274,7 +274,7 @@ describe('sync socket offline tracking', () => {
     (sync as any).webSyncClientIdentity = null;
     (sync as any).syncTuning = loadSyncTuning();
     (sync as any).changesCursor = null;
-    (sync as any).directSessionTailCursorBySessionId.clear();
+    (sync as any).directSessionTailStateBySessionId.clear();
     (sync as any).directSessionOlderCursorBySessionId.clear();
     (sync as any).directSessionHasMoreOlderBySessionId.clear();
     (sync as any).safeCursorLagState = null;
@@ -1649,7 +1649,7 @@ describe('sync socket offline tracking', () => {
     expect((sync as any).changesCursor).toBeNull();
   }, 60_000);
 
-  it('catches up loaded direct sessions on resume even when the account changes feed is empty', async () => {
+  it('catches up visible loaded direct sessions on resume even when the account changes feed is empty', async () => {
     upsertAndActivateServer({ serverUrl: 'http://localhost:53288', scope: 'tab' });
     fetchChangesMock.mockResolvedValue({
       status: 'ok' as const,
@@ -1712,6 +1712,7 @@ describe('sync socket offline tracking', () => {
     }), true);
     saveProfile({ ...profileDefaults, id: 'test-account' });
     storage.getState().applyMessagesLoaded('s1');
+    markSessionVisible('s1');
     (sync as any).credentials = { token: 'hdr.eyJzdWIiOiJ0ZXN0In0.sig', secret: 'secret' };
     (sync as any).serverID = 'test';
     (sync as any).encryption = {
