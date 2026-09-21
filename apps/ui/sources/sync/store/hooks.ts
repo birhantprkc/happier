@@ -1,4 +1,5 @@
 import React from 'react';
+import type { SessionMessagesTailBoundary } from '@/sync/runtime/sessionMessagesTailDiscontinuity';
 import { useShallow } from 'zustand/react/shallow';
 
 import type {
@@ -777,11 +778,8 @@ export function useSessionCatchingUpNewer(sessionId: string, enabled: boolean = 
  * Tail-contiguity floor for the session's MAIN chain (tail-reset discontinuity walk).
  * Null when the full loaded set is contiguous with the live tail.
  */
-export function useSessionTailContiguousFloorSeq(sessionId: string): number | null {
-  return getStorage()((state) => {
-    const floorSeq = state.sessionTailContiguousFloorSeq[sessionId];
-    return typeof floorSeq === 'number' && Number.isFinite(floorSeq) && floorSeq > 0 ? floorSeq : null;
-  });
+export function useSessionTailContiguousBoundary(sessionId: string): SessionMessagesTailBoundary | null {
+  return getStorage()((state) => state.sessionTailContiguousBoundary[sessionId] ?? null);
 }
 
 export function useSessionMessagesById(sessionId: string, enabled: boolean = true): Record<string, Message> {

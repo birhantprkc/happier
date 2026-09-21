@@ -7,7 +7,7 @@ import { Dimensions, Platform, View } from 'react-native';
 import { useCallback } from 'react';
 import type { Message } from '@/sync/domains/messages/messageTypes';
 import { sync, type SessionViewportAnchorSnapshot } from '@/sync/sync';
-import { useSessionCatchingUpNewer, useSessionTailContiguousFloorSeq } from '@/sync/store/hooks';
+import { useSessionCatchingUpNewer, useSessionTailContiguousBoundary } from '@/sync/store/hooks';
 import { useSessionScreenIsFocused } from '@/components/sessions/shell/useSessionScreenIsFocused';
 import { useSessionActionFieldOptionsForRowHeight } from '@/components/sessions/actions/useSessionActionFieldOptions';
 import { fireAndForget } from '@/utils/system/fireAndForget';
@@ -305,7 +305,6 @@ export const ChatListInternal = React.memo((props: ChatListInternalProps) => {
     const transcriptMessageSelection = useOptionalTranscriptSelectionState();
     const transcriptContentMaxWidth = useLayoutMaxWidth();
     const [isLoadingOlder, setIsLoadingOlder] = React.useState(false);
-    const [hasMoreOlder, setHasMoreOlder] = React.useState<boolean | null>(null);
     const [listLayoutHeight, setListLayoutHeight] = React.useState(0);
     const [listLayoutWidthPx, setListLayoutWidthPx] = React.useState(() => {
         const width = Dimensions.get('window')?.width;
@@ -714,7 +713,6 @@ export const ChatListInternal = React.memo((props: ChatListInternalProps) => {
     }, [mainTranscriptRendererOwnerPolicy.continuousFollow]);
     const isPinnedRef = React.useRef(true);
     const resetOlderPaginationForSessionEntry = React.useCallback(() => {
-        hasMoreOlderRef.current = null;
         resetOlderPaginationRef.current();
     }, []);
     const sessionEntryViewportRef = React.useRef<SessionEntryViewportRefValue>(null);
@@ -1162,7 +1160,7 @@ export const ChatListInternal = React.memo((props: ChatListInternalProps) => {
     const isCatchingUpNewer = useSessionCatchingUpNewer(props.sessionId);
     // Tail-reset discontinuity floor: bounds the tail display to content contiguous with
     // the live tail while an older-page walk is filling a catch-up hole.
-    const tailContiguousFloorSeq = useSessionTailContiguousFloorSeq(props.sessionId);
+    const tailContiguousBoundary = useSessionTailContiguousBoundary(props.sessionId);
     const transcriptListExtraData = React.useMemo(() => ({
         messagePins: props.messagePins,
         rollbackActionsByMessageId: props.rollbackActionsByMessageId,
@@ -1254,7 +1252,7 @@ export const ChatListInternal = React.memo((props: ChatListInternalProps) => {
         sessionId: props.sessionId,
         sessionThinking: props.sessionThinking,
         setEntrySliceWindow,
-        tailContiguousFloorSeq,
+        tailContiguousBoundary,
         targetWindowActiveRef,
         transcriptNativeHotTailItemCount: tuning.transcriptNativeHotTailItemCount,
         transcriptToolCallsCollapsedPreviewCountSetting,
@@ -1875,8 +1873,6 @@ export const ChatListInternal = React.memo((props: ChatListInternalProps) => {
         return await runTranscriptPrependOlderLoad({
             clearOlderLoadSpinnerDelay,
             hasActiveEntrySliceWindow: () => entrySliceWindowRef.current?.sessionId === props.sessionId,
-            hasMoreOlder,
-            hasMoreOlderRef,
             hideOlderLoadSpinner,
             isReady: props.isLoaded || props.forkedTranscriptEnabled === true,
             loadOlderInFlight,
@@ -1892,13 +1888,11 @@ export const ChatListInternal = React.memo((props: ChatListInternalProps) => {
             prependHost,
             revealEntrySliceWindow: () => revealEntrySliceWindowRef.current(),
             resolveSyncLoadOlderOptions: () => resolveSyncLoadOlderOptions() ?? null,
-            setHasMoreOlder,
             setIsLoadingOlder,
             showOlderLoadSpinner,
         });
     }, [
         clearOlderLoadSpinnerDelay,
-        hasMoreOlder,
         hideOlderLoadSpinner,
         mainTranscriptRendererOwnerPolicy.prependRestore,
         pinThresholdPx,
@@ -1911,9 +1905,6 @@ export const ChatListInternal = React.memo((props: ChatListInternalProps) => {
         showOlderLoadSpinner,
     ]);
     const paginationLoadOlder = React.useCallback(async () => {
-        if (hasMoreOlderRef.current === false) {
-            return { loaded: 0, hasMore: false, status: 'no_more' as const };
-        }
         // The hook owns pacing and the loading indicator (plan D2/D3).
         return await loadOlder({ showLoadingIndicator: false });
     }, [loadOlder]);
@@ -1926,7 +1917,10 @@ export const ChatListInternal = React.memo((props: ChatListInternalProps) => {
         spinnerDelayMs: sync.getSyncTuning().transcriptOlderLoadSpinnerDelayMs,
         isFillDone: () => sessionOpenLatch.initialFillStatus() === 'done',
         isTransactionOpen: () => viewportCommandController.activeOwner() !== 'follow',
+        readHasMoreAfterExhaustion: () => sync.getSessionTailDiscontinuityOlderAvailability(props.sessionId),
     });
+    // Navigation consumes the pager's result; it does not own another exhaustion cache.
+    useCommittedTranscriptRef(hasMoreOlderRef, olderPagination.hasMore);
     useCommittedTranscriptRef(
         olderPaginationSnapshotRef,
         olderPagination.getSnapshot(),

@@ -110,6 +110,59 @@ describe('useTranscriptOlderPagination', () => {
         standardCleanup();
     });
 
+    it('reopens exhausted paging only when the current source confirms a fillable gap', async () => {
+        vi.useFakeTimers();
+        let gapAvailability: boolean | null = null;
+        const { input, loadOlder, pendingLoads } = createHarness();
+        const hook = await renderHook(() => useTranscriptOlderPagination({
+            ...input,
+            readHasMoreAfterExhaustion: () => gapAvailability,
+        }));
+        await observe(hook, { offsetY: 120 });
+        await resolveLoad(pendingLoads, { loaded: 0, hasMore: false, status: 'no_more' });
+        expect(hook.getCurrent().hasMore).toBe(false);
+
+        // An unfillable retained gap must not restart network work on render or scroll.
+        gapAvailability = false;
+        await hook.rerender();
+        await observe(hook, { offsetY: 120, trigger: 'edge-reached' });
+        expect(loadOlder).toHaveBeenCalledTimes(1);
+
+        // A later latest-page catch-up creates a new fillable interval in the same session.
+        gapAvailability = true;
+        await hook.rerender();
+        expect(hook.getCurrent().hasMore).toBe(true);
+        expect(loadOlder).toHaveBeenCalledTimes(1);
+        await observe(hook, { offsetY: 120, trigger: 'edge-reached' });
+        expect(loadOlder).toHaveBeenCalledTimes(2);
+        gapAvailability = false;
+        await resolveLoad(pendingLoads, { loaded: 1, hasMore: false, status: 'no_more' });
+        expect(hook.getCurrent().hasMore).toBe(false);
+        await hook.unmount();
+    });
+
+    it('does not let a held exhausted result prevent paging a newly opened gap', async () => {
+        vi.useFakeTimers();
+        let gapAvailability: boolean | null = null;
+        const { input, loadOlder, pendingLoads } = createHarness();
+        const hook = await renderHook(() => useTranscriptOlderPagination({
+            ...input,
+            readHasMoreAfterExhaustion: () => gapAvailability,
+        }));
+        await observe(hook, { offsetY: 120 });
+        gapAvailability = true;
+        await hook.rerender();
+        expect(loadOlder).toHaveBeenCalledTimes(1);
+        await resolveLoad(pendingLoads, { loaded: 0, hasMore: false, status: 'no_more' });
+        expect(hook.getCurrent().hasMore).toBe(true);
+        await observe(hook, { offsetY: 120, trigger: 'edge-reached' });
+        expect(loadOlder).toHaveBeenCalledTimes(2);
+        gapAvailability = null;
+        await resolveLoad(pendingLoads, { loaded: 1, hasMore: false, status: 'no_more' });
+        expect(hook.getCurrent().hasMore).toBe(false);
+        await hook.unmount();
+    });
+
     it('exposes the canonical proximity predicate without mutating or loading the machine', async () => {
         const { input, loadOlder } = createHarness({ thresholdPx: 400, thresholdItems: 12 });
         const hook = await renderHook(() => useTranscriptOlderPagination(input));

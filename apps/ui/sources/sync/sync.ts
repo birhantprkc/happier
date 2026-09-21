@@ -51,7 +51,9 @@ import {
 } from '@/sync/runtime/sessionMessagesPagination';
 import {
     applyTailDiscontinuityOlderPage,
+    applyTailDiscontinuityOpaqueOlderPage,
     openTailDiscontinuityFromSnapshot,
+    openTailDiscontinuityFromOpaqueSnapshot,
     type SessionMessagesTailDiscontinuity,
 } from '@/sync/runtime/sessionMessagesTailDiscontinuity';
 import {
@@ -1005,9 +1007,14 @@ class Sync {
       private sessionMessagesWindowStateBySessionId = new Map<string, SessionMessagesWindowState>();
       private directSessionOlderCursorBySessionId = new Map<string, string | null>();
       private directSessionHasMoreOlderBySessionId = new Map<string, boolean>();
+      private directSessionLatestSnapshotPendingBySessionId = new Set<string>();
       // An observed source reset cannot be forgotten: index/offset cursors may become valid
       // again after the replacement source grows, without restoring the accepted history.
-      private directSessionTailStateBySessionId = new Map<string, { cursor: string | null; readonly requiresRefresh: boolean }>();
+      private directSessionTailStateBySessionId = new Map<string, {
+          cursor: string | null;
+          readonly requiresRefresh: boolean;
+          lastSourceMessageIds?: readonly string[];
+      }>();
       private sessionViewport = new Map<string, SessionViewportSnapshot>();
       private sessionViewportHydratedStorageKey: string | null = null;
       /**
@@ -2057,7 +2064,7 @@ class Sync {
         this.sessionMessagesBeforeSeqByKey.clear();
         this.sessionMessagesHasMoreOlderByKey.clear();
         for (const sessionId of [...this.sessionMessagesTailDiscontinuityBySessionId.keys()]) {
-            storage.getState().setSessionTailContiguousFloorSeq(sessionId, null);
+            storage.getState().setSessionTailContiguousBoundary(sessionId, null);
         }
         this.sessionMessagesTailDiscontinuityBySessionId.clear();
         this.sessionMessagesFetchLatestInFlightByKey.clear();
@@ -5775,6 +5782,7 @@ class Sync {
           }
           this.directSessionOlderCursorBySessionId.delete(sessionId);
           this.directSessionHasMoreOlderBySessionId.delete(sessionId);
+          this.directSessionLatestSnapshotPendingBySessionId.delete(sessionId);
           this.clearDirectSessionTailCursor(sessionId);
       }
 
@@ -5810,6 +5818,7 @@ class Sync {
       }
 
       private requireDirectSessionTranscriptRefresh(sessionId: string): void {
+          this.directSessionLatestSnapshotPendingBySessionId.delete(sessionId);
           this.directSessionTailStateBySessionId.set(sessionId, {
               cursor: this.getDirectSessionTailCursor(sessionId),
               requiresRefresh: true,
@@ -5827,15 +5836,58 @@ class Sync {
               && !this.getSessionTargetWindowState(sessionId).isWindowMode;
       }
 
+      private recordDirectSessionSourcePage(sessionId: string, items: ReadonlyArray<DirectTranscriptRawMessageV1>): void {
+          if (items.length === 0) return;
+          const accepted = this.directSessionTailStateBySessionId.get(sessionId);
+          if (accepted) accepted.lastSourceMessageIds = items.map((item) => item.id);
+      }
+
+      private readDirectSessionPrefixMessageIds(sessionId: string): readonly string[] {
+          const accepted = this.directSessionTailStateBySessionId.get(sessionId)?.lastSourceMessageIds;
+          if (accepted?.length) return accepted;
+          // A warm cache from before raw-page receipts still has canonical source
+          // identities. Never substitute tool IDs or internal rendered row IDs.
+          const reducer = storage.getState().sessionMessages[sessionId]?.reducerState;
+          if (!reducer) return [];
+          const ids = new Set(reducer.messageIds.keys());
+          for (const message of reducer.messages.values()) {
+              if (message.realID) ids.add(message.realID);
+          }
+          return [...ids];
+      }
+
+      private readDirectSessionPageMaterializedIds(
+          sessionId: string,
+          items: ReadonlyArray<DirectTranscriptRawMessageV1>,
+          changed: readonly string[],
+      ): readonly string[] {
+          const reducer = storage.getState().sessionMessages[sessionId]?.reducerState;
+          const ids = new Set(changed);
+          for (const item of items) {
+              const id = reducer?.messageIds.get(item.id)
+                  ?? (item.localId ? reducer?.localIds.get(item.localId) : undefined);
+              if (id) ids.add(id);
+          }
+          return [...ids];
+      }
+
       private async fetchDirectSessionMessages(
           sessionId: string,
           directSessionLink: ReturnType<typeof readDirectSessionLink> extends infer T ? Exclude<T, null> : never,
-          options?: Readonly<{ replaceExisting?: boolean }>,
+          options?: Readonly<{ mode: 'replace' | 'merge_latest' }>,
       ): Promise<void> {
           const isServerScopeCurrent = this.createServerScopeGuard();
+          // Warm any persisted cursor before capturing the accepted source window. Cache
+          // hydration is not a source change, while a later push or discontinuity is.
+          const acceptedCursor = this.getDirectSessionTailCursor(sessionId);
           const acceptedWindow = this.directSessionTailStateBySessionId.get(sessionId);
+          const prefixMessageIds = options?.mode === 'merge_latest' ? this.readDirectSessionPrefixMessageIds(sessionId) : [];
+          const prefixMaterializedMessageIds = options?.mode === 'merge_latest'
+              ? storage.getState().sessionMessages[sessionId]?.messageIdsOldestFirst ?? []
+              : [];
           const shouldContinue = () => isServerScopeCurrent()
-              && this.directSessionTailStateBySessionId.get(sessionId) === acceptedWindow;
+              && this.directSessionTailStateBySessionId.get(sessionId) === acceptedWindow
+              && this.getDirectSessionTailCursor(sessionId) === acceptedCursor;
           const page = await machineDirectSessionTranscriptPage({
               machineId: directSessionLink.machineId,
               providerId: directSessionLink.providerId,
@@ -5864,19 +5916,36 @@ class Sync {
           }
 
           // Keep the accepted transcript and cursors until every replacement read succeeds.
-          if (options?.replaceExisting === true && !this.isDirectSessionLiveTail(sessionId)) {
+          if (options && !this.isDirectSessionLiveTail(sessionId)) {
               this.deferredForwardLoadingSessions.add(sessionId);
               return;
           }
           const normalizedMessages = normalizeDirectTranscriptMessages(page.items);
-          if (options?.replaceExisting === true) this.resetSessionTranscriptState(sessionId);
+          if (options?.mode === 'replace') this.resetSessionTranscriptState(sessionId);
+          let changedMessageIds: readonly string[] = [];
           if (normalizedMessages.length > 0) {
-              this.applyMessages(sessionId, normalizedMessages, { notifyVoice: false });
+              changedMessageIds = this.applyMessages(sessionId, normalizedMessages, { notifyVoice: false }).changed;
           }
-          this.directSessionOlderCursorBySessionId.set(sessionId, page.nextCursor ?? null);
-          this.directSessionHasMoreOlderBySessionId.set(sessionId, page.hasMore === true);
+          if (options?.mode === 'merge_latest') {
+              const previous = this.sessionMessagesTailDiscontinuityBySessionId.get(sessionId);
+              this.commitSessionTailDiscontinuity(sessionId, openTailDiscontinuityFromOpaqueSnapshot({
+                  prev: previous?.kind === 'opaque' ? previous : null,
+                  prefixMessageIds,
+                  prefixMaterializedMessageIds,
+                  snapshotMessageIds: page.items.map((item) => item.id),
+                  snapshotMaterializedMessageIds: this.readDirectSessionPageMaterializedIds(sessionId, page.items, changedMessageIds),
+                  nextCursor: page.hasMore ? page.nextCursor ?? null : null,
+              }));
+          } else {
+              this.directSessionOlderCursorBySessionId.set(sessionId, page.nextCursor ?? null);
+              this.directSessionHasMoreOlderBySessionId.set(sessionId, page.hasMore === true);
+          }
           this.setDirectSessionTailCursor(sessionId, tailCursor ?? null);
-          this.directSessionTailStateBySessionId.set(sessionId, { cursor: this.getDirectSessionTailCursor(sessionId), requiresRefresh: false });
+          this.directSessionTailStateBySessionId.set(sessionId, {
+              cursor: this.getDirectSessionTailCursor(sessionId), requiresRefresh: false,
+              lastSourceMessageIds: page.items.length > 0 ? page.items.map((item) => item.id) : acceptedWindow?.lastSourceMessageIds,
+          });
+          this.directSessionLatestSnapshotPendingBySessionId.delete(sessionId);
           this.deferredForwardLoadingSessions.delete(sessionId);
           storage.getState().applyMessagesLoaded(sessionId);
       }
@@ -5919,10 +5988,16 @@ class Sync {
                   this.deferredForwardLoadingSessions.add(sessionId);
                   return 0;
               }
-              if (this.directSessionTailStateBySessionId.get(sessionId)?.requiresRefresh === true) {
+              if (this.directSessionTailStateBySessionId.get(sessionId)?.requiresRefresh === true
+                  || (this.directSessionLatestSnapshotPendingBySessionId.has(sessionId) && this.isDirectSessionLiveTail(sessionId))) {
                   this.deferredForwardLoadingSessions.add(sessionId);
                   if (this.isDirectSessionLiveTail(sessionId)) {
-                      await this.fetchDirectSessionMessages(sessionId, directSessionLink, { replaceExisting: true });
+                      await this.withSessionCatchUpNewer(sessionId, () => this.fetchDirectSessionMessages(
+                          sessionId, directSessionLink,
+                          this.directSessionTailStateBySessionId.get(sessionId)?.requiresRefresh === true
+                              ? { mode: 'replace' }
+                              : { mode: 'merge_latest' },
+                      ));
                   }
                   return 0;
               }
@@ -5953,12 +6028,13 @@ class Sync {
                   this.requireDirectSessionTranscriptRefresh(sessionId);
                   if (this.isDirectSessionLiveTail(sessionId)) {
                       await this.withSessionCatchUpNewer(sessionId, () => this.fetchDirectSessionMessages(
-                          sessionId, directSessionLink, { replaceExisting: true },
+                          sessionId, directSessionLink, { mode: 'replace' },
                       ));
                   }
                   return 0;
               }
               if (continuation === 'page_limit') {
+                  this.directSessionLatestSnapshotPendingBySessionId.add(sessionId);
                   this.deferredForwardLoadingSessions.add(sessionId);
               }
               if (this.getSessionTargetWindowState(sessionId).isWindowMode
@@ -5972,6 +6048,7 @@ class Sync {
                   this.applyMessages(sessionId, normalizedMessages, { notifyVoice: false });
               }
               this.setDirectSessionTailCursor(sessionId, tail.nextCursor ?? null);
+              this.recordDirectSessionSourcePage(sessionId, tail.items);
               if (continuation === 'complete') this.deferredForwardLoadingSessions.delete(sessionId);
               return normalizedMessages.length;
           };
@@ -6045,6 +6122,7 @@ class Sync {
           if (Object.prototype.hasOwnProperty.call(options ?? {}, 'nextCursor')) {
               this.setDirectSessionTailCursor(sessionId, options?.nextCursor ?? null);
           }
+          this.recordDirectSessionSourcePage(sessionId, items);
       }
 
       private resolveDirectSessionTranscriptDeltaCursor(ephemeralUpdate: Readonly<{
@@ -6115,7 +6193,7 @@ class Sync {
           }
           if (continuation === 'source_discontinuity' || this.directSessionTailStateBySessionId.get(ephemeralUpdate.sessionId)?.requiresRefresh === true) {
               this.deferredForwardLoadingSessions.add(ephemeralUpdate.sessionId);
-              await this.fetchDirectSessionMessages(ephemeralUpdate.sessionId, directSessionLink, { replaceExisting: true });
+              await this.fetchDirectSessionMessages(ephemeralUpdate.sessionId, directSessionLink, { mode: 'replace' });
               return;
           }
           const resolvedCursor = this.resolveDirectSessionTranscriptDeltaCursor(ephemeralUpdate);
@@ -6124,13 +6202,14 @@ class Sync {
           if (hasAnchoredFromCursor && resolvedCursor === undefined) {
               this.deferredForwardLoadingSessions.add(ephemeralUpdate.sessionId);
               if (this.getDirectSessionTailCursor(ephemeralUpdate.sessionId) === null) {
-                  await this.fetchDirectSessionMessages(ephemeralUpdate.sessionId, directSessionLink, { replaceExisting: true });
+                  await this.fetchDirectSessionMessages(ephemeralUpdate.sessionId, directSessionLink, { mode: 'replace' });
               } else {
                   await this.catchUpDirectSessionMessages(ephemeralUpdate.sessionId, directSessionLink);
               }
               return;
           }
           if (continuation === 'page_limit') {
+              this.directSessionLatestSnapshotPendingBySessionId.add(ephemeralUpdate.sessionId);
               this.deferredForwardLoadingSessions.add(ephemeralUpdate.sessionId);
               if (typeof resolvedCursor !== 'string') {
                   await this.catchUpDirectSessionMessages(ephemeralUpdate.sessionId, directSessionLink);
@@ -6170,7 +6249,7 @@ class Sync {
               if (directSessionLink) {
                   if (this.directSessionTailStateBySessionId.get(params.sessionId)?.requiresRefresh) {
                       if (this.isDirectSessionLiveTail(params.sessionId)) {
-                          await this.fetchDirectSessionMessages(params.sessionId, directSessionLink, { replaceExisting: true });
+                          await this.fetchDirectSessionMessages(params.sessionId, directSessionLink, { mode: 'replace' });
                       }
                       return { loaded: 0, hasMore: this.directSessionHasMoreOlderBySessionId.get(params.sessionId) ?? true, status: 'not_ready' };
                   }
@@ -6184,11 +6263,13 @@ class Sync {
                   }
 
                   const knownHasMore = this.directSessionHasMoreOlderBySessionId.get(params.sessionId);
-                  if (knownHasMore === false) {
+                  const recordedGap = this.sessionMessagesTailDiscontinuityBySessionId.get(params.sessionId);
+                  const opaqueGap = recordedGap?.kind === 'opaque' ? recordedGap : null;
+                  if (opaqueGap ? opaqueGap.walkCursor === null : knownHasMore === false) {
                       return { loaded: 0, hasMore: false, status: 'no_more' };
                   }
 
-                  const cursor = this.directSessionOlderCursorBySessionId.get(params.sessionId) ?? null;
+                  const cursor = opaqueGap?.walkCursor ?? this.directSessionOlderCursorBySessionId.get(params.sessionId) ?? null;
                   if (!cursor) {
                       return { loaded: 0, hasMore: knownHasMore ?? false, status: 'not_ready' };
                   }
@@ -6222,7 +6303,7 @@ class Sync {
                       if (pageContinuation === 'source_discontinuity') {
                           this.requireDirectSessionTranscriptRefresh(params.sessionId);
                           if (this.isDirectSessionLiveTail(params.sessionId)) {
-                              await this.fetchDirectSessionMessages(params.sessionId, directSessionLink, { replaceExisting: true });
+                              await this.fetchDirectSessionMessages(params.sessionId, directSessionLink, { mode: 'replace' });
                           }
                           return {
                               loaded: 0,
@@ -6234,9 +6315,31 @@ class Sync {
                           };
                       }
 
+                      if (opaqueGap && page.hasMore === true && page.nextCursor === cursor
+                          && applyTailDiscontinuityOpaqueOlderPage({
+                              prev: opaqueGap,
+                              pageMessageIds: page.items.map((item) => item.id),
+                              pageMaterializedMessageIds: [],
+                              nextCursor: cursor,
+                          }) !== null) {
+                          console.error('Failed to load older direct session messages: page cursor did not advance');
+                          return { loaded: 0, hasMore: true, status: 'not_ready' };
+                      }
                       const normalizedMessages = normalizeDirectTranscriptMessages(page.items);
+                      let changedMessageIds: readonly string[] = [];
                       if (normalizedMessages.length > 0) {
-                          this.applyMessages(params.sessionId, normalizedMessages, { notifyVoice: false });
+                          changedMessageIds = this.applyMessages(params.sessionId, normalizedMessages, { notifyVoice: false }).changed;
+                      }
+                      if (opaqueGap) {
+                          const nextGap = applyTailDiscontinuityOpaqueOlderPage({
+                              prev: opaqueGap,
+                              pageMessageIds: page.items.map((item) => item.id),
+                              pageMaterializedMessageIds: this.readDirectSessionPageMaterializedIds(params.sessionId, page.items, changedMessageIds),
+                              nextCursor: page.hasMore ? page.nextCursor ?? null : null,
+                          });
+                          this.commitSessionTailDiscontinuity(params.sessionId, nextGap);
+                          const hasMore = nextGap ? nextGap.walkCursor !== null : knownHasMore ?? false;
+                          return { loaded: normalizedMessages.length, hasMore, status: hasMore ? 'loaded' : 'no_more' };
                       }
 
                       this.directSessionOlderCursorBySessionId.set(params.sessionId, page.nextCursor ?? null);
@@ -6282,9 +6385,10 @@ class Sync {
           // monotone-min cursor — that cursor still points below the pre-gap prefix and
           // paging from it skipped the hole forever. Cursor-override loads (fork parent
           // context) keep legacy behavior and never advance the walk.
-          const tailDiscontinuity = params.scope === 'main' && normalizedBeforeSeqOverride === null
+          const recordedDiscontinuity = params.scope === 'main' && normalizedBeforeSeqOverride === null
               ? this.sessionMessagesTailDiscontinuityBySessionId.get(params.sessionId) ?? null
               : null;
+          const tailDiscontinuity = recordedDiscontinuity?.kind === 'seq' ? recordedDiscontinuity : null;
           if (
               knownHasMore === false
               && (
@@ -7976,6 +8080,15 @@ class Sync {
      * Commit a tail-reset discontinuity transition (open/advance/close) for the session's
      * MAIN chain and publish the display floor the transcript tail consumes. `null` closes.
      */
+    public getSessionTailDiscontinuityOlderAvailability(sessionId: string): boolean | null {
+        if (this.getSessionTargetWindowState(sessionId).isWindowMode) return null;
+        const gap = this.sessionMessagesTailDiscontinuityBySessionId.get(sessionId);
+        if (!gap) return null;
+        return gap.kind === 'opaque'
+            ? gap.walkCursor !== null
+            : this.sessionMessagesHasMoreOlderByKey.get(this.buildSessionMessagesPaginationKey({ sessionId, scope: 'main' })) ?? true;
+    }
+
     private commitSessionTailDiscontinuity(
         sessionId: string,
         record: SessionMessagesTailDiscontinuity | null,
@@ -7985,15 +8098,19 @@ class Sync {
             this.sessionMessagesTailDiscontinuityBySessionId.set(sessionId, record);
             // While a hole is open there IS more older content by construction (the hole
             // and the prefix), regardless of page-size inference on individual walk pages.
-            const pagingKey = this.buildSessionMessagesPaginationKey({ sessionId, scope: 'main' });
-            this.sessionMessagesHasMoreOlderByKey.set(pagingKey, true);
+            if (record.kind === 'seq') {
+                const pagingKey = this.buildSessionMessagesPaginationKey({ sessionId, scope: 'main' });
+                this.sessionMessagesHasMoreOlderByKey.set(pagingKey, true);
+            }
         } else {
             this.sessionMessagesTailDiscontinuityBySessionId.delete(sessionId);
         }
         if (previous === record) return;
-        storage.getState().setSessionTailContiguousFloorSeq(
+        storage.getState().setSessionTailContiguousBoundary(
             sessionId,
-            record ? record.walkCursor : null,
+            record?.kind === 'seq'
+                ? { kind: 'seq', seq: record.walkCursor }
+                : record?.kind === 'opaque' ? { kind: 'messageIds', messageIds: record.boundaryMessageIds } : null,
         );
     }
 
@@ -8017,7 +8134,8 @@ class Sync {
             }
         }
         if (!Number.isFinite(snapshotMinSeq)) return;
-        const prev = this.sessionMessagesTailDiscontinuityBySessionId.get(sessionId) ?? null;
+        const previous = this.sessionMessagesTailDiscontinuityBySessionId.get(sessionId);
+        const prev = previous?.kind === 'seq' ? previous : null;
         const next = openTailDiscontinuityFromSnapshot({
             prev,
             prefixMaxSeq: prefixMaxSeqBeforeSnapshot,

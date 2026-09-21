@@ -212,7 +212,7 @@ describe('sync socket gap recovery', () => {
 
         expect(loadedSeqs()).toEqual([1, 599, 600]);
         expect(sync.sessionMessagesTailDiscontinuityBySessionId.get(SESSION_ID))
-            .toEqual({ prefixMaxSeq: 1, walkCursor: 599 });
+            .toEqual({ kind: 'seq', prefixMaxSeq: 1, walkCursor: 599 });
         requestMock.mockClear();
         await sync.getOrCreateMessagesSync(SESSION_ID).invalidateAndAwait();
         expect(requestMock).not.toHaveBeenCalled();

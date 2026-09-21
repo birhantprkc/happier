@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { TranscriptRowShellItem } from '@/components/sessions/transcript/measurement/transcriptRowShellSignature';
 
 vi.mock('react-native', async () => {
     const { createReactNativeWebMock } = await import('@/dev/testkit/mocks/reactNative');
@@ -1458,7 +1459,7 @@ describe('sync.fetchMessages server-scoped known-session checks', () => {
             getDirectSessionTailCursor: (id: string) => string | null;
             handleDirectSessionTranscriptEphemeralUpdate: (update: {
                 sessionId: string; items: ReturnType<typeof row>[]; fromCursor: string; nextCursor: string;
-                truncated: boolean; truncationReason?: 'source_discontinuity';
+                truncated: boolean; truncationReason?: 'source_discontinuity' | 'page_limit';
             }) => Promise<void>;
         };
         await internals.fetchMessages(sessionId);
@@ -1495,6 +1496,54 @@ describe('sync.fetchMessages server-scoped known-session checks', () => {
             expect(Object.values(storage.getState().sessionMessages[sessionId]?.messagesById ?? {}).map((message) => message.realID))
                 .toEqual(expect.arrayContaining(['initial', 'tail-growth', 'held-page']));
         }
+    });
+
+    it.each(['warmed', 'advanced by a push'] as const)('admits an initial direct snapshot only while its cursor is current when %s', async (change) => {
+        const sessionId = `direct_initial_cursor_${change}`;
+        storage.getState().applySessions([createDirectSession(sessionId)]);
+        const { sync } = await import('./sync');
+        const internals = sync as unknown as {
+            serverID: string;
+            fetchMessages: (id: string) => Promise<void>;
+            getDirectSessionTailCursor: (id: string) => string | null;
+            setDirectSessionTailCursor: (id: string, cursor: string) => void;
+            directSessionTailStateBySessionId: { delete: (id: string) => boolean };
+            handleDirectSessionTranscriptEphemeralUpdate: (update: {
+                sessionId: string; items: typeof latestPage.items; fromCursor: string; nextCursor: string;
+                truncated: false; truncationReason: 'page_limit';
+            }) => Promise<void>;
+        };
+        const server = upsertServerProfile({ serverUrl: 'https://direct-cursor.test', name: 'Direct Cursor' });
+        resolvePreferredServerIdForSessionIdMock.mockReturnValue(server.id);
+        internals.serverID = 'direct-cursor-account';
+        internals.setDirectSessionTailCursor(sessionId, 'persisted-tail');
+        // Simulate a cold volatile cursor cache without deleting its durable value.
+        internals.directSessionTailStateBySessionId.delete(sessionId);
+        if (change === 'advanced by a push') {
+            expect(internals.getDirectSessionTailCursor(sessionId)).toBe('persisted-tail');
+        }
+        const latestPage = {
+            ok: true as const,
+            items: [{ id: 'latest', createdAtMs: 1, raw: { role: 'user', content: { type: 'text', text: 'latest' } } }],
+            nextCursor: null, tailCursor: 'latest-tail', hasMore: false,
+        };
+        const held = createDeferred<typeof latestPage>();
+        machineDirectSessionTranscriptPageMock.mockReturnValueOnce(held.promise);
+        const pending = internals.fetchMessages(sessionId);
+        await vi.waitFor(() => expect(machineDirectSessionTranscriptPageMock).toHaveBeenCalledTimes(1));
+        expect(internals.getDirectSessionTailCursor(sessionId)).toBe('persisted-tail');
+        if (change === 'advanced by a push') {
+            await internals.handleDirectSessionTranscriptEphemeralUpdate({
+                sessionId, items: [{ ...latestPage.items[0]!, id: 'pushed' }],
+                fromCursor: 'persisted-tail', nextCursor: 'grown-tail', truncated: false, truncationReason: 'page_limit',
+            });
+        }
+        held.resolve(latestPage);
+        await pending;
+        if (change === 'warmed') expect(storage.getState().sessionMessages[sessionId]?.isLoaded).toBe(true);
+        expect(Object.values(storage.getState().sessionMessages[sessionId]?.messagesById ?? {}).map((message) => message.realID))
+            .toEqual(change === 'warmed' ? ['latest'] : ['pushed']);
+        expect(internals.getDirectSessionTailCursor(sessionId)).toBe(change === 'warmed' ? 'latest-tail' : 'grown-tail');
     });
 
     it('resumes only direct transcripts with a current live-content consumer', async () => {
@@ -1585,15 +1634,21 @@ describe('sync.fetchMessages server-scoped known-session checks', () => {
         expect(orderedTexts).toEqual(['hello direct', 'followed direct']);
     });
 
-    it.each([true, false])('replaces known capped live direct backlog on the next probe with legacy truncated=%s', async (truncated) => {
-        const sessionId = `direct_session_read_after_page_limit_${truncated}`;
+    it.each([
+        { truncated: true, continuation: 'bridge' },
+        { truncated: false, continuation: 'bridge' },
+        { truncated: false, continuation: 'terminal' },
+        { truncated: false, continuation: 'stacked' },
+        { truncated: false, continuation: 'stalled' },
+    ] as const)('merges known capped live direct backlog and walks the gap ($continuation, legacy truncated=$truncated)', async ({ truncated, continuation }) => {
+        const sessionId = `direct_session_read_after_page_limit_${truncated}_${continuation}`;
         storage.getState().applySessions([createDirectSession(sessionId)]);
         machineDirectSessionTranscriptPageMock.mockResolvedValueOnce({
             ok: true,
             items: [{ id: 'direct-msg-1', createdAtMs: 1, raw: { role: 'user', content: { type: 'text', text: 'initial direct' } } }],
-            nextCursor: null,
+            nextCursor: 'prefix-older',
             tailCursor: 'tail-cursor-1',
-            hasMore: false,
+            hasMore: true,
         }).mockResolvedValueOnce({
             ok: true,
             items: [{ id: 'direct-msg-latest', createdAtMs: 10_000, raw: { role: 'user', content: { type: 'text', text: 'latest direct' } } }],
@@ -1626,6 +1681,14 @@ describe('sync.fetchMessages server-scoped known-session checks', () => {
 
         expect(machineDirectSessionTranscriptPageMock).toHaveBeenCalledTimes(1);
         expect(sync.hasDeferredNewerMessages(sessionId)).toBe(true);
+        if (!truncated) {
+            // A loaded cache can predate raw-page receipts; recover its source witness
+            // from the real reducer instead of requiring another complete replay.
+            const internals = sync as unknown as {
+                directSessionTailStateBySessionId: Map<string, { lastSourceMessageIds?: readonly string[] }>;
+            };
+            delete internals.directSessionTailStateBySessionId.get(sessionId)?.lastSourceMessageIds;
+        }
         await sync.refreshSessionMessages(sessionId);
         expect(machineDirectSessionTranscriptPageMock).toHaveBeenCalledTimes(2);
         expect(sync.hasDeferredNewerMessages(sessionId)).toBe(false);
@@ -1637,7 +1700,190 @@ describe('sync.fetchMessages server-scoped known-session checks', () => {
             .filter((message): message is NonNullable<typeof message> => Boolean(message))
             .filter((message) => message.kind === 'user-text')
             .map((message) => message.text);
-        expect(orderedTexts).toEqual(['latest direct']);
+        expect(orderedTexts).toEqual(['initial direct', 'capped direct', 'latest direct']);
+        const latestId = messages?.reducerState.messageIds.get('direct-msg-latest');
+        const boundary = storage.getState().getSessionTailContiguousBoundary(sessionId);
+        expect(boundary).toEqual({ kind: 'messageIds', messageIds: [latestId] });
+        expect(sync.getSessionTailDiscontinuityOlderAvailability(sessionId)).toBe(true);
+
+        if (continuation === 'terminal') {
+            machineDirectSessionTranscriptPageMock.mockResolvedValueOnce({
+                ok: true, items: [], nextCursor: null, hasMore: false,
+            });
+            await expect(sync.loadOlderMessages(sessionId)).resolves.toMatchObject({ loaded: 0, hasMore: false });
+            const requests = machineDirectSessionTranscriptPageMock.mock.calls.length;
+            await expect(sync.loadOlderMessages(sessionId)).resolves.toMatchObject({ loaded: 0, hasMore: false });
+            expect(machineDirectSessionTranscriptPageMock).toHaveBeenCalledTimes(requests);
+            expect(storage.getState().getSessionTailContiguousBoundary(sessionId)).toEqual(boundary);
+            expect(sync.getSessionTailDiscontinuityOlderAvailability(sessionId)).toBe(false);
+            return;
+        }
+        if (continuation === 'stalled') {
+            machineDirectSessionTranscriptPageMock.mockResolvedValueOnce({
+                ok: true,
+                items: [{ id: 'direct-msg-latest', createdAtMs: 10_000, raw: { role: 'user', content: { type: 'text', text: 'latest direct' } } }],
+                nextCursor: 'latest-older', hasMore: true,
+            });
+            const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+            try {
+                await expect(sync.loadOlderMessages(sessionId)).resolves.toMatchObject({ loaded: 0, hasMore: true, status: 'not_ready' });
+                expect(error).toHaveBeenCalled();
+                expect(storage.getState().getSessionTailContiguousBoundary(sessionId)).toEqual(boundary);
+            } finally {
+                error.mockRestore();
+            }
+            return;
+        }
+        if (continuation === 'stacked') {
+            // The earlier hypothetical incremental page must not satisfy this new probe.
+            machineDirectSessionTranscriptReadAfterMock.mockReset();
+            machineDirectSessionTranscriptReadAfterMock.mockResolvedValueOnce({
+                ok: true, items: [], nextCursor: 'latest-tail', truncated: false, truncationReason: 'page_limit',
+            });
+            await sync.refreshSessionMessages(sessionId);
+            machineDirectSessionTranscriptPageMock.mockResolvedValueOnce({
+                ok: true,
+                items: [{ id: 'stacked-latest', createdAtMs: 20_000, raw: { role: 'user', content: { type: 'text', text: 'stacked latest' } } }],
+                nextCursor: 'stacked-older', tailCursor: 'stacked-tail', hasMore: true,
+            });
+            await sync.refreshSessionMessages(sessionId);
+            machineDirectSessionTranscriptPageMock.mockResolvedValueOnce({
+                ok: true,
+                items: [{ id: 'direct-msg-latest', createdAtMs: 10_000, raw: { role: 'user', content: { type: 'text', text: 'latest direct' } } }],
+                nextCursor: 'latest-older', hasMore: true,
+            });
+            await sync.loadOlderMessages(sessionId);
+            expect(machineDirectSessionTranscriptPageMock).toHaveBeenLastCalledWith(
+                expect.objectContaining({ cursor: 'stacked-older' }), expect.anything(),
+            );
+            // Reaching the intermediate island does not certify the original hole.
+            expect(storage.getState().getSessionTailContiguousBoundary(sessionId)).toEqual(boundary);
+        }
+
+        machineDirectSessionTranscriptPageMock.mockResolvedValueOnce({
+            ok: true,
+            items: [{ id: 'gap-row', createdAtMs: 5, raw: { role: 'user', content: { type: 'text', text: 'gap row' } } }],
+            nextCursor: 'gap-next', hasMore: true,
+        });
+        await sync.loadOlderMessages(sessionId);
+        expect(machineDirectSessionTranscriptPageMock).toHaveBeenLastCalledWith(
+            expect.objectContaining({ cursor: 'latest-older' }), expect.anything(),
+        );
+        machineDirectSessionTranscriptPageMock.mockResolvedValueOnce({
+            ok: true,
+            items: [{ id: 'direct-msg-2', createdAtMs: 2, raw: { role: 'user', content: { type: 'text', text: 'capped direct' } } }],
+            nextCursor: 'overlap-page-older', hasMore: true,
+        });
+        await sync.loadOlderMessages(sessionId);
+        expect(machineDirectSessionTranscriptPageMock).toHaveBeenLastCalledWith(
+            expect.objectContaining({ cursor: 'gap-next' }), expect.anything(),
+        );
+        expect(storage.getState().getSessionTailContiguousBoundary(sessionId)).toBeNull();
+        expect(sync.getSessionTailDiscontinuityOlderAvailability(sessionId)).toBeNull();
+        machineDirectSessionTranscriptPageMock.mockResolvedValueOnce({
+            ok: true, items: [], nextCursor: null, hasMore: false,
+        });
+        await sync.loadOlderMessages(sessionId);
+        expect(machineDirectSessionTranscriptPageMock).toHaveBeenLastCalledWith(
+            expect.objectContaining({ cursor: 'prefix-older' }), expect.anything(),
+        );
+    });
+
+    it.each(['snapshot', 'forward', 'push'] as const)('bridges a direct source gap with raw tool-result identity and reveals visible %s tail rows', async (tailSource) => {
+        const sessionId = `direct_tool_result_gap_${tailSource}`;
+        storage.getState().applySessions([createDirectSession(sessionId)]);
+        const toolCall = {
+            id: 'source-call', createdAtMs: 1,
+            raw: { role: 'agent', content: { type: 'codex', data: {
+                type: 'tool-call', id: 'call-event', callId: 'tool-1', name: 'exec', input: {},
+            } } },
+        };
+        const toolResult = (id: string, createdAtMs: number) => ({
+            id, createdAtMs,
+            raw: { role: 'agent', content: { type: 'codex', data: {
+                type: 'tool-call-result', id, callId: 'tool-1', output: id,
+            } } },
+        });
+        machineDirectSessionTranscriptPageMock.mockResolvedValueOnce({
+            ok: true, items: [toolCall], nextCursor: 'original-older', tailCursor: 'initial-tail', hasMore: true,
+        });
+        const { sync } = await import('./sync');
+        const internals = sync as unknown as {
+            fetchMessages: (id: string) => Promise<void>;
+            handleDirectSessionTranscriptEphemeralUpdate: (update: {
+                sessionId: string;
+                items: Array<{ id: string; createdAtMs: number; raw: { role: string; content: { type: string; text: string } } }>;
+                fromCursor: string;
+                nextCursor: string;
+                truncated: boolean;
+            }) => Promise<void>;
+        };
+        await internals.fetchMessages(sessionId);
+        machineDirectSessionTranscriptReadAfterMock.mockResolvedValueOnce({
+            ok: true, items: [toolResult('prefix-result', 2)], nextCursor: 'capped-tail', truncated: false, truncationReason: 'page_limit',
+        });
+        await sync.refreshSessionMessages(sessionId);
+        const prefix = storage.getState().sessionMessages[sessionId];
+        expect(prefix?.reducerState.messageIds.has('prefix-result')).toBe(false);
+        const toolId = prefix?.reducerState.toolIdToMessageId.get('tool-1');
+        expect(toolId).toBeDefined();
+        const visibleTail = {
+            id: 'island-text', createdAtMs: 11, raw: { role: 'user', content: { type: 'text', text: 'latest' } },
+        };
+        machineDirectSessionTranscriptPageMock.mockResolvedValueOnce({
+            ok: true,
+            items: [toolResult('island-result', 10), ...(tailSource === 'snapshot' ? [visibleTail] : [])],
+            nextCursor: 'island-older', tailCursor: 'island-tail', hasMore: true,
+        });
+        await sync.refreshSessionMessages(sessionId);
+        if (tailSource !== 'snapshot') {
+            expect(storage.getState().getSessionTailContiguousBoundary(sessionId))
+                .toEqual({ kind: 'messageIds', messageIds: [] });
+            if (tailSource === 'forward') {
+                machineDirectSessionTranscriptReadAfterMock.mockResolvedValueOnce({
+                    ok: true, items: [visibleTail], nextCursor: 'visible-tail', truncated: false,
+                });
+                await sync.refreshSessionMessages(sessionId);
+            } else {
+                await internals.handleDirectSessionTranscriptEphemeralUpdate({
+                    sessionId, items: [visibleTail], fromCursor: 'island-tail', nextCursor: 'visible-tail', truncated: false,
+                });
+            }
+        }
+        const accepted = storage.getState().sessionMessages[sessionId];
+        const islandId = accepted?.reducerState.messageIds.get('island-text');
+        expect(islandId).toBeDefined();
+        expect(accepted?.messagesById[toolId!]).toBeDefined();
+        const { resolveTranscriptRenderWindowProjection } = await import('@/components/sessions/transcript/viewport/window/resolveTranscriptRenderWindowProjection');
+        const { createTranscriptWindowGapItem } = await import('@/components/sessions/transcript/viewport/window/transcriptWindowGapItem');
+        const { collectTranscriptNavigationMessageIdsForItem } = await import('@/components/sessions/transcript/viewport/lifecycle/transcriptRowClassification');
+        const items: TranscriptRowShellItem[] = (accepted?.messageIdsOldestFirst ?? []).map((messageId) => ({
+            kind: 'message' as const, id: messageId, messageId, createdAt: accepted!.messagesById[messageId].createdAt, seq: null,
+        }));
+        const projection = resolveTranscriptRenderWindowProjection({
+            activeThinkingMessageId: null, createWindowGapItem: createTranscriptWindowGapItem,
+            entrySliceWindow: null, expandedToolCallsAnchorMessageIds: new Set<string>(),
+            items, listOrientation: 'standard', platformOS: 'web', rendererKind: 'legendList', sessionId,
+            targetWindowState: sync.getSessionTargetWindowState(sessionId),
+            transcriptNativeHotTailItemCount: 0, transcriptWebHotTailItemCount: 0,
+            tailContiguousBoundary: storage.getState().getSessionTailContiguousBoundary(sessionId),
+            resolveMessageIds: collectTranscriptNavigationMessageIdsForItem,
+        });
+        expect(projection.listData.map((item) => item.id))
+            .toEqual(['transcript-window-gap:tail:older', islandId]);
+        expect(storage.getState().getSessionTailContiguousBoundary(sessionId))
+            .toEqual({ kind: 'messageIds', messageIds: [islandId] });
+        machineDirectSessionTranscriptPageMock.mockResolvedValueOnce({
+            ok: true, items: [toolResult('prefix-result', 2)], nextCursor: 'island-older', hasMore: true,
+        });
+        // Real raw overlap bridges even when the returned opaque cursor is unchanged.
+        await sync.loadOlderMessages(sessionId);
+        expect(storage.getState().getSessionTailContiguousBoundary(sessionId)).toBeNull();
+        machineDirectSessionTranscriptPageMock.mockResolvedValueOnce({ ok: true, items: [], nextCursor: null, hasMore: false });
+        await sync.loadOlderMessages(sessionId);
+        expect(machineDirectSessionTranscriptPageMock).toHaveBeenLastCalledWith(
+            expect.objectContaining({ cursor: 'original-older' }), expect.anything(),
+        );
     });
 
     it('applies pushed direct-session transcript deltas and advances the tail cursor for fallback paging', async () => {
@@ -1881,7 +2127,7 @@ describe('sync.fetchMessages server-scoped known-session checks', () => {
         ]);
     });
 
-    it.each([true, false])('replaces known capped live direct backlog after a push with legacy truncated=%s', async (truncated) => {
+    it.each([true, false])('merges known capped live direct backlog after a push with legacy truncated=%s', async (truncated) => {
         const sessionId = `direct_session_truncated_delta_${truncated}`;
         storage.getState().applySessions([createDirectSession(sessionId)]);
         machineDirectSessionTranscriptPageMock.mockResolvedValueOnce({
@@ -1961,7 +2207,7 @@ describe('sync.fetchMessages server-scoped known-session checks', () => {
             .filter((message): message is NonNullable<typeof message> => Boolean(message))
             .filter((message) => message.kind === 'user-text')
             .map((message) => message.text);
-        expect(orderedTexts).toEqual(['latest direct']);
+        expect(orderedTexts).toEqual(['hello direct', 'partial direct', 'latest direct']);
     });
 
     it('activates the account settings scope and reloads scoped pending settings for active credentials', async () => {

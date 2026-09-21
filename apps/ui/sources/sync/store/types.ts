@@ -1,4 +1,5 @@
 import type { TodoState } from '@/sync/domains/todos/todoOps';
+import type { TranscriptLoadingDomain } from './domains/transcriptLoading';
 
 import type { DecryptedArtifact } from '../domains/artifacts/artifactTypes';
 import type { Automation, AutomationRun } from '../domains/automations/automationTypes';
@@ -191,15 +192,7 @@ export interface PendingDomainSlice {
     removePendingMessage: (sessionId: string, pendingId: string) => void;
 }
 
-export interface TranscriptLoadingDomainSlice {
-    sessionCatchUpNewerInFlight: Record<string, number>;
-    sessionTailContiguousFloorSeq: Record<string, number>;
-    isSessionCatchingUpNewer: (sessionId: string) => boolean;
-    beginSessionCatchUpNewer: (sessionId: string) => void;
-    endSessionCatchUpNewer: (sessionId: string) => void;
-    getSessionTailContiguousFloorSeq: (sessionId: string) => number | null;
-    setSessionTailContiguousFloorSeq: (sessionId: string, floorSeq: number | null) => void;
-}
+export type TranscriptLoadingDomainSlice = TranscriptLoadingDomain;
 
 export interface RealtimeDomainSlice {
     realtimeStatus: RealtimeStatus;
