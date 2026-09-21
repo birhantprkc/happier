@@ -141,9 +141,13 @@ Either way, the session shows up everywhere at once: keep typing in the terminal
 
 ### Run and coordinate agents
 
-**Parallel sessions, on every machine you own.** Start as many sessions as you like and pick the machine, folder, agent and model for each one. Give a session its own Git worktree so parallel agents never collide, and add a new machine over SSH from the app or the CLI. [Starting a session](https://docs.happier.dev/sessions/new-session-shortcuts) · [Machines and the daemon](https://docs.happier.dev/apps/daemon)
+**Parallel sessions, on every machine you own.** Start as many sessions as you like and pick the machine, folder, agent and model for each one. Add a new machine over SSH from the app or the CLI. [Starting a session](https://docs.happier.dev/sessions/new-session-shortcuts) · [Machines and the daemon](https://docs.happier.dev/apps/daemon)
 
-**Your terminal stays yours.** Keep running Claude Code, Codex or OpenCode in their native TUIs: Happier mirrors those sessions to every device, so you can follow along, send messages and approve from anywhere, then switch between the terminal and the app whenever you like. Sessions you started outside Happier show up too, live, with nothing to migrate. [Continuing a session](https://docs.happier.dev/sessions/continuing-a-session)
+**One repo, several agents, no collisions.** Start each session in its own Git worktree: a real checkout, its own branch, the same repository. Happier creates it from any local or remote branch, suggests a name, and offers to reuse an existing one instead of duplicating it. Or start in the folder you are already in; it is a choice per session, not a mode you switch on. [New session options](https://docs.happier.dev/sessions/new-session-shortcuts)
+
+**Prefer the terminal? Keep it.** Run Claude Code, Codex or OpenCode in their own terminal UIs: Happier mirrors those sessions to every device, so you can follow along, send messages and approve from anywhere, then switch between the terminal and the app whenever you like. [Claude unified terminal](https://docs.happier.dev/sessions/claude-unified-terminal)
+
+**Your existing sessions? Already there.** Open any Claude Code, Codex or OpenCode session already running on your machine: live, from any device, nothing to migrate and nothing to learn. [Continuing a session](https://docs.happier.dev/sessions/continuing-a-session)
 
 **Subagents across agents.** Any session can launch review, plan or delegate runs on another agent and read the results: Claude handing work to Codex subagents, Codex to Claude, or any other pairing. [Subagents](https://docs.happier.dev/extending/subagents)
 
@@ -171,7 +175,16 @@ Either way, the session shows up everywhere at once: keep typing in the terminal
 
 ### Yours to run
 
-**MCP, in both directions.** Define your MCP servers once and use them with every agent on every machine. Happier is also an MCP server itself, so an external MCP host can spawn and drive your sessions. [MCP servers](https://docs.happier.dev/extending/mcp-servers) · [Happier as an MCP server](https://docs.happier.dev/extending/happier-as-mcp-server)
+**Every action, from every surface.** Everything Happier can do (create a session, send it a message, set the model, start a review) is defined once, in one registry. The app, slash commands, voice, in-session agents, the CLI and an external MCP host all call the same definition, and for each action you choose which surfaces can run it and which have to ask you first. [Happier as an MCP server](https://docs.happier.dev/extending/happier-as-mcp-server) · [CLI](https://docs.happier.dev/apps/cli)
+
+```bash
+happier mcp serve                # drive Happier from any MCP host
+happier session list
+happier session send <id> "rerun the failing test"
+happier session actions execute <id> session.spawn_new
+```
+
+**MCP servers, configured once.** Define your MCP servers once and use them with every agent on every machine, even agents with no native MCP support. [MCP servers](https://docs.happier.dev/extending/mcp-servers)
 
 **A usage limit should not end your session.** Link provider subscriptions and API keys once, sealed on your device before they sync, and pick which account each session runs under. When a provider limit bites, Happier shows the reset time, waits, and resumes the session on its own (Claude Code, Codex, OpenCode, Gemini, Pi). [Connected services](https://docs.happier.dev/accounts/connected-services) · [Usage limits](https://happier.dev/features/usage-limits)
 
