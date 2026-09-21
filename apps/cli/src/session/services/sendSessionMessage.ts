@@ -38,6 +38,7 @@ import {
 import { resolveSessionTransportContext } from './resolveSessionTransportContext';
 import { requestInactiveSessionResume } from './requestInactiveSessionResume';
 import { resolveSessionMessagePermissionIntent } from './resolveSessionMessagePermissionIntent';
+import { resolveSessionUserMessageRequestedAction } from './resolveSessionUserMessageRequestedAction';
 
 export type SendSessionMessageResult =
   | Readonly<{ ok: true; sessionId: string; localId: string; waited: boolean; suppressed?: true }>
@@ -460,6 +461,7 @@ export async function sendSessionMessage(params: Readonly<{
   });
 
   const shouldUseRuntimeRpc = sessionTarget.rawSession.active === true;
+  const shouldResumeInactiveSession = !shouldUseRuntimeRpc && params.resumeInactiveSession !== false;
   const admission = await admitSessionUserMessageToPendingQueue({
     credentials: params.credentials,
     sessionId,
@@ -469,7 +471,10 @@ export async function sendSessionMessage(params: Readonly<{
     text: params.message,
     permissionIntent,
     modelId,
-    ...(params.requestedAction ? { requestedAction: params.requestedAction } : {}),
+    requestedAction: resolveSessionUserMessageRequestedAction({
+      deliveryIntent: shouldResumeInactiveSession ? 'runtime_bootstrap' : 'ordinary',
+      ...(params.requestedAction ? { requestedAction: params.requestedAction } : {}),
+    }),
     ...(params.pendingAdmissionMode ? { pendingAdmissionMode: params.pendingAdmissionMode } : {}),
   });
 
@@ -491,7 +496,7 @@ export async function sendSessionMessage(params: Readonly<{
     return { ok: true, sessionId, localId, waited: false };
   }
 
-  if (!shouldUseRuntimeRpc && params.resumeInactiveSession !== false) {
+  if (shouldResumeInactiveSession) {
     const resumeResult = await requestInactiveSessionResume({
       credentials: params.credentials,
       sessionId,

@@ -1151,6 +1151,7 @@ describe('runSessionAgentTransition', () => {
       const enqueue = mocks.enqueuePendingQueueV2MessageViaHttp.mock.calls[0]?.[0];
       expect(enqueue.body.localId).toBe(LOCAL_ID);
       expect(enqueue.body.messageRole).toBe('user');
+      expect(enqueue.body.requestedAction).toEqual({ v: 1, kind: 'send_now' });
       const record = JSON.parse(enqueue.body.content.v ? JSON.stringify(enqueue.body.content.v) : '{}') as {
         content: { text: string };
         meta: Record<string, unknown>;

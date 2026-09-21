@@ -1196,6 +1196,7 @@ describe('sendSessionMessage', () => {
             idOrPrefix: 'sess-1',
             message: 'continue',
             localId: 'connected-service-continuation:test',
+            requestedAction: { v: 1, kind: 'enqueue' },
             wait: false,
             timeoutMs: 1,
         })).resolves.toEqual({
@@ -1208,7 +1209,10 @@ describe('sendSessionMessage', () => {
         expect(enqueuePendingQueueV2MessageViaHttp).toHaveBeenCalledWith(expect.objectContaining({
             token: 'token',
             sessionId: 'sess-1',
-            body: expect.objectContaining({ localId: 'connected-service-continuation:test' }),
+            body: expect.objectContaining({
+                localId: 'connected-service-continuation:test',
+                requestedAction: { v: 1, kind: 'send_now' },
+            }),
         }));
         expect(enqueuePendingQueueV2MessageViaHttp.mock.invocationCallOrder[0]).toBeLessThan(
             requestInactiveSessionResume.mock.invocationCallOrder[0],
@@ -1230,6 +1234,7 @@ describe('sendSessionMessage', () => {
             idOrPrefix: 'sess-1',
             message: 'continue later',
             localId: 'connected-service-continuation:pending-only',
+            requestedAction: { v: 1, kind: 'enqueue' },
             resumeInactiveSession: false,
             wait: false,
             timeoutMs: 1,
@@ -1239,6 +1244,12 @@ describe('sendSessionMessage', () => {
             localId: 'connected-service-continuation:pending-only',
             waited: false,
         });
+        expect(enqueuePendingQueueV2MessageViaHttp).toHaveBeenLastCalledWith(expect.objectContaining({
+            body: expect.objectContaining({
+                localId: 'connected-service-continuation:pending-only',
+                requestedAction: { v: 1, kind: 'enqueue' },
+            }),
+        }));
         expect(requestInactiveSessionResume).toHaveBeenCalledTimes(1);
         expect(sendSessionMessageViaSocketCommitted).not.toHaveBeenCalled();
     });
