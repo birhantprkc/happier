@@ -2377,6 +2377,21 @@ describe('SessionsList (native virtualization)', () => {
         expect(list.props.maintainVisibleContentPosition).toEqual({ disabled: true });
     });
 
+    it('delivers handled control taps while the native search keyboard is open', async () => {
+        const screen = await renderSessionsListWithSurfaceOwnership({
+            ownerKey: 'phone-root',
+            visible: true,
+            interactive: true,
+            dataActive: true,
+        });
+        const list = expectPresent(
+            screen.root.findAll((node) => String(node.type) === 'FlashListCompat')[0],
+            'expected native FlashListCompat',
+        );
+
+        expect(list.props.keyboardShouldPersistTaps).toBe('handled');
+    });
+
     it('refreshes sessions from native pull-to-refresh and keeps the indicator active while pending', async () => {
         let resolveRefresh: (() => void) | null = null;
         const refreshPromise = new Promise<void>((resolve) => {
