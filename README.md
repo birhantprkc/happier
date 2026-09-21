@@ -29,7 +29,9 @@
 
   <a href="https://github.com/happier-dev/happier/discussions/226"><strong>Latest Happier project update</strong></a>
 
-  <p>Happier is free and open source. Your agents keep using the subscriptions and API keys you already have: Claude Pro/Max, ChatGPT/Codex, API keys, or local models. Happier adds no fee on top.</p>
+  <p>Happier is free and open source.<br />
+    Your agents keep using the subscriptions and API keys you already have:<br />
+    Claude Pro/Max, ChatGPT/Codex, API keys, or local models.</p>
 
   <p>
     <img src=".github/desktop-2000.png" alt="Happier desktop app: sessions, diffs and terminal in one window" width="100%" />
@@ -48,10 +50,10 @@ The desktop app is the recommended way in: it sets up the CLI and the daemon for
 <a href="https://happier.dev/download">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset=".github/download-desktop-white.svg" />
-    <img width="232" height="56" alt="Download Happier for desktop: macOS, Windows, Linux" src=".github/download-desktop-black.svg" />
+    <img width="186" height="45" alt="Download Happier for desktop: macOS, Windows, Linux" src=".github/download-desktop-white.svg" />
   </picture>
 </a>
-
+<br /><br />
 <details>
 <summary><b>Prefer the terminal?</b> Install the CLI and daemon without the desktop app</summary>
 
@@ -71,7 +73,7 @@ If you specifically want the npm package instead: `npm install -g @happier-dev/c
 
 </details>
 
-You sign in from the app, or on first run. There is no separate auth step.
+You sign in from the app, or on first run.
 
 ### 2. Add your phone
 
@@ -104,7 +106,7 @@ Sign in with the same account and your sessions, machines and settings are alrea
 
 ### 3. Start a session
 
-**In the app.** Press **New session**, pick the machine, the folder and the agent. No terminal needed.
+**In the app →** Press **New session**, pick the machine, the folder and the agent. No terminal needed.
 
 **Or in the terminal**, from any project folder:
 
@@ -161,7 +163,7 @@ Either way, the session shows up everywhere at once: keep typing in the terminal
   <a href="https://happier.dev/agents">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset=".github/supported-agents-dark.png" />
-      <img width="600" src=".github/supported-agents-light.png" alt="Agents supported by Happier: Claude Code, Codex, OpenCode, Gemini CLI, Auggie, Qwen Code, Kimi, Kilo, Kiro, Devin, Pi, GitHub Copilot, Cursor, Grok, FX, Droid and Antigravity" />
+      <img width="550" src=".github/supported-agents-light.png" alt="Agents supported by Happier: Claude Code, Codex, OpenCode, Gemini CLI, Auggie, Qwen Code, Kimi, Kilo, Kiro, Devin, Pi, GitHub Copilot, Cursor, Grok, FX, Droid and Antigravity" />
     </picture>
   </a>
 </p>
@@ -306,9 +308,8 @@ After weeks of refining, fixing, and extending the foundation, we decided to sha
 Happier is about exploring a faster-moving, more collaborative direction, while remaining deeply grateful for the foundation Happy provided. We loved and still love Happy. ❤️ Happier would not exist without it.
 
 <div align="center">
-
+<hr />
 Built in Switzerland. MIT licensed.
 
 Not affiliated with or endorsed by Anthropic, OpenAI, or Google.
-
 </div>
