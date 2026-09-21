@@ -54,6 +54,16 @@ index 0baf8b9..ad91852 100644
    serializableMappingCache.set(clone);
    freezeObjectInDev(value);
    return clone;
+@@ -537,6 +545,9 @@ function freezeObjectInDev(value) {
+     Object.defineProperty(value, key, {
++      // Recreated weak clones must reuse these guards. In Hermes a new getter
++      // otherwise retains the previous descriptor and its getter environment.
++      configurable: false,
+       get() {
+         return element;
+       },
+       set() {
+         logger.warn(`Tried to modify key \`${key}\` of an object which has been already passed to a worklet. See
 diff --git a/node_modules/react-native-worklets/lib/module/memory/serializableMappingCache.native.js b/node_modules/react-native-worklets/lib/module/memory/serializableMappingCache.native.js
 index 63a81c1..98450d8 100644
 --- a/node_modules/react-native-worklets/lib/module/memory/serializableMappingCache.native.js
@@ -158,6 +168,16 @@ index a48d2fd..a2616c2 100644
    serializableMappingCache.set(clone);
 
    freezeObjectInDev(value);
+@@ -774,6 +782,9 @@ function freezeObjectInDev<TValue extends object>(value: TValue) {
+     Object.defineProperty(value, key, {
++      // Recreated weak clones must reuse these guards. In Hermes a new getter
++      // otherwise retains the previous descriptor and its getter environment.
++      configurable: false,
+       get() {
+         return element;
+       },
+       set() {
+         logger.warn(
 diff --git a/node_modules/react-native-worklets/src/memory/serializableMappingCache.native.ts b/node_modules/react-native-worklets/src/memory/serializableMappingCache.native.ts
 index f270194..464caac 100644
 --- a/node_modules/react-native-worklets/src/memory/serializableMappingCache.native.ts

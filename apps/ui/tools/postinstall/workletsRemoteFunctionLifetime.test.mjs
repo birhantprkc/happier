@@ -163,6 +163,24 @@ function invokeHandles(shape, handles) {
     assert.ok(persistentArrayHandle.deref(), 'persistent array identity must remain owned by its source');
     assert.equal(createSerializable(persistentArray, true), persistentArrayHandle.deref());
 
+    // Recreating an expired native clone must not wrap the source's mutation
+    // guards again. Hermes retains the previous descriptor in each wrapper's
+    // environment, so repeated wrapping keeps every older getter alive.
+    const guarded = { number: 42 };
+    const guardedHandle = new NativeWeakRef(createSerializable(guarded));
+    const firstGuard = Object.getOwnPropertyDescriptor(guarded, 'number');
+    if (${weakRefsAvailable}) {
+        for (let i = 0; i < 30; i++) {
+            await collect();
+            if (!guardedHandle.deref()) break;
+        }
+        assert.equal(guardedHandle.deref(), undefined, 'the reconstructible clone must expire');
+    }
+    assert.equal(createSerializable(guarded).read().number, 42);
+    const nextGuard = Object.getOwnPropertyDescriptor(guarded, 'number');
+    assert.equal(nextGuard.get, firstGuard.get, 'reserialization must reuse the existing mutation getter');
+    assert.equal(nextGuard.set, firstGuard.set, 'reserialization must reuse the existing mutation warning');
+
     for (const shape of ['function', 'object', 'array', 'map', 'set']) {
         const tracked = createTrackedHandles(shape);
         const refs = tracked.refs;
