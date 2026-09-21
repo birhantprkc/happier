@@ -24,6 +24,7 @@ type AgentLocalCliConfigInput = Readonly<{
   authLaunches: ReadonlyArray<
     Readonly<{
         kind: 'primary' | 'device_code';
+        command?: string;
         args: ReadonlyArray<string>;
         initialInput?: string | null;
       }>
@@ -39,7 +40,7 @@ function createAgentLocalCliConfig(agentId: AgentId, input: AgentLocalCliConfigI
     authSupport: input.authSupport,
     authLaunches: input.authLaunches.map((launch) => ({
           kind: launch.kind,
-          command: binaryName,
+          command: launch.command ?? binaryName,
           args: launch.args,
           ...(launch.initialInput !== undefined ? { initialInput: launch.initialInput } : {}),
     })),
@@ -169,7 +170,8 @@ export const AGENT_LOCAL_CLI_CONFIG: Readonly<Record<AgentId, AgentLocalCliConfi
     authSupport: 'login_terminal',
     authLaunches: [{
       kind: 'primary',
-      args: [],
+      command: 'happier',
+      args: ['agy', 'auth', 'login'],
     }],
   }),
   fx: createAgentLocalCliConfig('fx', {

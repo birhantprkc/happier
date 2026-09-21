@@ -3,21 +3,23 @@ title: Antigravity CLI (experimental)
 description: Configure Antigravity in Happier, including authentication, the pinned ACP server install, resume, execution runs, and MCP tools.
 ---
 
-Happier runs Antigravity through the official pinned `agy_acp_server` ACP transport for normal
-sessions and execution runs. The interactive `agy` CLI stays a separate system-first
-terminal and login surface; Happier does not claim the two surfaces share session IDs.
+Happier runs Antigravity through the official pinned `agy_acp_server` ACP transport for normal sessions and execution runs. The interactive `agy` CLI stays a separate system-first terminal surface, with its own login and session IDs.
 
 ## Requirements and authentication
 
-Install the interactive Antigravity CLI using the
-[official Antigravity CLI guide](https://antigravity.google/docs/cli/install),
-make sure `agy` is available on `PATH`, and authenticate on the machine where
-Happier runs. Happier does not currently have an Antigravity status command to inspect,
-and never probes Antigravity ambiently in the background, so the app may continue to
-show **Unknown** after login.
+Install the interactive Antigravity CLI using the [official Antigravity CLI guide](https://antigravity.google/docs/cli/install), and make sure `agy` is available on `PATH` for local terminal control. Happier sessions need a separate login to the ACP server. In development builds with the ACP login command, run this on the machine where Happier runs:
 
-You can also open the interactive Antigravity login flow from
-**Settings → AI & Agents → AI backends → Antigravity**.
+```bash
+happier agy auth login
+```
+
+Follow the Google login link printed in the terminal. Wait for the command to confirm completion before starting a session. The ACP server stores its own credentials and authentication choice; logging into the interactive `agy` CLI does not sign it in. Subsequent Happier sessions use that saved choice without opening the login command again.
+
+You can also open this ACP login flow from **Settings → AI & Agents → AI backends → Antigravity**. Happier does not probe Antigravity authentication in the background, so the app may continue to show **Unknown** after login.
+
+For another authentication method, pass `--method oauth-business`, `--method gemini-api-key`, or `--method agent-platform`. Configure the chosen method's environment and ACP settings on the same machine; API keys are read by the ACP server from its environment, not from command-line arguments. Use the same `GEMINI_HOME` for login and the daemon if you override it.
+
+When the browser runs on a different computer, keep the login command running and forward the port from the login URL's `redirect_uri` to the agent machine. For example, for port 12345, run `ssh -N -L 12345:127.0.0.1:12345 user@agent-host` on the browser computer before opening the link. The server chooses the port for each login attempt. Press Ctrl+C to cancel login.
 
 ## Pinned ACP server install
 
@@ -54,6 +56,7 @@ sessions. For shared MCP setup and session selection, see [MCP servers](/extendi
 ## Troubleshooting
 
 - Run `agy --version` on the agent machine to confirm the interactive CLI is installed.
+- For `Authentication required`, run `happier agy auth login` on that machine and wait for successful completion. An interactive CLI login alone does not authenticate ACP.
 - If the ACP server is missing, reselect Antigravity in the app and watch the install progress,
   then retry launch.
 - If a model is unavailable, retry after the ACP handshake completes; the model list is

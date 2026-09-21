@@ -10,6 +10,7 @@ const genericEntry = createCatalogDefinedAcpEntry('agy');
 
 export const agent = {
   ...genericEntry,
+  getCliCommandHandler: async () => (await import('./cli/command')).handleAgyCliCommand,
   getCapabilities: async () => (await import('./cli/extraCapabilities')).capabilities,
   getAcpBackendFactory: async () => {
     return async (opts) => {

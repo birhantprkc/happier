@@ -61,6 +61,17 @@ describe('provider local auth registry', () => {
         }]);
     });
 
+    it('logs Antigravity into its managed ACP server instead of the interactive CLI', () => {
+        const plugin = getProviderLocalAuthPlugin('agy');
+        expect(plugin?.buildAuthLaunches?.({
+            resolvedPath: '/opt/antigravity/agy',
+            resolvedCommand: '/opt/antigravity/agy',
+        })).toEqual([{
+            kind: 'primary',
+            initialCommand: 'happier agy auth login',
+        }]);
+    });
+
     it('projects Grok primary and device-code actions through the generic ordered contract', () => {
         const plugin = getProviderLocalAuthPlugin('grok');
 

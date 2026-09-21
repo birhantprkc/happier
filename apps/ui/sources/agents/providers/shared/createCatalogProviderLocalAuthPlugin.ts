@@ -13,9 +13,10 @@ function buildInitialCommand(params: Readonly<{
     platform?: NodeJS.Platform | string | null;
 }>): string {
     const config = getAgentLocalCliConfig(params.providerId);
+    const usesProviderCli = params.launch.command === getProviderCliRuntimeSpec(params.providerId).binaryName;
     const baseCommand = resolveProviderLocalAuthBaseCommand({
-        resolvedPath: params.resolvedPath,
-        resolvedCommand: params.resolvedCommand,
+        resolvedPath: usesProviderCli ? params.resolvedPath : null,
+        resolvedCommand: usesProviderCli ? params.resolvedCommand : null,
         fallbackCommand: params.launch.command ?? getProviderCliRuntimeSpec(params.providerId).binaryName ?? config.detectKey,
         platform: params.platform,
     });
