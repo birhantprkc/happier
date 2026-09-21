@@ -174,6 +174,7 @@ export function createStorageModuleStub<TOverrides extends object>(overrides: TO
             sessionRpcAvailable: false,
         }),
         useAllMachines: () => allMachines,
+        useFirstVisibleMachineId: () => null,
         useLaunchSelectionMachines: () => launchSelectionMachines,
         useMachineDisplayById: () => machineDisplayById,
         useMachineCliDetectionTarget: () => ({

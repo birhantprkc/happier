@@ -175,6 +175,8 @@ const IGNORED_UNTRANSLATED_KEYS_BY_LOCALE: Readonly<Record<string, ReadonlySet<s
         'connectedServices.serviceNames.openaiCodex',
         'connectionStatus.labels.socket',
         'deps.installable.githubCli.title',
+        // "Stable" is the standard French release-channel label too.
+        'settingsProviders.plugins.opencode.fields.opencodeCliGeneration.options.stable.title',
         'devVoiceQa.actionsTitle',
         'devVoiceQa.configurationTitle',
         'devVoiceQa.promptLabel',
