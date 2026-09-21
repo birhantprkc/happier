@@ -5668,14 +5668,6 @@ function SessionViewLoaded({
                             presentRefusedArmedSend(attachmentSendDestination);
                             return;
                         }
-                        if (attachmentSendDestination.kind === 'sessionAgent'
-                            && !isSessionActive && isResumable) {
-                            const resumed = await handleResumeSession();
-                            if (!resumed) {
-                                throw new Error(t('session.resumeFailed'));
-                            }
-                        }
-
                         const { uploaded } = await uploadAttachmentDraftsToSession({
                             sessionId,
                             drafts: attachmentDrafts,

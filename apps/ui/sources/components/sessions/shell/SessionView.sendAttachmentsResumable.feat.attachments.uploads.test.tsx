@@ -305,6 +305,7 @@ vi.mock('@/voice/session/voiceSession', () => ({
 const sendMessageSpy = vi.fn(async (..._args: any[]) => {});
 const enqueuePendingMessageSpy = vi.fn(async (..._args: any[]) => ({ localId: 'pending-local-id' }));
 const updatePendingMessageSpy = vi.fn(async (..._args: any[]) => {});
+const machineEncryptionState = { available: false };
 
 const ensureSessionVisibleSpy = vi.hoisted(() => vi.fn(async (..._args: any[]) => ({ kind: 'available' })));
 const refreshSessionMessagesSpy = vi.hoisted(() => vi.fn(async (..._args: any[]) => {}));
@@ -330,12 +331,13 @@ vi.mock('@/sync/sync', () => ({
         updatePendingMessage: (...args: any[]) => updatePendingMessageSpy(...args),
         submitMessage: async () => {},
         encryption: {
-            getMachineEncryption: () => null,
+            getMachineEncryption: () => machineEncryptionState.available ? {} : null,
         },
     },
 }));
 
 const resumeSessionSpy = vi.fn(async (..._args: any[]) => ({ type: 'success' }));
+const ensureSessionRuntimeForPendingInputSpy = vi.fn(async (..._args: any[]) => ({ type: 'success' }));
 const uploadSpy = vi.fn(async (..._args: any[]) => ({ success: true, path: 'p1', sizeBytes: 1, sha256: 'h1' }));
 
 vi.mock('@/sync/ops', async (importOriginal) => {
@@ -344,6 +346,7 @@ vi.mock('@/sync/ops', async (importOriginal) => {
         ...actual,
         sessionAbort: vi.fn(),
         resumeSession: (...args: any[]) => resumeSessionSpy(...args),
+        ensureSessionRuntimeForPendingInput: (...args: any[]) => ensureSessionRuntimeForPendingInputSpy(...args),
         sessionAttachmentsUploadFile: (...args: any[]) => uploadSpy(...args),
         machineCapabilitiesInvoke: vi.fn(async () => ({ type: 'success' })),
     };
@@ -691,12 +694,14 @@ describe('SessionView (attachments.uploads resumable send)', () => {
         sessionState.session.active = true;
         sessionState.session.presence = 'online';
         sessionMachineTargetState.available = false;
+        machineEncryptionState.available = false;
         // Most cases exercise the legacy direct-send compatibility path: an
         // agent queue whose runtime is known not to support durable pending input.
         // Pending delivery has explicit cases below.
         chooseSubmitModeState.mode = 'agent_queue';
         enqueuePendingMessageSpy.mockClear();
         updatePendingMessageSpy.mockClear();
+        ensureSessionRuntimeForPendingInputSpy.mockClear();
         chatListPropsSpy.mockClear();
         sessionPendingMessagesState.current = [];
         sessionPendingMessagesState.listeners.clear();
@@ -1406,12 +1411,13 @@ describe('SessionView (attachments.uploads resumable send)', () => {
         }
     });
 
-    it('resumes and queues attachments when chooseSubmitMode selects server_pending', async () => {
+    it('durably queues attachments before waking an inactive session', async () => {
         expect(getInactiveSessionUiState({ isSessionActive: true, isResumable: true, isMachineOnline: true })).toMatchObject({ shouldShowInput: true });
 
         sessionState.session.active = false;
         sessionState.session.presence = 'offline';
         sessionMachineTargetState.available = true;
+        machineEncryptionState.available = true;
         chooseSubmitModeState.mode = 'server_pending';
         featureEnabledState.reviewComments = false;
         sendMessageSpy.mockClear();
@@ -1454,10 +1460,14 @@ describe('SessionView (attachments.uploads resumable send)', () => {
             // Should not show the legacy "attachments require direct sending" error anymore.
             expect(modalAlertSpy.mock.calls.some((c) => String(c?.[1] ?? '').includes('Attachments require direct sending'))).toBe(false);
             expect(modalAlertSpy).not.toHaveBeenCalled();
-            expect(resumeSessionSpy).toHaveBeenCalled();
+            expect(resumeSessionSpy).not.toHaveBeenCalled();
+            expect(ensureSessionRuntimeForPendingInputSpy).toHaveBeenCalledTimes(1);
             expect(uploadSpy).toHaveBeenCalled();
             expect(sendMessageSpy).not.toHaveBeenCalled();
             expect(enqueuePendingMessageSpy).toHaveBeenCalledTimes(1);
+            expect(enqueuePendingMessageSpy.mock.invocationCallOrder[0]).toBeLessThan(
+                ensureSessionRuntimeForPendingInputSpy.mock.invocationCallOrder[0]!,
+            );
 
             const [sentSessionId, sentText, sentDisplayText, sentMetaOverrides] = enqueuePendingMessageSpy.mock.calls[0] ?? [];
             expect(sentSessionId).toBe('s1');
@@ -2241,6 +2251,62 @@ describe('SessionView (attachments.uploads resumable send)', () => {
             });
         }
 
+        it('keeps same-mount Agent switching in the composer send state until the transition answers', async () => {
+            armSecondAgent();
+            resolveSessionComposerSendMock.mockImplementationOnce(() => ({
+                kind: 'send',
+                text: 'switch and send this',
+            }));
+            let settleTransition: (result: unknown) => void = () => {};
+            runSessionAgentTransitionSpy.mockImplementationOnce(() => new Promise((resolve) => {
+                settleTransition = resolve;
+            }) as any);
+
+            const screen = await renderScreen(<AppPaneProvider>
+                        <SessionView id="s1" />
+                    </AppPaneProvider>);
+            pendingFireAndForget.length = 0;
+            if (!screen.tree) throw new Error('SessionView test renderer did not mount');
+            try {
+                const agentInput = findTestInstanceByTypeWithProps(screen.tree, 'AgentInput' as any, {}) as any;
+                await act(async () => {
+                    invokeTestInstanceHandler(agentInput, 'onChangeText', 'switch and send this', 'AgentInput');
+                });
+                await act(async () => {
+                    invokeTestInstanceHandler(agentInput, 'onSend', undefined, 'AgentInput');
+                    await Promise.resolve();
+                });
+
+                expect(runSessionAgentTransitionSpy).toHaveBeenCalledTimes(1);
+                expect(screen.getTextContent()).not.toContain('session.agentContinuation.transition.unknown');
+                expect(screen.findAllByTestId('session.agentTransitionOutcome.banner')).toHaveLength(0);
+
+                // The Pending row can synchronize before the transition RPC answers.
+                // While the same-mount send still owns the operation, the generic
+                // inactive-session recovery must not compete with its spinner or
+                // imply that the reader needs to resume the source Agent.
+                syncPendingRowForLocalId('armed-local-id');
+                expect(screen.findAllByTestId('session-pendingActivation')).toHaveLength(0);
+                const inFlightInput = findTestInstanceByTypeWithProps(screen.tree, 'AgentInput' as any, {}) as any;
+                expect(inFlightInput.props.isSending).toBe(true);
+                expect((inFlightInput.props.statusBadges as readonly { testID?: string }[])
+                    .some((badge) => badge.testID === 'session.pendingActivation.badge')).toBe(false);
+
+                await act(async () => {
+                    settleTransition({ type: 'accepted', localId: 'armed-local-id' });
+                    await pendingFireAndForget[0];
+                });
+
+                // Suppression is only for the live operation. If the target has
+                // not become active yet, the existing pending-activation owner is
+                // still the post-operation recovery surface.
+                expect(screen.findAllByTestId('session-pendingActivation').length).toBeGreaterThan(0);
+            } finally {
+                act(() => { screen.tree?.unmount(); });
+                pendingFireAndForget.length = 0;
+            }
+        });
+
         it('tells the reader when the switch left their message queued behind no runtime', async () => {
             // The arm a real Session hit: the cutover committed, the exact localId
             // reached canonical admission, and NO runtime came up — so `accepted`
@@ -2627,9 +2693,10 @@ describe('SessionView (attachments.uploads resumable send)', () => {
             }
         });
 
-        it('still routes an ordinary unarmed attachment send through the source resume', async () => {
+        it('routes an ordinary unarmed attachment send through durable enqueue before runtime activation', async () => {
             sessionState.session.active = false;
             sessionState.session.presence = 'offline';
+            machineEncryptionState.available = true;
             sendMessageSpy.mockClear();
             enqueuePendingMessageSpy.mockClear();
             resumeSessionSpy.mockClear();
@@ -2648,17 +2715,14 @@ describe('SessionView (attachments.uploads resumable send)', () => {
 
                 await sendOneAttachment(renderedTree);
 
-                // The control leg. This harness's resume prerequisites do not
-                // currently resolve, so an ordinary inactive send fails at the
-                // resume and says so. That is exactly what makes it a control:
-                // the unarmed send still goes through the source resume, and
-                // only the armed send skips it. If the fix had simply deleted
-                // the resume, this leg would stop failing.
                 expect(runSessionAgentTransitionSpy).not.toHaveBeenCalled();
                 expect(sendMessageSpy).not.toHaveBeenCalled();
-                expect(modalAlertSpy.mock.calls.some(
-                    (call) => String(call?.[1] ?? '').includes('session.resumeFailed'),
-                )).toBe(true);
+                expect(enqueuePendingMessageSpy).toHaveBeenCalledTimes(1);
+                expect(ensureSessionRuntimeForPendingInputSpy).toHaveBeenCalledTimes(1);
+                expect(enqueuePendingMessageSpy.mock.invocationCallOrder[0]).toBeLessThan(
+                    ensureSessionRuntimeForPendingInputSpy.mock.invocationCallOrder[0]!,
+                );
+                expect(modalAlertSpy).not.toHaveBeenCalled();
             } finally {
                 act(() => {
                     tree?.unmount();
