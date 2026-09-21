@@ -57,8 +57,8 @@ const PNG_SCALE = 2;
 const EXCLUDED_AGENT_IDS = new Set(['customAcp']);
 
 const VARIANTS = Object.freeze([
-  { name: 'supported-agents-light', color: '#57606a', note: 'dark glyphs / light background' },
-  { name: 'supported-agents-dark', color: '#8b949e', note: 'light glyphs / dark background' },
+  { name: 'supported-agents-light', color: '#1f2328', note: 'dark glyphs / light background (GitHub light-mode text color)' },
+  { name: 'supported-agents-dark', color: '#e6edf3', note: 'light glyphs / dark background (GitHub dark-mode text color)' },
 ]);
 
 // Same pattern as AgentIcon.applySvgIconColor (agents/registry/AgentIcon.tsx): re-tint

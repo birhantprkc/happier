@@ -24,7 +24,7 @@
     <a href="LICENCE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue" /></a>
     <a href="https://happier.dev/download"><img alt="Downloads" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fstats.happier.dev%2Fdownloads-badge.json" /></a>
     <a href="https://discord.gg/W6Pb8KuHfg"><img alt="Discord" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fstats.happier.dev%2Fdiscord-badge.json" /></a>
-    <a href="https://github.com/happier-dev/happier/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/happier-dev/happier" /></a>
+    <a href="https://docs.happier.dev/releases"><img alt="Latest stable release" src="https://img.shields.io/npm/v/%40happier-dev%2Fcli?label=stable&color=2ea043" /></a>
   </p>
 
   <a href="https://github.com/happier-dev/happier/discussions/226"><strong>Latest Happier project update</strong></a>
@@ -70,6 +70,25 @@ iwr https://happier.dev/install.ps1 -useb | iex
 ```
 
 If you specifically want the npm package instead: `npm install -g @happier-dev/cli` ([CLI docs](https://docs.happier.dev/apps/cli)).
+
+</details>
+
+<details>
+<summary><b>Installing on a remote computer or devbox?</b> Set it up over SSH, from your machine</summary>
+
+One command installs the CLI and the daemon on the remote host (release-signature verified) and registers it as one of your machines:
+
+```bash
+happier machine setup --ssh user@host
+```
+
+To sign the remote machine in without a browser on its side, run this from a machine where you are already signed in:
+
+```bash
+happier auth pair-remote --ssh user@host
+```
+
+Headless alternative on the remote host itself: `happier auth login --no-open --method web` prints an authorization URL you approve from any browser. [Machines and the daemon](https://docs.happier.dev/apps/daemon)
 
 </details>
 
@@ -124,6 +143,8 @@ Either way, the session shows up everywhere at once: keep typing in the terminal
 
 **Parallel sessions, on every machine you own.** Start as many sessions as you like and pick the machine, folder, agent and model for each one. Give a session its own Git worktree so parallel agents never collide, and add a new machine over SSH from the app or the CLI. [Starting a session](https://docs.happier.dev/sessions/new-session-shortcuts) · [Machines and the daemon](https://docs.happier.dev/apps/daemon)
 
+**Your terminal stays yours.** Keep running Claude Code, Codex or OpenCode in their native TUIs: Happier mirrors those sessions to every device, so you can follow along, send messages and approve from anywhere, then switch between the terminal and the app whenever you like. Sessions you started outside Happier show up too, live, with nothing to migrate. [Continuing a session](https://docs.happier.dev/sessions/continuing-a-session)
+
 **Subagents across agents.** Any session can launch review, plan or delegate runs on another agent and read the results: Claude handing work to Codex subagents, Codex to Claude, or any other pairing. [Subagents](https://docs.happier.dev/extending/subagents)
 
 **Switch agents mid-session.** Change the engine and the same session keeps going. A returning agent resumes its own thread and receives only what it missed. [Continue with another agent](https://docs.happier.dev/sessions/continue-with-another-agent)
@@ -152,7 +173,7 @@ Either way, the session shows up everywhere at once: keep typing in the terminal
 
 **MCP, in both directions.** Define your MCP servers once and use them with every agent on every machine. Happier is also an MCP server itself, so an external MCP host can spawn and drive your sessions. [MCP servers](https://docs.happier.dev/extending/mcp-servers) · [Happier as an MCP server](https://docs.happier.dev/extending/happier-as-mcp-server)
 
-**Your accounts, with usage in view.** Link provider subscriptions and API keys once, reuse them across your machines, and monitor usage and quota where the provider exposes them. [Connected services](https://docs.happier.dev/accounts/connected-services)
+**A usage limit should not end your session.** Link provider subscriptions and API keys once, sealed on your device before they sync, and pick which account each session runs under. When a provider limit bites, Happier shows the reset time, waits, and resumes the session on its own (Claude Code, Codex, OpenCode, Gemini, Pi). [Connected services](https://docs.happier.dev/accounts/connected-services) · [Usage limits](https://happier.dev/features/usage-limits)
 
 **Self-host, same features.** The self-hosted relay runs the same apps, the same encryption and the same features as the hosted one. [Self-hosting](https://docs.happier.dev/self-hosting)
 
