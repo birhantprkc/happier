@@ -8,7 +8,10 @@ describe('probeSessionRunnerServiceability', () => {
     expect(resolveSessionRunnerResumeDecision({ state: 'runner_present', control: { state: 'servable' } })).toEqual({ action: 'adopt' });
     expect(resolveSessionRunnerResumeDecision({
       state: 'runner_present', control: { state: 'recoverable_unservable', reason: 'rpc_method_unavailable' },
-    })).toEqual({ action: 'fence', reason: 'rpc_method_unavailable' });
+    })).toEqual({ action: 'wait_for_exit', reason: 'rpc_method_unavailable' });
+    expect(resolveSessionRunnerResumeDecision({
+      state: 'runner_present', control: { state: 'unknown', reason: 'rpc_failed' },
+    })).toEqual({ action: 'wait_for_exit', reason: 'rpc_failed' });
     expect(resolveSessionRunnerResumeDecision({
       state: 'runner_present', control: { state: 'recoverable_unservable', reason: 'runtime_terminating' },
     })).toEqual({ action: 'wait_for_exit', reason: 'runtime_terminating' });

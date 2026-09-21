@@ -4676,7 +4676,7 @@ describe('startDaemon spawn resume wiring (integration)', () => {
     }
   });
 
-  it('fences duplicate resume when process liveness is known but exact-session serviceability is unknown', async () => {
+  it('waits for an unresponsive predecessor to exit before spawning the explicit resume successor', async () => {
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
     const refreshEnvOriginal = process.env.HAPPIER_CONNECTED_SERVICES_REFRESH_ENABLED;
     process.env.HAPPIER_CONNECTED_SERVICES_REFRESH_ENABLED = 'false';
@@ -4700,6 +4700,7 @@ describe('startDaemon spawn resume wiring (integration)', () => {
       const onHappySessionWebhookModule = await import('./sessions/onHappySessionWebhook');
       const trackedSessionCapture: {
         current: Map<number, {
+          pid: number;
           happySessionId?: string;
           startedBy?: string;
           spawnOptions?: Record<string, unknown>;
@@ -4727,6 +4728,7 @@ describe('startDaemon spawn resume wiring (integration)', () => {
         throw new Error('Expected tracked session map from webhook wiring');
       }
       trackedSessionCapture.current.set(12345, {
+        pid: 12345,
         happySessionId: 'sess_stale_runner',
         startedBy: 'daemon',
         spawnOptions: {
@@ -4744,15 +4746,16 @@ describe('startDaemon spawn resume wiring (integration)', () => {
         codexBackendMode: 'appServer',
       });
 
-      expect(result).toMatchObject({ type: 'error', errorCode: SPAWN_SESSION_ERROR_CODES.UNEXPECTED });
-      expect(callSessionRpc).toHaveBeenCalledOnce();
+      expect(result).toMatchObject({ type: 'success' });
       expect(vi.mocked(callSessionRpc).mock.calls[0]?.[0]).toEqual(expect.objectContaining({
         method: 'sess_stale_runner:session.pendingQueue.wakeCapability.v1.get',
       }));
-      // Unknown is fail-safe: neither adoption nor replacement is claimed.
+      // The daemon never overlaps runners: it only replaces the predecessor after process
+      // inspection proves that the unresponsive runner exited.
       expect(stopSessionMocks.stopSession).not.toHaveBeenCalled();
-      expect(spawnHappyCLI).not.toHaveBeenCalled();
-      expect(materializeNextPendingQueueV2MessageViaHttp).not.toHaveBeenCalled();
+      expect(spawnHappyCLI).toHaveBeenCalledOnce();
+      expect(sessionRunnerActivityBoundaryMocks.readProcessRunState.mock.calls
+        .filter(([pid]) => pid === 12345)).toHaveLength(2);
 
       harness.requestShutdown('happier-cli');
       await run;
