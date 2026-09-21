@@ -343,18 +343,7 @@ interface AgentInputProps {
     composeAgentPickerOptions?: (
         currentAgentOptions: ReadonlyArray<AgentInputChipPickerOption>,
     ) => ReadonlyArray<AgentInputChipPickerOption>;
-    /**
-     * The Agent picker opened or closed. Lets a caller defer work that is only
-     * worth doing once the user is actually choosing an Agent — a live capability
-     * probe, for instance — instead of on every composer mount.
-     */
-    /**
-     * The reader is reaching for the Agent chip — hover, focus, or press-in.
-     *
-     * Fired before the picker opens so the Session's machine can be asked about
-     * continuation support while the pointer is still travelling, rather than on
-     * every Session view.
-     */
+    /** One descriptor-level signal shared by direct and overflow picker entry points. */
     onAgentPickerIntent?: () => void;
     onAgentPickerVisibilityChange?: (visible: boolean) => void;
     agentPickerSelectedOptionId?: string | null;
@@ -2332,6 +2321,10 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
     }, [agentPickerOptions, props.agentPickerSelectedOptionId]);
 
     const hasAgentPickerOptions = agentPickerOptions.length > 0;
+    // A deferred picker is still an available surface before its detail rows
+    // arrive. Keeping this descriptor separate from loaded options lets the first
+    // interaction open the owner that requested those rows.
+    const hasAgentPickerSurface = hasAgentPickerOptions || props.onAgentPickerIntent !== undefined;
     const composerKeyboardLayout = useComposerKeyboardLayoutContext();
 
     const {
@@ -2375,7 +2368,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         hasResumePopover: Boolean(props.resumePopover),
         hasProfilePopover: Boolean(props.profilePopover),
         hasEnvVarsPopover: Boolean(props.envVarsPopover),
-        hasAgentPickerOptions,
+        hasAgentPickerOptions: hasAgentPickerSurface,
         retainKeyboardLift: composerKeyboardLayout?.retainKeyboardLift,
     });
     const {
@@ -2446,8 +2439,9 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
     } = useAgentInputCoreControlHandlers({
         agentType: props.agentType,
         agentLabel: props.agentLabel,
-        hasAgentPickerOptions,
+        hasAgentPickerOptions: hasAgentPickerSurface,
         onAgentClick: props.onAgentClick,
+        onAgentPickerIntent: props.onAgentPickerIntent,
         onPermissionModeChange: props.onPermissionModeChange,
         onPermissionClick: props.onPermissionClick,
         sessionModeChipInteraction,
@@ -2664,8 +2658,9 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         machinePopover: props.machinePopover,
         pathPopover: props.pathPopover,
         resumePopover: props.resumePopover,
-        hasAgentPickerOptions,
+        hasAgentPickerOptions: hasAgentPickerSurface,
         onAgentClick: props.onAgentClick,
+        onAgentPickerIntent: props.onAgentPickerIntent,
         actionBarIsCollapsed,
         hasAnyActions,
         tint: theme.colors.composer.chipTint,

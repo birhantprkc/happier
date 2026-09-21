@@ -201,6 +201,7 @@ describe('useAgentInputCoreControlHandlers', () => {
 
     it('toggles the agent picker instead of forcing it open', async () => {
         let showActionMenu = true;
+        const onAgentPickerIntent = vi.fn();
 
         const hook = await renderHook(() => {
             const controller = useAgentInputSelectionOverlayController({
@@ -217,6 +218,7 @@ describe('useAgentInputCoreControlHandlers', () => {
             const handlers = useAgentInputCoreControlHandlers({
                 agentType: 'codex' as never,
                 hasAgentPickerOptions: true,
+                onAgentPickerIntent,
                 setShowActionMenu: ((next) => {
                     showActionMenu = typeof next === 'function' ? next(showActionMenu) : next;
                 }) as React.Dispatch<React.SetStateAction<boolean>>,
@@ -237,6 +239,7 @@ describe('useAgentInputCoreControlHandlers', () => {
             hook.getCurrent().handleAgentPress();
         });
         expect(showActionMenu).toBe(false);
+        expect(onAgentPickerIntent).toHaveBeenCalledTimes(1);
         expect(hook.getCurrent().activeSelectionOverlay).toEqual({
             id: 'agent',
             anchor: 'chip',
@@ -245,6 +248,7 @@ describe('useAgentInputCoreControlHandlers', () => {
         await act(async () => {
             hook.getCurrent().handleAgentPress();
         });
+        expect(onAgentPickerIntent).toHaveBeenCalledTimes(2);
         expect(hook.getCurrent().activeSelectionOverlay).toBeNull();
 
         await hook.unmount();

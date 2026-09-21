@@ -102,6 +102,8 @@ export const RPC_METHODS = {
    * authority and persists nothing; the mutation revalidates every fact.
    */
   SESSION_CONTINUATION_INSPECT: 'session.continuation.inspect',
+  /** One source read/decrypt for every target shown by the Agent picker. */
+  SESSION_CONTINUATION_INSPECT_BATCH: 'session.continuation.inspectBatch',
   /**
    * Read-only rebuild of the activation brief one transition divider stands
    * for. Runs the same bounded context pass the transition ran, bounded by the
