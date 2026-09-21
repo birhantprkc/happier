@@ -30,7 +30,7 @@ export const AGENT_SESSION_MODE_DESCRIPTORS: Readonly<Record<AgentId, AgentSessi
   opencode: { source: 'acp', semantics: 'agent-modes', runtimeSwitch: 'acp-setSessionMode' },
   gemini: { source: 'none', semantics: 'none', runtimeSwitch: 'none' },
   auggie: { source: 'none', semantics: 'none', runtimeSwitch: 'none' },
-  qwen: { source: 'none', semantics: 'none', runtimeSwitch: 'none' },
+  qwen: { source: 'acp', semantics: 'agent-modes', runtimeSwitch: 'acp-setSessionMode' },
   kimi: { source: 'none', semantics: 'none', runtimeSwitch: 'none' },
   kilo: { source: 'acp', semantics: 'agent-modes', runtimeSwitch: 'acp-setSessionMode' },
   kiro: { source: 'acp', semantics: 'agent-modes', runtimeSwitch: 'acp-setSessionMode' },

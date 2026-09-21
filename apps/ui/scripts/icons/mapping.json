@@ -1,4 +1,5 @@
 {
+  "#alias:file-diff": "git-diff",
   "#alias:octagon-x": "prohibit",
   "#alias:sidebar-left-close": "sidebar",
   "#alias:sidebar-left-open": "sidebar-simple",

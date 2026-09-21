@@ -19,6 +19,7 @@ import { useSessionTerminalAvailability } from '@/components/sessions/terminal/u
 import { t } from '@/text';
 import { resolveOptionalSessionScreenTestId, useSessionScreenTestIdsEnabled } from '../shell/sessionScreenTestIds';
 import { Icon } from '@/components/ui/icons/Icon';
+import { resolveSessionHeaderActionTargetPx } from '@/components/sessions/actions/sessionHeaderIconMetrics';
 
 import { usePaneActionRail } from '@/components/appShell/panes/PaneActionRailContext';
 import { getSessionRightPanelTabs, type SessionRightTabId as RightTabId } from './sessionRightPanelTabs';
@@ -79,7 +80,7 @@ export const SessionRightPanel = React.memo((props: SessionRightPanelProps) => {
     });
     const sessionScreenTestIdsEnabled = useSessionScreenTestIdsEnabled();
     const externalRail = usePaneActionRail();
-    const showTitle = externalRail && props.presentation !== 'screen';
+    const hideHeader = externalRail && props.presentation !== 'screen';
     const terminalTabAvailable = terminalAvailability.sidebarTabAvailable;
     const closeButtonAtStart = props.presentation === 'screen' && Platform.OS !== 'web';
     const rawActiveTab = (scopeState?.right.activeTabId as RightTabId | null) ?? 'git';
@@ -108,6 +109,10 @@ export const SessionRightPanel = React.memo((props: SessionRightPanelProps) => {
             testID={resolveOptionalSessionScreenTestId(sessionScreenTestIdsEnabled, 'session-rightpanel-close')}
             onPress={props.onRequestClose ?? pane.closeRight}
             accessibilityLabel={closeButtonAtStart ? t('common.back') : t('common.close')}
+            style={{
+                width: resolveSessionHeaderActionTargetPx(),
+                height: resolveSessionHeaderActionTargetPx(),
+            }}
         >
             <Icon name={closeButtonAtStart ? 'caret-left' : 'x'} size={16} color={theme.colors.text.secondary} />
         </IconAction>
@@ -115,25 +120,19 @@ export const SessionRightPanel = React.memo((props: SessionRightPanelProps) => {
 
     return (
         <View style={styles.container}>
-            <View style={styles.header}>
+            {!hideHeader ? <View style={styles.header}>
                 {closeButtonAtStart ? closeButton : null}
                 <View style={styles.segmentedContainer}>
-                    {showTitle ? (
-                        <Text style={{ color: theme.colors.text.primary, ...Typography.default('semiBold') }}>
-                            {getSessionRightPanelTabs(terminalTabAvailable).find((tab) => tab.id === activeTab)?.label}
-                        </Text>
-                    ) : (
-                        <SessionRightPanelTabBar
-                            sessionId={props.sessionId}
-                            terminalAvailable={terminalTabAvailable}
-                            activeTab={activeTab}
-                            onSelectTab={setActiveTab}
-                            testIDPrefix={resolveOptionalSessionScreenTestId(sessionScreenTestIdsEnabled, 'session-rightpanel-tab') ?? undefined}
-                        />
-                    )}
+                    <SessionRightPanelTabBar
+                        sessionId={props.sessionId}
+                        terminalAvailable={terminalTabAvailable}
+                        activeTab={activeTab}
+                        onSelectTab={setActiveTab}
+                        testIDPrefix={resolveOptionalSessionScreenTestId(sessionScreenTestIdsEnabled, 'session-rightpanel-tab') ?? undefined}
+                    />
                 </View>
                 {closeButtonAtStart ? null : closeButton}
-            </View>
+            </View> : null}
             <View style={styles.body}>
                 <View style={{ flex: 1, minHeight: 0, minWidth: 0, position: 'relative' }}>
                     <RightTabSurface

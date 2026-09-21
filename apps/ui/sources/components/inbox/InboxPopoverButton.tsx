@@ -8,12 +8,40 @@ import { Popover } from '@/components/ui/popover';
 import { Text } from '@/components/ui/text/Text';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
+import type { InboxSummary } from '@/hooks/inbox/useInboxSummary';
 
 import { InboxContent } from './InboxContent';
-import type { InboxContentModel } from './useInboxContentModel';
+import { useInboxContentModel } from './useInboxContentModel';
+
+const InboxPopoverContent = React.memo(function InboxPopoverContent(props: Readonly<{
+    close: () => void;
+}>) {
+    const { theme } = useUnistyles();
+    const model = useInboxContentModel();
+    const openFullInbox = React.useCallback(() => {
+        props.close();
+        model.openInbox();
+    }, [model, props.close]);
+
+    return (
+        <>
+            <InboxContent model={model} onBeforeNavigate={props.close} presentation="popover" />
+            <Pressable
+                testID="inbox.open_full"
+                accessibilityRole="button"
+                accessibilityLabel={t('inbox.openInbox')}
+                onPress={openFullInbox}
+                style={({ pressed }) => [styles.openInboxButton, pressed ? styles.openInboxButtonPressed : null]}
+            >
+                <Text style={styles.openInboxText}>{t('inbox.openInbox')}</Text>
+                <Icon name="arrow-square-out" size={16} color={theme.colors.text.primary} />
+            </Pressable>
+        </>
+    );
+});
 
 export const InboxPopoverButton = React.memo(function InboxPopoverButton(props: Readonly<{
-    model: InboxContentModel;
+    summary: InboxSummary;
     buttonSize: number;
     iconSize: number;
     testID?: string;
@@ -28,10 +56,6 @@ export const InboxPopoverButton = React.memo(function InboxPopoverButton(props: 
         height: number;
     }> | null>(null);
     const close = React.useCallback(() => setOpen(false), []);
-    const openFullInbox = React.useCallback(() => {
-        setOpen(false);
-        props.model.openInbox();
-    }, [props.model]);
 
     return (
         <View ref={anchorRef} collapsable={false} style={styles.anchor}>
@@ -67,7 +91,7 @@ export const InboxPopoverButton = React.memo(function InboxPopoverButton(props: 
                         size={props.iconSize}
                         color={theme.colors.chrome.header.foreground}
                     />
-                    {props.model.hasContent ? <View testID="sidebar-inbox-attention-dot" style={styles.attentionDot} /> : null}
+                    {props.summary.hasContent ? <View testID="sidebar-inbox-attention-dot" style={styles.attentionDot} /> : null}
                 </View>
             </Pressable>
 
@@ -96,17 +120,7 @@ export const InboxPopoverButton = React.memo(function InboxPopoverButton(props: 
                             surfaceChrome="theme"
                             containerStyle={{ width: Math.min(maxWidth, 400) }}
                         >
-                            <InboxContent model={props.model} onBeforeNavigate={close} presentation="popover" />
-                            <Pressable
-                                testID="inbox.open_full"
-                                accessibilityRole="button"
-                                accessibilityLabel={t('inbox.openInbox')}
-                                onPress={openFullInbox}
-                                style={({ pressed }) => [styles.openInboxButton, pressed ? styles.openInboxButtonPressed : null]}
-                            >
-                                <Text style={styles.openInboxText}>{t('inbox.openInbox')}</Text>
-                                <Icon name="arrow-square-out" size={16} color={theme.colors.text.primary} />
-                            </Pressable>
+                            <InboxPopoverContent close={close} />
                         </FloatingOverlay>
                     )}
                 </Popover>

@@ -18,9 +18,9 @@ import { SidebarCollapseIcon } from '../SidebarIcons';
 import { SidebarLogoButton } from '../SidebarLogoButton';
 import type { AppUpdateStatusTagProps } from '@/components/ui/feedback/AppUpdateStatusTag';
 import { Icon } from '@/components/ui/icons/Icon';
-import { ActionOperationActivityButton, ActionOperationActivityButtonView } from '@/components/inbox/actionOperations/ActionOperationActivityButton';
+import { ActionOperationActivityButton } from '@/components/inbox/actionOperations/ActionOperationActivityButton';
 import { InboxPopoverButton } from '@/components/inbox/InboxPopoverButton';
-import type { InboxContentModel } from '@/components/inbox/useInboxContentModel';
+import type { InboxSummary } from '@/hooks/inbox/useInboxSummary';
 
 type DesktopSidebarChromeProps = Readonly<{
     sidebarWidthPx?: number | null;
@@ -38,34 +38,9 @@ type DesktopSidebarChromeProps = Readonly<{
     popoverBoundaryRef: React.RefObject<any>;
     desktopWindowControls?: React.ReactNode;
     desktopUpdateIndicator?: React.ReactNode;
-    inboxModel?: InboxContentModel | null;
+    inboxSummary?: InboxSummary | null;
     inboxEnabled?: boolean;
 }>;
-
-const SidebarActionOperationButton = React.memo(function SidebarActionOperationButton(props: Readonly<{
-    model: InboxContentModel;
-    buttonSize: number;
-    iconSize: number;
-}>) {
-    const operationModel = props.model.actionOperationModel;
-    return (
-        <ActionOperationActivityButtonView
-            operations={operationModel.operations}
-            activeCount={operationModel.activeCount}
-            hasAttention={operationModel.hasAttention}
-            observationForOperation={operationModel.observationForOperation}
-            contextForOperation={operationModel.contextForOperation}
-            onOpenOperation={props.model.openOperation}
-            onMarkVisibleTerminalSeen={operationModel.markVisibleTerminalSeen}
-            onClearRecent={operationModel.clearRecent}
-            canDismissOperation={operationModel.canDismissOperation}
-            onDismissOperation={operationModel.dismissOperation}
-            testID="desktop-sidebar-action-operations"
-            buttonSize={props.buttonSize}
-            iconSize={props.iconSize}
-        />
-    );
-});
 
 function renderUpdateIndicatorWithFallback(
     indicator: React.ReactNode,
@@ -146,28 +121,22 @@ export const DesktopSidebarChrome = React.memo((props: DesktopSidebarChromeProps
                 compactThreshold={DESKTOP_SIDEBAR_CHROME_ACTIONS_COMPACT_THRESHOLD_PX}
                 compactActionIds={compactContentActionIds}
                 pinnedActionIds={compactContentActionIds}
-                leadingPinnedContent={props.inboxModel ? (
+                leadingPinnedContent={(
                     <View style={styles.inlineUtilityRow}>
-                        {props.inboxEnabled ? (
+                        {props.inboxEnabled && props.inboxSummary ? (
                             <InboxPopoverButton
-                                model={props.inboxModel}
+                                summary={props.inboxSummary}
                                 testID="sidebar-inbox-button"
                                 buttonSize={32}
                                 iconSize={DESKTOP_SIDEBAR_CHROME_ICON_GLYPH_SIZE_PX}
                             />
                         ) : null}
-                        <SidebarActionOperationButton
-                            model={props.inboxModel}
+                        <ActionOperationActivityButton
+                            testID="desktop-sidebar-action-operations"
                             buttonSize={32}
                             iconSize={DESKTOP_SIDEBAR_CHROME_ICON_GLYPH_SIZE_PX}
                         />
                     </View>
-                ) : (
-                    <ActionOperationActivityButton
-                        testID="desktop-sidebar-action-operations"
-                        buttonSize={32}
-                        iconSize={DESKTOP_SIDEBAR_CHROME_ICON_GLYPH_SIZE_PX}
-                    />
                 )}
                 overflowPosition="beforePinned"
                 overflowTriggerTestID="sidebar-header-actions-overflow"
@@ -243,29 +212,21 @@ export const DesktopSidebarChrome = React.memo((props: DesktopSidebarChromeProps
                                 />
                             </Pressable>
                         ) : null}
-                        {props.inboxModel ? (
-                            <>
-                                {props.inboxEnabled ? (
+                        <>
+                                {props.inboxEnabled && props.inboxSummary ? (
                                     <InboxPopoverButton
-                                        model={props.inboxModel}
+                                        summary={props.inboxSummary}
                                         testID="sidebar-inbox-button"
                                         buttonSize={DESKTOP_SIDEBAR_CHROME_TOP_NAV_ICON_BUTTON_SIZE_PX}
                                         iconSize={DESKTOP_SIDEBAR_CHROME_ICON_GLYPH_SIZE_PX}
                                     />
                                 ) : null}
-                                <SidebarActionOperationButton
-                                    model={props.inboxModel}
+                                <ActionOperationActivityButton
+                                    testID="desktop-sidebar-action-operations"
                                     buttonSize={DESKTOP_SIDEBAR_CHROME_TOP_NAV_ICON_BUTTON_SIZE_PX}
                                     iconSize={DESKTOP_SIDEBAR_CHROME_ICON_GLYPH_SIZE_PX}
                                 />
                             </>
-                        ) : (
-                            <ActionOperationActivityButton
-                                testID="desktop-sidebar-action-operations"
-                                buttonSize={DESKTOP_SIDEBAR_CHROME_TOP_NAV_ICON_BUTTON_SIZE_PX}
-                                iconSize={DESKTOP_SIDEBAR_CHROME_ICON_GLYPH_SIZE_PX}
-                            />
-                        )}
                         {topUtilityActions.map(renderTopUtilityAction)}
                         {props.onPressCollapse ? (
                             <Pressable

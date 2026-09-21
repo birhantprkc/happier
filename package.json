@@ -5,6 +5,7 @@
     "tsc": "node scripts/workspaces/runTypeScriptCli.mjs",
     "postinstall": "node scripts/pipeline/expo/eas-postinstall.mjs",
     "build:packages": "yarn workspace privacy-kit build && yarn workspace @happier-dev/protocol build && yarn workspace @happier-dev/transfers build && yarn workspace @happier-dev/agents build && yarn workspace @happier-dev/connection-supervisor build",
+    "generate:agents-strip": "node --experimental-strip-types scripts/generateSupportedAgentsStrip.mjs",
     "dev": "node ./apps/stack/scripts/repo_local.mjs dev",
     "dev-targets": "node ./apps/stack/scripts/repo_local.mjs dev-targets",
     "stop": "node ./apps/stack/scripts/repo_local.mjs stop",

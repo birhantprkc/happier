@@ -19,13 +19,13 @@ import { useResolvedDesktopWindowControls } from './desktopChrome/useResolvedDes
 import { useDesktopSidebarHistoryNavigationAvailability } from './desktopChrome/useDesktopSidebarHistoryNavigationAvailability';
 import { useSidebarHeaderActions } from './desktopChrome/useSidebarHeaderActions';
 import { useChromeSafeAreaInsets } from '@/components/ui/layout/useChromeSafeAreaInsets';
-import type { InboxContentModel } from '@/components/inbox/useInboxContentModel';
+import type { InboxSummary } from '@/hooks/inbox/useInboxSummary';
 
 export type SidebarViewProps = Readonly<{
     sidebarWidthPx?: number | null;
     desktopWindowControls?: React.ReactNode;
     desktopUpdateIndicator?: React.ReactNode;
-    inboxModel?: InboxContentModel | null;
+    inboxSummary?: InboxSummary | null;
     inboxEnabled?: boolean;
 }>;
 
@@ -112,7 +112,7 @@ export const SidebarView = React.memo((props: SidebarViewProps) => {
                     popoverBoundaryRef={popoverBoundaryRef}
                     desktopWindowControls={resolvedDesktopWindowControls}
                     desktopUpdateIndicator={props.desktopUpdateIndicator}
-                    inboxModel={props.inboxModel}
+                    inboxSummary={props.inboxSummary}
                     inboxEnabled={props.inboxEnabled}
                 />
                 {voiceEnabled ? <VoiceSurface variant="sidebar" /> : null}

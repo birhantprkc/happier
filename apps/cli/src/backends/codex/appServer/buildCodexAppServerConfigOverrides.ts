@@ -1,6 +1,7 @@
 import type { McpServerConfig } from '@/agent';
 import { normalizeCurrentHappierSessionId } from '@/agent/runtime/session/currentSessionIdEnv';
 import { DEFAULT_CODEX_HAPPIER_MCP_TOOL_CALL_TIMEOUT_MS } from '@/configuration';
+import { readCodexAppServerStartupRpcTimeoutMs } from './client/codexAppServerRpcTimeout';
 
 const CODEX_HAPPIER_READ_ONLY_MCP_TOOLS = [
     'execution_run_get',
@@ -65,11 +66,23 @@ export function buildCodexAppServerConfigOverrides(
     options: Readonly<{
         happierSessionId?: string;
         happierMcpToolCallTimeoutMs?: number;
+        processEnv?: NodeJS.ProcessEnv;
     }> = {},
 ): string[] {
     const serverNames = Object.keys(mcpServers);
     const injectedKeys = assignInjectedServerKeys(serverNames);
     const overrides: string[] = [];
+
+    const hasFirstPartyHappierMcpServer = serverNames.some(
+        (serverName) => serverName === 'happier' || serverName === 'happy',
+    );
+    const happierMcpStartupTimeoutMs = readCodexAppServerStartupRpcTimeoutMs(options.processEnv ?? {});
+    if (hasFirstPartyHappierMcpServer) {
+        // Recent Codex versions otherwise give optional MCP servers only a short shared grace
+        // while building the first turn's tool catalog. Keep Happier optional, but let its tools
+        // use the same bounded startup budget as the app-server connection itself.
+        overrides.push(`mcp_optional_startup_grace_ms=${happierMcpStartupTimeoutMs}`);
+    }
 
     const happierSessionId = normalizeCurrentHappierSessionId(options.happierSessionId);
     if (happierSessionId) {
@@ -90,6 +103,7 @@ export function buildCodexAppServerConfigOverrides(
         }
         overrides.push(`mcp_servers.${injectedKey}.enabled=true`);
         if (serverName === 'happier' || serverName === 'happy') {
+            overrides.push(`mcp_servers.${injectedKey}.startup_timeout_sec=${happierMcpStartupTimeoutMs / 1_000}`);
             const timeoutMs = options.happierMcpToolCallTimeoutMs
                 ?? DEFAULT_CODEX_HAPPIER_MCP_TOOL_CALL_TIMEOUT_MS;
             overrides.push(`mcp_servers.${injectedKey}.tool_timeout_sec=${timeoutMs / 1_000}`);

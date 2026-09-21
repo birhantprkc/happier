@@ -900,6 +900,19 @@ describe('PiRpcBackend pending turn lifecycle', () => {
       terminalStatus: 'failed',
       env: {} as Record<string, string>,
     },
+    {
+      name: 'transient connected-service broker refresh failure',
+      provider: 'openai-codex',
+      errorMessage: 'OAuth refresh failed for openai-codex: happier_broker_bridge_status_500',
+      terminalStatus: null,
+      env: {
+        [HAPPIER_CONNECTED_SERVICE_SELECTIONS_ENV_KEY]: JSON.stringify([{
+          kind: 'profile',
+          serviceId: 'openai-codex',
+          profileId: 'codex-primary',
+        }]),
+      },
+    },
   ])('keeps the turn open when a recoverable $name is followed by resumed activity', async ({
     name,
     provider,

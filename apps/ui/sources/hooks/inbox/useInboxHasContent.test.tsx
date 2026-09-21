@@ -3,9 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { renderScreen } from '@/dev/testkit';
 import {
-    InboxContentModelProvider,
-    type InboxContentModel,
-} from '@/components/inbox/useInboxContentModel';
+    InboxSummaryProvider,
+} from './useInboxSummary';
 
 import { useInboxHasContent } from './useInboxHasContent';
 
@@ -36,14 +35,13 @@ function InboxContentProbe(props: Readonly<{ onValue: (value: boolean) => void }
 }
 
 describe('useInboxHasContent', () => {
-    it('reads the already-mounted Inbox projection instead of mounting parallel subscriptions', async () => {
+    it('reads the shared minimal Inbox summary instead of mounting the full content model', async () => {
         const values: boolean[] = [];
-        const model = { hasContent: true } as InboxContentModel;
 
         await renderScreen(
-            <InboxContentModelProvider model={model}>
+            <InboxSummaryProvider summary={{ hasContent: true }}>
                 <InboxContentProbe onValue={(value) => values.push(value)} />
-            </InboxContentModelProvider>,
+            </InboxSummaryProvider>,
         );
 
         expect(values.at(-1)).toBe(true);

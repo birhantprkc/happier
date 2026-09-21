@@ -212,4 +212,25 @@ describe('agent model config', () => {
       allowedModes: ['default'],
     });
   });
+
+  it('treats Qwen models as dynamically probed ACP controls', () => {
+    expect(getAgentModelConfig('qwen')).toMatchObject({
+      supportsSelection: true,
+      supportsFreeform: false,
+      nonAcpApplyScope: 'next_prompt',
+      acpModelConfigOptionId: 'model',
+      dynamicProbe: 'auto',
+      defaultMode: 'default',
+      allowedModes: ['default'],
+    });
+  });
+
+  it('restricts Kilo model selection to its advertised ACP catalog', () => {
+    expect(getAgentModelConfig('kilo')).toMatchObject({
+      supportsSelection: true,
+      supportsFreeform: false,
+      acpModelConfigOptionId: 'model',
+      dynamicProbe: 'auto',
+    });
+  });
 });

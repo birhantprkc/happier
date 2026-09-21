@@ -9,6 +9,7 @@ import { hashClaudeEnhancedModeForQueue } from './remote/modeHash';
 import { Session } from './session';
 
 const mockQuery = vi.hoisted(() => vi.fn());
+const mockClaudeRemote = vi.hoisted(() => vi.fn());
 const mockClaudeRemoteAgentSdk = vi.hoisted(() => vi.fn());
 const mockRunClaudeUnifiedTerminalSession = vi.hoisted(() => vi.fn());
 
@@ -20,6 +21,11 @@ vi.mock('@/backends/claude/sdk', async (importOriginal) => {
 vi.mock('./remote/claudeRemoteAgentSdk', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./remote/claudeRemoteAgentSdk')>();
   return { ...actual, claudeRemoteAgentSdk: mockClaudeRemoteAgentSdk };
+});
+
+vi.mock('./claudeRemote', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./claudeRemote')>();
+  return { ...actual, claudeRemote: mockClaudeRemote };
 });
 
 vi.mock('./unifiedTerminal/runClaudeUnifiedTerminalSession', async (importOriginal) => {
@@ -152,9 +158,65 @@ describe.sequential('claudeRemoteLauncher legacy Runtime Activity subscriber', (
   beforeEach(() => {
     vi.clearAllMocks();
     mockQuery.mockReset();
+    mockClaudeRemote.mockReset();
     mockClaudeRemoteAgentSdk.mockReset();
     mockRunClaudeUnifiedTerminalSession.mockReset();
     process.env.HAPPIER_CLAUDE_REMOTE_INTERRUPT_THEN_TEARDOWN_GRACE_MS = '0';
+  });
+
+  it('publishes Agent SDK steer support and clears it when authentication falls back to legacy', async () => {
+    const { session, switchHandlerReady } = createHarness();
+    const agentSdkState = createDeferred<AgentState>();
+    const legacyState = createDeferred<AgentState>();
+    const finishLegacy = createDeferred<void>();
+
+    mockClaudeRemoteAgentSdk.mockImplementationOnce(async () => {
+      agentSdkState.resolve(session.client.getAgentStateSnapshot?.() ?? {});
+      throw new Error('API Error: 401 OAuth access token has expired');
+    });
+    mockClaudeRemote.mockImplementationOnce(async () => {
+      legacyState.resolve(session.client.getAgentStateSnapshot?.() ?? {});
+      await finishLegacy.promise;
+    });
+
+    session.queue.push(
+      'initial prompt',
+      {
+        permissionMode: 'default',
+        claudeRemoteAgentSdkEnabled: true,
+        claudeUnifiedTerminalEnabled: false,
+      },
+      { userMessageLocalId: 'local-initial' },
+    );
+
+    const { claudeRemoteLauncher } = await import('./claudeRemoteLauncher');
+    const launcherPromise = claudeRemoteLauncher(session);
+    const switchHandler = await switchHandlerReady;
+    try {
+      await expect(agentSdkState.promise).resolves.toMatchObject({
+        capabilities: {
+          inFlightSteer: true,
+          inFlightSteerSupported: true,
+          inFlightSteerAvailable: false,
+          inFlightSteerUnavailableReason: 'unsafe_window',
+        },
+      });
+      await expect(legacyState.promise).resolves.toMatchObject({
+        capabilities: {
+          inFlightSteer: false,
+          inFlightSteerSupported: false,
+          inFlightSteerAvailable: false,
+          inFlightSteerUnavailableReason: 'backend_unsupported',
+        },
+      });
+    } finally {
+      finishLegacy.resolve(undefined);
+      await Promise.all([
+        Promise.resolve(switchHandler({ to: 'local' })),
+        session.cleanup(),
+        launcherPromise,
+      ]);
+    }
   });
 
   afterEach(() => {

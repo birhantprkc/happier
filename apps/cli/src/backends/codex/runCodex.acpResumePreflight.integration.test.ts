@@ -564,6 +564,7 @@ describe('runCodex CodexACP resume behavior', () => {
     lastOnSwitchToLocal = null;
     delete process.env[HAPPIER_DAEMON_INITIAL_GOAL_ENV_KEY];
     delete process.env[HAPPIER_CONNECTED_SERVICE_SELECTIONS_ENV_KEY];
+    delete process.env.HAPPIER_CODEX_APP_SERVER_STARTUP_RPC_TIMEOUT_MS;
     const experiments = await import('@/backends/codex/experiments');
     (experiments.isExperimentalCodexAcpEnabled as unknown as ReturnType<typeof vi.fn>).mockReturnValue(true);
     const { resolveCodexStartingMode } = await import('./utils/resolveCodexStartingMode');
@@ -1031,6 +1032,7 @@ describe('runCodex CodexACP resume behavior', () => {
   it('wires Happier MCP servers into the future app-server runtime', async () => {
     const experiments = await import('@/backends/codex/experiments');
     (experiments.isExperimentalCodexAcpEnabled as unknown as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    process.env.HAPPIER_CODEX_APP_SERVER_STARTUP_RPC_TIMEOUT_MS = '90000';
     mockAttachedSessionMetadata({ codexSessionId: 'vendor-thread-existing-123', codexBackendMode: 'appServer' });
     resolveRunnerMcpServersSpy.mockImplementationOnce(async () => ({
       happierMcpServer: { url: 'http://127.0.0.1:0', stop: vi.fn() },
@@ -1063,10 +1065,12 @@ describe('runCodex CodexACP resume behavior', () => {
     expect(createCodexAppServerRuntimeSpy).toHaveBeenCalledTimes(1);
     expect(createCodexAppServerRuntimeSpy).toHaveBeenCalledWith(expect.objectContaining({
       configOverrides: expect.arrayContaining([
+        'mcp_optional_startup_grace_ms=90000',
         'shell_environment_policy.set.HAPPIER_SESSION_ID="sess_1"',
         'mcp_servers.happier.command="/tmp/happier-mcp-bridge"',
         'mcp_servers.happier.args=["--url","http://127.0.0.1:0"]',
         'mcp_servers.happier.enabled=true',
+        'mcp_servers.happier.startup_timeout_sec=90',
       ]),
     }));
     const runtimeArgs = createCodexAppServerRuntimeSpy.mock.calls[0]?.[0] as {
@@ -1081,10 +1085,12 @@ describe('runCodex CodexACP resume behavior', () => {
     }));
     expect(runtimeArgs?.transcriptSession?.sendAgentMessageEphemeral).toBeTypeOf('function');
     expect(runtimeArgs?.configOverrides).toEqual(expect.arrayContaining([
+      'mcp_optional_startup_grace_ms=90000',
       'shell_environment_policy.set.HAPPIER_SESSION_ID="sess_1"',
       'mcp_servers.happier.command="/tmp/happier-mcp-bridge"',
       'mcp_servers.happier.args=["--url","http://127.0.0.1:0"]',
       'mcp_servers.happier.enabled=true',
+      'mcp_servers.happier.startup_timeout_sec=90',
     ]));
     const createdRuntime = createCodexAppServerRuntimeSpy.mock.results[0]?.value as any;
     const startOrLoad = createdRuntime?.startOrLoad as ReturnType<typeof vi.fn> | undefined;

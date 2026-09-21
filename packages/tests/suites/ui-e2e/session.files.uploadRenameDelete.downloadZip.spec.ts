@@ -10,7 +10,6 @@ import { startCliAuthLoginForTerminalConnect, type StartedCliTerminalConnect } f
 import { fakeClaudeFixturePath } from '../../src/testkit/fakeClaude';
 import { gotoDomContentLoadedWithRetries, normalizeLoopbackBaseUrl } from '../../src/testkit/uiE2e/pageNavigation';
 import { acknowledgeTerminalConnectSuccessIfPresent } from '../../src/testkit/uiE2e/acknowledgeTerminalConnectSuccessIfPresent';
-import { clickScopedButtonByTestIdOrRole } from '../../src/testkit/uiE2e/clickScopedButtonByTestIdOrRole';
 import { spawnSessionFromDaemon } from '../../src/testkit/uiE2e/spawnSessionFromDaemon';
 import { toTestIdSafeValue } from '../../src/testkit/uiE2e/testIdSafeValue';
 import { waitForInitialAppUi } from '../../src/testkit/uiE2e/waitForInitialAppUi';
@@ -321,14 +320,11 @@ test.describe('ui e2e: Files upload + rename/delete + download (+ zip)', () => {
       await expect(rightPaneLocator(page)).toHaveCount(1, { timeout: 60_000 });
 
       const rightPane = rightPaneLocator(page);
-      await clickScopedButtonByTestIdOrRole({
-        scope: rightPane,
-        testId: 'session-rightpanel-tab:files',
-        roleName: 'Files',
-        timeoutMs: 180_000,
-      });
-
-      await expect(rightPane.getByTestId('session-rightpanel-surface-files')).toHaveCount(1, { timeout: 120_000 });
+      const filesSurface = rightPane.getByTestId('session-rightpanel-surface-files');
+      if (!(await filesSurface.isVisible())) {
+        await page.getByTestId('session-action-rail:files').click();
+      }
+      await expect(filesSurface).toBeVisible({ timeout: 120_000 });
       await selectRepositoryAllFiles({ rightPane, timeoutMs: 120_000 });
       try {
         await expectFilesToolbarPrimaryOrOverflowAction(rightPane, 'repository-tree-upload', 180_000);

@@ -869,6 +869,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         // hashing both see the same value instead of reading a cache at hash time.
         const modelEffortTracker = createClaudeModelEffortLevelsTracker({
             resolveTimeoutMs: () => resolveClaudeHelpProbeTimeoutMs(),
+            accountSettings: options.accountSettings ?? null,
         });
         let currentUltracode: boolean | undefined = undefined;
         let currentUltracodeUpdatedAt = 0;
@@ -1333,6 +1334,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
                         cwd: workingDirectory,
                         timeoutMs: resolveClaudeHelpProbeTimeoutMs(),
                         currentModelId,
+                        accountSettings: options.accountSettings ?? null,
                         session,
                         probeInstalledRuntimeCapabilities: async () => installedRuntimeCapabilities,
                     });
@@ -1534,6 +1536,7 @@ async function runClaudeLocalFastStart(credentials: Credentials, options: StartO
     // See the sibling runtime path above: tiers travel on the mode so hashing stays pure.
     const modelEffortTracker = createClaudeModelEffortLevelsTracker({
         resolveTimeoutMs: () => resolveClaudeHelpProbeTimeoutMs(),
+        accountSettings: options.accountSettings ?? null,
     });
     let currentUltracode: boolean | undefined = undefined;
     let currentUltracodeUpdatedAt = 0;
@@ -2152,6 +2155,7 @@ async function runClaudeLocalFastStart(credentials: Credentials, options: StartO
                                     cwd: workingDirectory,
                                     timeoutMs: resolveClaudeHelpProbeTimeoutMs(),
                                     currentModelId,
+                                    accountSettings: options.accountSettings ?? null,
                                     session: artifacts.deferredSession as unknown as {
                                         ensureMetadataSnapshot: (opts: Readonly<{ timeoutMs: number }>) => Promise<unknown>;
                                         updateMetadata: (updater: (prev: Metadata) => Metadata) => Promise<void>;

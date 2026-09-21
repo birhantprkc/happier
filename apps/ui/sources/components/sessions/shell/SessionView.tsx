@@ -41,11 +41,13 @@ import { resolveSessionComposerSuggestions } from '@/components/sessions/agentIn
 import { ChatHeaderView } from '@/components/sessions/transcript/ChatHeaderView';
 import { recordTranscriptBlank } from '@/components/sessions/transcript/viewport/driver/transcriptViewportWriteDiagnostics';
 import { SessionHeaderActionMenu } from '@/components/sessions/actions/SessionHeaderActionMenu';
-import { SESSION_HEADER_ICON_SIZE_PX } from '@/components/sessions/actions/sessionHeaderIconMetrics';
+import { resolveSessionHeaderActionTargetPx, SESSION_HEADER_ICON_SIZE_PX } from '@/components/sessions/actions/sessionHeaderIconMetrics';
 import { SessionHeaderIconWithCount } from '@/components/sessions/actions/SessionHeaderIconWithCount';
 import { SessionHeaderInfoButton } from '@/components/sessions/actions/SessionHeaderInfoButton';
 import { ActionOperationActivityButton } from '@/components/inbox/actionOperations/ActionOperationActivityButton';
-import { SessionHeaderRightSidebarButton } from '@/components/sessions/actions/SessionHeaderRightSidebarButton';
+import { PANE_ACTION_RAIL_WIDTH } from '@/components/appShell/panes/PaneActionRailContext';
+import { useAppPaneActionRailVisible } from '@/components/appShell/panes/hooks/useAppPaneActionRailVisible';
+import { useSessionCockpitChromeRegistration } from '@/components/workspaceCockpit/session/SessionCockpitChromeRegistry';
 import { SessionHeaderSubagentsButton } from '@/components/sessions/actions/SessionHeaderSubagentsButton';
 import { SessionHeaderTerminalButton } from '@/components/sessions/actions/SessionHeaderTerminalButton';
 import { useOpenAttachedSessionTerminal } from '@/components/sessions/terminal/openAttachedSessionTerminal';
@@ -935,6 +937,10 @@ const SessionHeaderRightElement = React.memo(function SessionHeaderRightElement(
         scopeId: props.paneScopeId,
         serverId: props.currentSessionRouteServerId,
     });
+    const actionRailVisible = useAppPaneActionRailVisible(props.paneScopeId);
+    const cockpitChrome = useSessionCockpitChromeRegistration();
+    const cockpitOwnsSession = cockpitChrome?.sessionId === props.sessionId;
+    const cockpitHasTerminal = cockpitOwnsSession && cockpitChrome.terminalTabAvailable;
     const attachedSessionTerminal = useOpenAttachedSessionTerminal(props.sessionId);
     const transcriptNavigation = useTranscriptNavigationSurface({
         scopeId: props.paneScopeId,
@@ -1063,7 +1069,7 @@ const SessionHeaderRightElement = React.memo(function SessionHeaderRightElement(
             <ActionOperationActivityButton
                 preferredSessionId={props.sessionId}
                 testID="session-header-action-operations"
-                buttonSize={44}
+                buttonSize={resolveSessionHeaderActionTargetPx()}
                 iconSize={SESSION_HEADER_ICON_SIZE_PX}
             />
             <SessionHeaderActionMenu
@@ -1072,10 +1078,10 @@ const SessionHeaderRightElement = React.memo(function SessionHeaderRightElement(
                 extraItems={headerExtraItems.length > 0 ? headerExtraItems : undefined}
                 onSelectExtraItem={handleHeaderExtraItemSelect}
             />
-            {!props.shouldFoldHeaderIconActions ? (
+            {!props.shouldFoldHeaderIconActions && !actionRailVisible && !cockpitOwnsSession ? (
                 <SessionHeaderTranscriptNavigationButton sessionId={props.sessionId} scopeId={props.paneScopeId} />
             ) : null}
-            {!props.shouldFoldHeaderIconActions ? (
+            {!props.shouldFoldHeaderIconActions && !actionRailVisible ? (
                 <SessionHeaderSubagentsButton
                     sessionId={props.sessionId}
                     scopeId={props.paneScopeId}
@@ -1083,11 +1089,13 @@ const SessionHeaderRightElement = React.memo(function SessionHeaderRightElement(
                     activeCount={openAgentCount}
                 />
             ) : null}
-            <SessionHeaderTerminalButton
-                sessionId={props.sessionId}
-                scopeId={props.paneScopeId}
-                serverId={props.currentSessionRouteServerId}
-            />
+            {!actionRailVisible && !cockpitHasTerminal ? (
+                <SessionHeaderTerminalButton
+                    sessionId={props.sessionId}
+                    scopeId={props.paneScopeId}
+                    serverId={props.currentSessionRouteServerId}
+                />
+            ) : null}
 {/* Never folded. Session details used to be reachable by pressing the avatar, which was
                 shown on every width; moving that navigation to an icon that folds below 520pt would
                 delete the only path to it on phones rather than tidy the row. */}
@@ -1095,10 +1103,9 @@ const SessionHeaderRightElement = React.memo(function SessionHeaderRightElement(
             {!props.shouldFoldHeaderIconActions && props.showAutomations && props.sessionAutomationsEnabledCount > 0 ? (
                 <Pressable
                     onPress={() => navigateWithBlurOnWeb(() => router.push(buildCurrentSessionHref('/automations') as any))}
-                    hitSlop={15}
                     style={({ pressed }) => ({
-                        width: 44,
-                        height: 44,
+                        width: resolveSessionHeaderActionTargetPx(),
+                        height: resolveSessionHeaderActionTargetPx(),
                         alignItems: 'center',
                         justifyContent: 'center',
                         opacity: pressed ? 0.7 : 1,
@@ -1682,6 +1689,7 @@ export const SessionView = React.memo((props: SessionViewProps) => {
     // ignored and makes the UI feel broken on first load.
     const multiPaneEnabled = useLocalSetting('uiMultiPanePanelsEnabled') !== false;
     const paneScopeId = useRegisterSessionPaneDriver(sessionId);
+    const actionRailVisible = useAppPaneActionRailVisible(paneScopeId);
     const pane = useAppPaneScope(paneScopeId);
     // Stable identity for THIS pane mount (not the session): `useId` is allocated by the outer
     // SessionView, which survives the inner `key={sessionId}` remount, so the seeded content width
@@ -1711,16 +1719,6 @@ export const SessionView = React.memo((props: SessionViewProps) => {
         toggleWorkspaceExperienceRef.current();
     }, []);
     const shouldFoldHeaderIconActions = windowWidth < 520;
-
-    // `ChatHeaderView` is memoized, and the header is the one surface that must not repaint on
-    // every transcript-driven render of this screen. An element built inline in the JSX below is a
-    // new object on every render and defeats that memo on its own, so the gutter element is built
-    // here with the only two inputs it has.
-    const headerGutterElement = React.useMemo(() => (
-        shouldFoldHeaderIconActions
-            ? undefined
-            : <SessionHeaderRightSidebarButton scopeId={paneScopeId} />
-    ), [paneScopeId, shouldFoldHeaderIconActions]);
 
     // Compute header props based on session state
     const headerProps = useMemo(() => {
@@ -1915,8 +1913,8 @@ export const SessionView = React.memo((props: SessionViewProps) => {
                         {...headerProps}
                         onBackPress={handleBackPress}
                         showBackButton={!isTablet}
-                        gutterElement={headerGutterElement}
                         constrainWidth={constrainHeaderWidth}
+                        contentTrailingInsetPx={actionRailVisible ? PANE_ACTION_RAIL_WIDTH : 0}
                         includeTopInset={headerSafeAreaTopMode !== 'external'}
                     />
                 </View>
@@ -2642,6 +2640,10 @@ function SessionViewLoaded({
         }>
         | null
     >(null);
+    // One owner for the live composer operation. While it is true, the send
+    // control's progress state is authoritative; settled pending/recovery
+    // presentations must wait for the operation to answer.
+    const [isComposerSendPending, setIsComposerSendPending] = React.useState(false);
     const [
         resolvedStaleSessionRunnerFingerprint,
         setResolvedStaleSessionRunnerFingerprint,
@@ -2692,15 +2694,24 @@ function SessionViewLoaded({
         [agentId, enabledAgentIds, session],
     );
     const hasWriteAccess = hasSessionWriteAccess(session.accessLevel);
-    const pendingActivationPresentation = React.useMemo(() => resolvePendingActivationBanner({
-        authorization: session.pendingActivationAuthorization,
-        activeAt: session.activeAt,
-        active: session.active,
-        machineReachable: isMachineReachable,
-        canWrite: hasWriteAccess,
-        resumingAt: sessionRuntimeStatusSource.resumingAt,
-        pendingMessages,
-    }), [hasWriteAccess, isMachineReachable, pendingMessages, session.active, session.activeAt, session.pendingActivationAuthorization, sessionRuntimeStatusSource.resumingAt]);
+    const pendingActivationPresentation = React.useMemo(() => {
+        // The composer spinner owns the live submit. A Pending row can sync
+        // before that submit (including an Agent transition) answers; presenting
+        // the settled inactive-session recovery at the same time falsely implies
+        // that the operation failed and that the source Agent needs a manual
+        // resume. Once the submit settles, the canonical pending owner is shown
+        // unchanged if the Session still needs attention.
+        if (isComposerSendPending) return null;
+        return resolvePendingActivationBanner({
+            authorization: session.pendingActivationAuthorization,
+            activeAt: session.activeAt,
+            active: session.active,
+            machineReachable: isMachineReachable,
+            canWrite: hasWriteAccess,
+            resumingAt: sessionRuntimeStatusSource.resumingAt,
+            pendingMessages,
+        });
+    }, [hasWriteAccess, isComposerSendPending, isMachineReachable, pendingMessages, session.active, session.activeAt, session.pendingActivationAuthorization, sessionRuntimeStatusSource.resumingAt]);
     const [pendingActivationActionBusy, setPendingActivationActionBusy] = React.useState(false);
     const providerSupportsEditableSessionGoals = React.useMemo(
         () => supportsEditableSessionGoals({ agentId, session, daemonGoalControlsSupported }),
@@ -3988,6 +3999,12 @@ function SessionViewLoaded({
     }), [currentAgentLabel, sessionAgentCatalogEntries]);
     const restoredArmedContinuationOutcomeKeyRef = React.useRef<string | null>(null);
     React.useLayoutEffect(() => {
+        // `recordArmedContinuationSubmission` persists before the RPC leaves the
+        // current mount. That is crash/remount custody, not proof that this live
+        // call lost its result. The composer's existing pending state owns the
+        // operation until it answers; only a later mount may need to reconstruct
+        // an indeterminate outcome from the durable submission.
+        if (isComposerSendPending) return;
         const intent = inSessionAgentPicker.armedContinuation
             ?? inSessionAgentPicker.armedContinuationSubmissionIntent;
         const submission = inSessionAgentPicker.armedContinuationSubmission;
@@ -3996,11 +4013,11 @@ function SessionViewLoaded({
             restoredArmedContinuationOutcomeKeyRef.current = null;
             return;
         }
-        // A nested submission proves a transition left this mount, but carries no
-        // daemon result to replay. Establish the same mount-local unknown outcome
-        // the RPC path records before this composer can accept input, so the
-        // existing disposition/reconciliation owner holds sends until canonical
-        // custody has been read.
+        // A nested submission restored without a live send carries no daemon
+        // result to replay. Establish the same mount-local unknown outcome the
+        // RPC path records before this composer can accept input, so the existing
+        // disposition/reconciliation owner holds sends until canonical custody
+        // has been read.
         const key = `${activeServerAccountScopeKey}\u0000${sessionId}\u0000${submission.localId}`;
         const outcome = armedContinuationOutcome;
         const outcomeIsCurrent = outcome !== null
@@ -4026,6 +4043,7 @@ function SessionViewLoaded({
         inSessionAgentPicker.armedContinuationLocalId,
         inSessionAgentPicker.armedContinuationSubmission,
         inSessionAgentPicker.armedContinuationSubmissionIntent,
+        isComposerSendPending,
         sessionId,
     ]);
 
@@ -4247,7 +4265,6 @@ function SessionViewLoaded({
         });
     }, [addPickedAttachments]);
     const [isUploadingAttachments, setIsUploadingAttachments] = React.useState(false);
-    const [isComposerSendPending, setIsComposerSendPending] = React.useState(false);
     const recipientState = useSessionRecipientState({
         targets: participantTargets,
         autoRecipient: null,
@@ -5668,14 +5685,6 @@ function SessionViewLoaded({
                             presentRefusedArmedSend(attachmentSendDestination);
                             return;
                         }
-                        if (attachmentSendDestination.kind === 'sessionAgent'
-                            && !isSessionActive && isResumable) {
-                            const resumed = await handleResumeSession();
-                            if (!resumed) {
-                                throw new Error(t('session.resumeFailed'));
-                            }
-                        }
-
                         const { uploaded } = await uploadAttachmentDraftsToSession({
                             sessionId,
                             drafts: attachmentDrafts,

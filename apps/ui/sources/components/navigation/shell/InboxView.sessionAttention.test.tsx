@@ -8,10 +8,9 @@ import { SESSION_RUNTIME_STATUS_STALE_SIGNAL_MS } from '@/sync/domains/session/a
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
-vi.mock('@/components/inbox/useInboxContentModel', async (importOriginal) => {
-    const actual = await importOriginal<typeof import('@/components/inbox/useInboxContentModel')>();
-    return { ...actual, useSharedInboxContentModel: actual.useInboxContentModel };
-});
+vi.mock('@/components/sessions/shell/useSessionScreenIsFocused', () => ({
+    useSessionScreenIsFocused: () => true,
+}));
 
 const pushSpy = vi.fn();
 const navigateSpy = vi.fn();

@@ -3,7 +3,7 @@ import { act } from 'react-test-renderer';
 
 import { renderHook, standardCleanup } from '@/dev/testkit';
 
-import { useAllMachines, useLaunchSelectionMachines, useMachineCliDetectionTarget, useMachineDisplayById, useMachineListByServerId, useSessionChatFooterState, useSessionForkSupportSource } from '@/sync/domains/state/storage';
+import { useAllMachines, useFirstVisibleMachineId, useLaunchSelectionMachines, useMachineCliDetectionTarget, useMachineDisplayById, useMachineListByServerId, useSessionChatFooterState, useSessionForkSupportSource } from '@/sync/domains/state/storage';
 import { storage } from '@/sync/domains/state/storageStore';
 import { getActiveServerSnapshot } from '@/sync/domains/server/serverRuntime';
 
@@ -12,6 +12,104 @@ afterEach(() => {
 });
 
 describe('useAllMachines', () => {
+    it('tracks the first visible machine id only while demanded', async () => {
+        const previousState = storage.getState();
+        const activeServerId = String(getActiveServerSnapshot().serverId ?? '').trim();
+        const firstMachine = {
+            id: 'm-first',
+            seq: 1,
+            createdAt: 1,
+            updatedAt: 1,
+            active: true,
+            activeAt: 1,
+            metadata: { host: 'first', platform: 'darwin', happyCliVersion: '1', happyHomeDir: '.happy', homeDir: '/home' },
+            metadataVersion: 1,
+            daemonState: null,
+            daemonStateVersion: 0,
+        };
+        const secondMachine = {
+            ...firstMachine,
+            id: 'm-second',
+            createdAt: 2,
+            updatedAt: 2,
+            activeAt: 2,
+            metadata: { ...firstMachine.metadata, host: 'second' },
+        };
+
+        try {
+            storage.setState((state) => ({
+                ...state,
+                isDataReady: true,
+                machines: {
+                    [firstMachine.id]: firstMachine,
+                    [secondMachine.id]: secondMachine,
+                },
+                machineListByServerId: activeServerId
+                    ? { [activeServerId]: [firstMachine, secondMachine] }
+                    : {},
+            }));
+
+            let renderCount = 0;
+            const hook = await renderHook(
+                (enabled: boolean) => {
+                    renderCount += 1;
+                    return useFirstVisibleMachineId(enabled);
+                },
+                {
+                    initialProps: true,
+                    flushOptions: { cycles: 1, turns: 4 },
+                },
+            );
+            expect(hook.getCurrent()).toBe('m-second');
+            const settledRenderCount = renderCount;
+
+            await act(async () => {
+                const refreshedSecondMachine = {
+                    ...secondMachine,
+                    updatedAt: 3,
+                    activeAt: 3,
+                };
+                storage.setState((state) => ({
+                    ...state,
+                    machines: {
+                        [firstMachine.id]: firstMachine,
+                        [refreshedSecondMachine.id]: refreshedSecondMachine,
+                    },
+                    machineListByServerId: activeServerId
+                        ? { [activeServerId]: [firstMachine, refreshedSecondMachine] }
+                        : {},
+                }));
+            });
+            expect(renderCount).toBe(settledRenderCount);
+
+            await act(async () => {
+                const promotedMachine = {
+                    ...firstMachine,
+                    createdAt: 4,
+                    updatedAt: 4,
+                    activeAt: 4,
+                };
+                storage.setState((state) => ({
+                    ...state,
+                    machines: {
+                        [promotedMachine.id]: promotedMachine,
+                        [secondMachine.id]: secondMachine,
+                    },
+                    machineListByServerId: activeServerId
+                        ? { [activeServerId]: [promotedMachine, secondMachine] }
+                        : {},
+                }));
+            });
+            expect(hook.getCurrent()).toBe('m-first');
+
+            await hook.rerender(false);
+            expect(hook.getCurrent()).toBeNull();
+            await hook.unmount();
+        } finally {
+            storage.setState(previousState);
+        }
+    });
+
     it('returns cached machines even when bootstrap is not fully ready (avoids empty flicker)', async () => {
         const previousState = storage.getState();
         try {

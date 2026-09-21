@@ -20,7 +20,7 @@ import { fireAndForget } from '@/utils/system/fireAndForget';
 import type { AppUpdateStatusTagProps } from '@/components/ui/feedback/AppUpdateStatusTag';
 import { ActionOperationActivityButton } from '@/components/inbox/actionOperations/ActionOperationActivityButton';
 import { InboxPopoverButton } from '@/components/inbox/InboxPopoverButton';
-import type { InboxContentModel } from '@/components/inbox/useInboxContentModel';
+import type { InboxSummary } from '@/hooks/inbox/useInboxSummary';
 
 export type CollapsedSidebarViewProps = Readonly<{
     desktopWindowControls?: React.ReactNode;
@@ -28,7 +28,7 @@ export type CollapsedSidebarViewProps = Readonly<{
     focusModeActive?: boolean;
     onExitFocusMode?: () => void;
     onRequestExpand?: () => void;
-    inboxModel?: InboxContentModel | null;
+    inboxSummary?: InboxSummary | null;
     inboxEnabled?: boolean;
 }>;
 
@@ -143,9 +143,9 @@ export const CollapsedSidebarView = React.memo((props: CollapsedSidebarViewProps
                     {resolvedDesktopWindowControls}
                 </DesktopShellWindowControlsHost>
                 {renderUpdateIndicatorWithFallback(props.desktopUpdateIndicator, logoButton)}
-                {props.inboxEnabled && props.inboxModel ? (
+                {props.inboxEnabled && props.inboxSummary ? (
                     <InboxPopoverButton
-                        model={props.inboxModel}
+                        summary={props.inboxSummary}
                         buttonSize={32}
                         iconSize={DESKTOP_SIDEBAR_CHROME_ICON_GLYPH_SIZE_PX}
                         testID="collapsed-sidebar-inbox-button"

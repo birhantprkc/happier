@@ -26,6 +26,7 @@ import type { AgentTextMessage, Message } from '../domains/messages/messageTypes
 import type { Settings } from '../domains/settings/settings';
 import { settingsDefaults } from '../domains/settings/settings';
 import type { SessionListViewItem } from '../domains/session/listing/sessionListViewData';
+import { didSessionListPlacementProjectionDiverge } from '../domains/session/listing/placement/sessionListPlacementProjection';
 import {
   deriveSessionListRenderableHasUnreadMessagesFromReadableSeq,
   type SessionListRenderableSession,
@@ -57,6 +58,7 @@ import {
 import { useApplyLocalSettings, useApplySettings } from './settingsWriters';
 import type { PrimaryTurnStatusV1 } from '@happier-dev/protocol';
 import type { StorageState } from './types';
+import { createFriendRequestCountSelector } from './friendRequestCount';
 
 import { getStorage } from '../domains/state/storageStore';
 import type { KnownEntitlements } from '../domains/state/storageStore';
@@ -1199,6 +1201,36 @@ export function useAllMachines(): Machine[] {
   );
 }
 
+function resolveFirstVisibleMachineId(state: StorageState): string | null {
+  const machines = resolveVisibleMachinesForActiveServerFromState(
+    state.isDataReady
+      ? state
+      : {
+          ...state,
+          machineListByServerId: {},
+        }
+  );
+  const machineId = machines[0]?.id;
+  return typeof machineId === 'string' && machineId.trim().length > 0 ? machineId.trim() : null;
+}
+
+function subscribeToNoMachineUpdates(): () => void {
+  return () => undefined;
+}
+
+export function useFirstVisibleMachineId(enabled: boolean = true): string | null {
+  const store = getStorage();
+  const getSnapshot = React.useCallback(
+    () => enabled ? resolveFirstVisibleMachineId(store.getState()) : null,
+    [enabled, store],
+  );
+  return React.useSyncExternalStore(
+    enabled ? store.subscribe : subscribeToNoMachineUpdates,
+    getSnapshot,
+    getSnapshot,
+  );
+}
+
 type LaunchSelectionMachinesCache = Readonly<{
   signature: string;
   machines: Machine[];
@@ -1437,10 +1469,10 @@ type SessionListShellViewDataReconciliation = Readonly<{
  *
  * A push rebuilds the array but carries every row it did not change by identity, so a row whose
  * object survived inherits its cached signature and only genuinely new row objects are signed.
- * The cached array's rows are never read again — the previous side of every comparison is a
- * signature this cache already holds — which is the invariant the "must not be signed again"
- * probes in `hooks.useSessions.test.tsx` pin. Signing the whole array to compare one string cost
- * O(all rows) for a push that changed one session.
+ * A display-equivalent changed session is additionally compared through the canonical placement
+ * projection so freshness-window changes still reach the visible-list scheduler. Carried rows are
+ * never read again, which the probes in `hooks.useSessions.test.tsx` pin. Signing the whole array
+ * to compare one string cost O(all rows) for a push that changed one session.
  */
 function reconcileSessionListShellViewData(
   cached: SessionListShellViewDataCache | null,
@@ -1466,7 +1498,23 @@ function reconcileSessionListShellViewData(
     }
     const signature = buildSessionListShellViewItemSignature(nextItem);
     signatures[index] = signature;
-    if (equivalent && signature !== previousSignature) equivalent = false;
+    if (equivalent && signature !== previousSignature) {
+      equivalent = false;
+      continue;
+    }
+    const previousItem = previousData?.[index];
+    if (
+      equivalent
+      && previousItem?.type === 'session'
+      && nextItem.type === 'session'
+      && didSessionListPlacementProjectionDiverge({
+        previous: previousItem.session,
+        next: nextItem.session,
+        nowMs: Date.now(),
+      })
+    ) {
+      equivalent = false;
+    }
   }
   return { equivalent, signatures };
 }
@@ -1731,8 +1779,14 @@ function getStableSelectedSessionListShellViewDataByServerId(
   return stableSelectedDataByServerId;
 }
 
+const sortedValuesByUpdatedAtDescendingCache = new WeakMap<object, readonly { updatedAt: number }[]>();
+
 function sortValuesByUpdatedAtDescending<T extends { updatedAt: number }>(values: Record<string, T>): T[] {
-  return Object.values(values).sort((a, b) => b.updatedAt - a.updatedAt);
+  const cached = sortedValuesByUpdatedAtDescendingCache.get(values) as T[] | undefined;
+  if (cached) return cached;
+  const sorted = Object.values(values).sort((a, b) => b.updatedAt - a.updatedAt);
+  sortedValuesByUpdatedAtDescendingCache.set(values, sorted);
+  return sorted;
 }
 
 export function useAllSessions(): Session[] {
@@ -2344,6 +2398,12 @@ export function useFriendRequests() {
       return Object.values(state.friends).filter((friend) => friend.status === 'pending');
     })
   );
+}
+
+const selectFriendRequestCount = createFriendRequestCountSelector();
+
+export function useFriendRequestCount(): number {
+  return getStorage()(selectFriendRequestCount);
 }
 
 export function useAcceptedFriends() {

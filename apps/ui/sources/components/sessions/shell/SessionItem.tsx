@@ -88,7 +88,6 @@ import { useFeatureEnabled } from '@/hooks/server/useFeatureEnabled';
 import { canForkConversation } from '@/sync/domains/sessionFork/forkUiSupport';
 import { resolveMachineTargetForSessionFromState } from '@/sync/ops/sessionMachineTarget';
 import { fireAndForget } from '@/utils/system/fireAndForget';
-import type { SessionForkReplaySettingsSource } from '@/sync/domains/sessionFork/resolveSessionForkReplayOptions';
 
 const SESSION_LIST_MINIMAL_IDENTITY_GAP = 8;
 const CONTEXT_MENU_PRESS_SUPPRESSION_TIMEOUT_MS = 600;
@@ -165,7 +164,6 @@ type SessionItemBaseProps = Readonly<{
     onMoveUp?: () => void;
     onSelectFolderMoveMenuItem?: (itemId: string) => void;
     forkActionContext?: Readonly<{
-        settings: SessionForkReplaySettingsSource | null;
         replayEnabled: boolean;
         executionRunsEnabled: boolean;
     }>;
@@ -869,7 +867,7 @@ const SessionItemContent = React.memo(
                     serverId: serverId ?? null,
                     machineId: reachableMachineTarget?.machineId ?? currentSession.metadata?.machineId ?? null,
                     forkPoint: { type: 'latest' },
-                    settings: forkActionContext?.settings ?? null,
+                    settings: storage.getState().settings,
                     replayEnabled: forkActionContext?.replayEnabled === true,
                     executionRunsEnabled: forkActionContext?.executionRunsEnabled === true,
                     agentSwitchingEnabled,

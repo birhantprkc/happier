@@ -139,15 +139,22 @@ export type SessionRunnerServiceabilityProbe =
 export type SessionRunnerResumeDecision =
   | Readonly<{ action: 'spawn' }>
   | Readonly<{ action: 'adopt' }>
-  | Readonly<{ action: 'wait_for_exit'; reason: 'runtime_terminating' }>
+  | Readonly<{
+      action: 'wait_for_exit';
+      reason: 'runtime_terminating' | 'rpc_method_unavailable' | 'rpc_failed';
+    }>
   | Readonly<{ action: 'fence'; reason: string }>;
 
 export function resolveSessionRunnerResumeDecision(probe: SessionRunnerServiceabilityProbe): SessionRunnerResumeDecision {
   if (probe.state === 'runner_absent') return { action: 'spawn' };
   if (probe.state === 'runner_unknown') return { action: 'fence', reason: probe.reason };
   if (probe.control.state === 'servable') return { action: 'adopt' };
-  if (probe.control.state === 'recoverable_unservable' && probe.control.reason === 'runtime_terminating') {
-    return { action: 'wait_for_exit', reason: 'runtime_terminating' };
+  if (
+    probe.control.reason === 'runtime_terminating'
+    || probe.control.reason === 'rpc_method_unavailable'
+    || probe.control.reason === 'rpc_failed'
+  ) {
+    return { action: 'wait_for_exit', reason: probe.control.reason };
   }
   return { action: 'fence', reason: probe.control.reason };
 }

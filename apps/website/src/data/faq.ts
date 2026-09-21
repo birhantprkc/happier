@@ -331,7 +331,7 @@ export const FAQ_ITEMS: ReadonlyArray<FaqItem> = [
         q: 'Do I need the mobile app?',
         a: [
             'No. app.happier.dev is the full app in a browser tab, and there is a desktop build for macOS, Windows and Linux if you would rather it was a window than a tab. Plenty of people run Happier entirely on the same computer their sessions run on, for the diff review and the session list rather than for the mobility.',
-            'If you do want it on a phone: iOS is on the App Store. Android is a direct APK download from the GitHub releases — there is no public Play listing yet, only a closed testing track you have to be opted into.',
+            'If you do want it on a phone: iOS is on the App Store, and Android is on Google Play. A direct APK remains available from the GitHub releases if you prefer to install the file yourself.',
         ],
     },
     {

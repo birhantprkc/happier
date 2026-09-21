@@ -5,7 +5,7 @@ import { createEnvKeyScope } from '@/testkit/env/envScope';
 import { createExecutableShim } from '@/testkit/fs/executableShim';
 import { createTempDir, removeTempDir } from '@/testkit/fs/tempDir';
 
-const envKeys = ['PATH', 'HAPPIER_OPENCODE_PATH', 'HAPPIER_HOME_DIR'] as const;
+const envKeys = ['PATH', 'HAPPIER_OPENCODE_PATH', 'HAPPIER_OPENCODE_CLI_GENERATION', 'HAPPIER_HOME_DIR'] as const;
 const tempDirs = new Set<string>();
 let envScope = createEnvKeyScope(envKeys);
 
@@ -57,6 +57,19 @@ describe('opencodeDaemonSpawnHooks.validateSpawn', () => {
     const { dir } = await createFakeBin('opencode');
     envScope.patch({
       HAPPIER_OPENCODE_PATH: undefined,
+      PATH: dir,
+    });
+
+    const { opencodeDaemonSpawnHooks } = await import('./spawnHooks');
+    const res = await opencodeDaemonSpawnHooks.validateSpawn!({});
+    expect(res.ok).toBe(true);
+  });
+
+  it('allows the released opencode command when V2 is selected', async () => {
+    const { dir } = await createFakeBin('opencode');
+    envScope.patch({
+      HAPPIER_OPENCODE_PATH: undefined,
+      HAPPIER_OPENCODE_CLI_GENERATION: 'v2',
       PATH: dir,
     });
 

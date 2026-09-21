@@ -15,6 +15,7 @@ import {
 } from './unifiedTerminal/startupLifecycle';
 import {
     createClaudeInFlightSteerCapabilityPublisher,
+    publishClaudeInFlightSteerBackendUnsupported,
     type ClaudeInFlightSteerAvailabilitySnapshot,
 } from './unifiedTerminal/createClaudeInFlightSteerCapabilityPublisher';
 import {
@@ -1872,14 +1873,17 @@ export async function claudeRemoteLauncher(
                         activeRemoteRunnerKind = runner;
                         disposeAgentSdkInFlightSteerCapabilityPublisher(agentSdkInFlightSteerCapabilityPublisher);
                         agentSdkInFlightSteerCapabilityPublisher = null;
+                        inFlightSteerAvailabilitySnapshot = { available: false, reason: 'unsafe_window' };
                         if (runner === 'agentSdk') {
                             agentSdkInFlightSteerCapabilityPublisher = createClaudeInFlightSteerCapabilityPublisher({
                                 session: session.client,
                                 isCanonicalTurnActive: () => session.client.hasActiveCanonicalTurn?.() ?? true,
                                 terminalComposerControls: false,
                             });
-                            inFlightSteerAvailabilitySnapshot = { available: false, reason: 'unsafe_window' };
                             agentSdkInFlightSteerCapabilityPublisher.publish(inFlightSteerAvailabilitySnapshot);
+                        }
+                        if (runner === 'legacy') {
+                            publishClaudeInFlightSteerBackendUnsupported({ session: session.client });
                         }
                         if (runner === null) return;
                         remoteProviderInputOutcomes = createClaudeRemoteProviderInputOutcomeBridge(session.client);

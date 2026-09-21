@@ -8,7 +8,6 @@ import { startUiWeb, type StartedUiWeb } from '../../src/testkit/process/uiWeb';
 import { type StartedDaemon } from '../../src/testkit/daemon/daemon';
 import { fakeClaudeFixturePath } from '../../src/testkit/fakeClaude';
 import { gotoDomContentLoadedWithPathFallback, gotoDomContentLoadedWithRetries, normalizeLoopbackBaseUrl } from '../../src/testkit/uiE2e/pageNavigation';
-import { clickScopedButtonByTestIdOrRole } from '../../src/testkit/uiE2e/clickScopedButtonByTestIdOrRole';
 import { createGitRepoForPartialStagingFixture } from '../../src/testkit/uiE2e/gitRepoFixtures';
 import { spawnSessionFromDaemon } from '../../src/testkit/uiE2e/spawnSessionFromDaemon';
 import { toTestIdSafeValue } from '../../src/testkit/uiE2e/testIdSafeValue';
@@ -145,12 +144,7 @@ test.describe('ui e2e: SCM partial staging + commit + discard', () => {
       await expect(rightPaneLocator(page)).toHaveCount(1, { timeout: 60_000 });
 
       const rightPane = rightPaneLocator(page);
-      await clickScopedButtonByTestIdOrRole({
-        scope: rightPane,
-        testId: 'session-rightpanel-tab:git',
-        roleName: 'Source control',
-        timeoutMs: 180_000,
-      });
+      await expect(rightPane.getByTestId('session-rightpanel-surface-git')).toBeVisible({ timeout: 180_000 });
 
       const twoHunksPath = 'src/two-hunks.txt';
       const wholeFilePath = 'src/whole-file.txt';

@@ -57,6 +57,11 @@ export type InboxSessionState = Readonly<{
     }>>;
 }>;
 
+export type InboxSessionSummary = Readonly<{
+    hasContent: boolean;
+    nextFreshnessAtMs: number | null;
+}>;
+
 type BuildInboxSessionStateInput =
     | readonly Session[]
     | Readonly<{
@@ -89,6 +94,13 @@ type InboxSessionAddress = Readonly<{
     sessionId: string;
 }>;
 
+type InboxSessionCandidateEntry = Readonly<{
+    key: string;
+    serverId: string | null;
+    sessionId: string;
+    session: InboxAttentionSession;
+}>;
+
 function buildInboxSessionAddress(serverIdRaw: unknown, sessionIdRaw: unknown): InboxSessionAddress | null {
     const parts = normalizeSessionListKeyParts(serverIdRaw, sessionIdRaw);
     if (!parts.sessionId) return null;
@@ -99,14 +111,26 @@ function buildInboxSessionAddress(serverIdRaw: unknown, sessionIdRaw: unknown): 
     };
 }
 
+function indexSessionsById(sessions: readonly Session[]): ReadonlyMap<string, readonly Session[]> {
+    const sessionsById = new Map<string, Session[]>();
+    for (const session of sessions) {
+        const existing = sessionsById.get(session.id);
+        if (existing) {
+            existing.push(session);
+        } else {
+            sessionsById.set(session.id, [session]);
+        }
+    }
+    return sessionsById;
+}
+
 function findScopedSession(
-    sessions: readonly Session[],
+    sessionsById: ReadonlyMap<string, readonly Session[]>,
     address: InboxSessionAddress,
 ): Session | null {
     if (!address.serverId) return null;
-    return sessions.find((session) => (
-        session.id === address.sessionId
-        && Boolean(session.serverId)
+    return sessionsById.get(address.sessionId)?.find((session) => (
+        Boolean(session.serverId)
         && areServerProfileIdentifiersEquivalent(session.serverId, address.serverId)
     )) ?? null;
 }
@@ -114,21 +138,12 @@ function findScopedSession(
 function collectInboxSessionEntries(params: Readonly<{
     sessions: readonly Session[];
     sessionListViewDataByServerId: Readonly<Record<string, readonly SessionListViewItem[] | null>>;
-}>): Array<Readonly<{
-    key: string;
-    serverId: string | null;
-    sessionId: string;
-    session: InboxAttentionSession;
-}>> {
-    const entries: Array<Readonly<{
-        key: string;
-        serverId: string | null;
-        sessionId: string;
-        session: InboxAttentionSession;
-    }>> = [];
+}>): InboxSessionCandidateEntry[] {
+    const entries: InboxSessionCandidateEntry[] = [];
     const seenKeys = new Set<string>();
     const scopedCacheSessionIds = new Set<string>();
     const matchedHydratedSessions = new Set<Session>();
+    const sessionsById = indexSessionsById(params.sessions);
 
     for (const [recordServerId, items] of Object.entries(params.sessionListViewDataByServerId)) {
         const serverParts = normalizeSessionListKeyParts(recordServerId);
@@ -139,7 +154,7 @@ function collectInboxSessionEntries(params: Readonly<{
             if (!address || seenKeys.has(address.key)) continue;
             seenKeys.add(address.key);
             scopedCacheSessionIds.add(address.sessionId);
-            const canonicalSession = findScopedSession(params.sessions, address);
+            const canonicalSession = findScopedSession(sessionsById, address);
             if (canonicalSession) matchedHydratedSessions.add(canonicalSession);
             if (item.session.archivedAt != null || canonicalSession?.archivedAt != null) continue;
             entries.push({ ...address, session: canonicalSession ?? item.session });
@@ -217,6 +232,45 @@ function latestPendingRequestObservedAt(requests: readonly PendingPermissionRequ
     return latest;
 }
 
+function evaluateInboxSessionCandidate(params: Readonly<{
+    entry: InboxSessionCandidateEntry;
+    sessionMessagesById?: StorageState['sessionMessages'];
+    nowMs: number;
+}>) {
+    const { entry } = params;
+    if (!isUserFacingSession(entry.session)) return null;
+    const isHydrated = 'agentState' in entry.session;
+    const messages = isHydrated
+        ? readMessagesForInboxSession(params.sessionMessagesById, entry.sessionId)
+        : undefined;
+    const pendingPermissions = isHydrated
+        ? listPendingPermissionRequests(entry.session, messages)
+        : [];
+    const pendingUserActions = isHydrated
+        ? listPendingUserActionRequests(entry.session, messages)
+        : [];
+    const renderable = isHydrated
+        ? buildSessionListRenderableFromSession(entry.session, messages)
+        : entry.session;
+    const placement = projectSessionListPlacement({
+        session: renderable,
+        sessionKey: entry.key,
+        nowMs: params.nowMs,
+    });
+    const runtimeInput = buildPendingInboxRuntimeInput({
+        session: entry.session,
+        pendingPermissions,
+        pendingUserActions,
+    });
+    return {
+        pendingPermissions,
+        pendingUserActions,
+        renderable,
+        placement,
+        runtimeInput,
+    };
+}
+
 export function buildInboxSessionState(input: BuildInboxSessionStateInput): InboxSessionState {
     const { sessions, sessionListViewDataByServerId, sessionMessagesById, nowMs } = normalizeBuildInboxSessionStateInput(input);
     const sessionsNeedingAttention: InboxSessionAttentionEntry[] = [];
@@ -230,25 +284,18 @@ export function buildInboxSessionState(input: BuildInboxSessionStateInput): Inbo
     const reviewSessions: InboxReviewSessionEntry[] = [];
     const markAllReadTargets: SessionBulkActionTarget[] = [];
     for (const entry of candidates) {
-        if (!isUserFacingSession(entry.session)) continue;
-        const isHydrated = 'agentState' in entry.session;
-        const messages = isHydrated
-            ? readMessagesForInboxSession(sessionMessagesById, entry.sessionId)
-            : undefined;
-        const pendingPermissions = isHydrated
-            ? listPendingPermissionRequests(entry.session, messages)
-            : [];
-        const pendingUserActions = isHydrated
-            ? listPendingUserActionRequests(entry.session, messages)
-            : [];
-        const renderable = 'agentState' in entry.session
-            ? buildSessionListRenderableFromSession(entry.session, messages)
-            : entry.session;
-        const placement = projectSessionListPlacement({
-            session: renderable,
-            sessionKey: entry.key,
+        const evaluation = evaluateInboxSessionCandidate({
+            entry,
+            sessionMessagesById,
             nowMs,
         });
+        if (!evaluation) continue;
+        const {
+            pendingPermissions,
+            pendingUserActions,
+            renderable,
+            placement,
+        } = evaluation;
 
         if (placement.kind === 'permission_required' || placement.kind === 'action_required') {
             sessionsNeedingAttention.push({
@@ -288,8 +335,51 @@ export function buildInboxSessionState(input: BuildInboxSessionStateInput): Inbo
 }
 
 export function hasInboxSessionContent(input: BuildInboxSessionStateInput): boolean {
-    const state = buildInboxSessionState(input);
-    return state.sessionsNeedingAttention.length > 0 || state.reviewSessions.length > 0;
+    return buildInboxSessionSummary(input).hasContent;
+}
+
+function buildInboxSessionSummaryFromNormalizedInput(input: Readonly<{
+    sessions: readonly Session[];
+    sessionListViewDataByServerId: Readonly<Record<string, readonly SessionListViewItem[] | null>>;
+    sessionMessagesById?: StorageState['sessionMessages'];
+    nowMs: number;
+}>): InboxSessionSummary {
+    let hasContent = false;
+    let nextFreshnessAtMs: number | null = null;
+    const candidates = collectInboxSessionEntries({
+        sessions: input.sessions,
+        sessionListViewDataByServerId: input.sessionListViewDataByServerId,
+    });
+    for (const entry of candidates) {
+        const evaluation = evaluateInboxSessionCandidate({
+            entry,
+            sessionMessagesById: input.sessionMessagesById,
+            nowMs: input.nowMs,
+        });
+        if (!evaluation) continue;
+        const { kind } = evaluation.placement;
+        if (
+            kind === 'permission_required'
+            || kind === 'action_required'
+            || kind === 'ready'
+            || kind === 'failed'
+        ) {
+            hasContent = true;
+        }
+        const freshnessAtMs = resolveNextSessionRuntimePresentationFreshnessAtMs(
+            evaluation.runtimeInput,
+            input.nowMs,
+        );
+        if (freshnessAtMs === null) continue;
+        nextFreshnessAtMs = nextFreshnessAtMs === null
+            ? freshnessAtMs
+            : Math.min(nextFreshnessAtMs, freshnessAtMs);
+    }
+    return { hasContent, nextFreshnessAtMs };
+}
+
+export function buildInboxSessionSummary(input: BuildInboxSessionStateInput): InboxSessionSummary {
+    return buildInboxSessionSummaryFromNormalizedInput(normalizeBuildInboxSessionStateInput(input));
 }
 
 export function resolveNextInboxSessionStateFreshnessAtMs(input: Readonly<{
@@ -298,27 +388,10 @@ export function resolveNextInboxSessionStateFreshnessAtMs(input: Readonly<{
     sessionMessagesById?: StorageState['sessionMessages'];
     nowMs: number;
 }>): number | null {
-    let nextAtMs: number | null = null;
-    const candidates = collectInboxSessionEntries({
+    return buildInboxSessionSummaryFromNormalizedInput({
         sessions: input.sessions,
         sessionListViewDataByServerId: input.sessionListViewDataByServerId ?? {},
-    });
-    for (const { session } of candidates) {
-        if (session.archivedAt != null) continue;
-        if (!isUserFacingSession(session)) continue;
-        const isHydrated = 'agentState' in session;
-        const messages = isHydrated
-            ? readMessagesForInboxSession(input.sessionMessagesById, session.id)
-            : undefined;
-        const pendingPermissions = isHydrated ? listPendingPermissionRequests(session, messages) : [];
-        const pendingUserActions = isHydrated ? listPendingUserActionRequests(session, messages) : [];
-        const runtimeInput = buildPendingInboxRuntimeInput({ session, pendingPermissions, pendingUserActions });
-        const freshnessAtMs = resolveNextSessionRuntimePresentationFreshnessAtMs(
-            runtimeInput,
-            input.nowMs,
-        );
-        if (freshnessAtMs === null) continue;
-        nextAtMs = nextAtMs === null ? freshnessAtMs : Math.min(nextAtMs, freshnessAtMs);
-    }
-    return nextAtMs;
+        sessionMessagesById: input.sessionMessagesById,
+        nowMs: input.nowMs,
+    }).nextFreshnessAtMs;
 }

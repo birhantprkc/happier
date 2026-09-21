@@ -26,6 +26,8 @@ import {
   rejectUndispatchedSessionAgentTransition,
   SessionConnectedServiceAuthSwitchRpcParamsSchema,
   SessionAgentTransitionBriefPreviewRequestV1Schema,
+  SessionContinuationInspectionBatchRequestV1Schema,
+  SessionContinuationInspectionBatchResultV1Schema,
   SessionContinuationInspectionRequestV1Schema,
   SessionContinueWithReplayRpcParamsSchema,
   SessionForkRpcParamsSchema,
@@ -45,7 +47,10 @@ import type { CatalogAgentId } from '@/backends/types';
 import { readCredentials } from '@/persistence';
 import { runSessionAgentTransition } from '@/session/agentTransition/sessionAgentTransitionCoordinator';
 import { previewSessionAgentTransitionBrief } from '@/session/agentTransition/previewSessionAgentTransitionBrief';
-import { inspectSessionContinuation } from '@/session/agentTransition/sessionContinuationInspection';
+import {
+  inspectSessionContinuation,
+  inspectSessionContinuations,
+} from '@/session/agentTransition/sessionContinuationInspection';
 import { buildReplaySeededSpawnRecipe } from '@/session/replay/buildReplaySeededSpawnRecipe';
 import { resolveReplaySourceContextAuthority } from '@/session/replay/resolveReplaySourceContextAuthority';
 import { readReplaySeededCreationFailure } from '@/session/replay/replaySeededCreationFailure';
@@ -2167,6 +2172,26 @@ export function registerMachineRpcHandlers(params: Readonly<{
       return { type: 'unavailable', reason: 'unsupported_session' };
     }
     return await inspectSessionContinuation({ credentials, request: parsed.data });
+  });
+
+  rpcHandlerManager.registerHandler(RPC_METHODS.SESSION_CONTINUATION_INSPECT_BATCH, async (raw: unknown) => {
+    const parsed = SessionContinuationInspectionBatchRequestV1Schema.safeParse(raw);
+    if (!parsed.success) {
+      return SessionContinuationInspectionBatchResultV1Schema.parse({ v: 1, inspections: [] });
+    }
+    const credentials = await readCredentials().catch(() => null);
+    if (!credentials) {
+      return SessionContinuationInspectionBatchResultV1Schema.parse({
+        v: 1,
+        inspections: parsed.data.selections.map(() => ({
+          type: 'unavailable',
+          reason: 'unsupported_session',
+        })),
+      });
+    }
+    return SessionContinuationInspectionBatchResultV1Schema.parse(
+      await inspectSessionContinuations({ credentials, request: parsed.data }),
+    );
   });
 
   rpcHandlerManager.registerHandler(

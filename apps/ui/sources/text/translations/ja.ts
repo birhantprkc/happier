@@ -4272,6 +4272,10 @@ localTailscale: {
             claude: {
                 title: "Claude Code",
                 sections: {
+                    claudeModelDiscovery: {
+                        title: "モデルの検出",
+                        footer: "選択した Claude アカウントで利用できるモデルを Happier が Anthropic に問い合わせるかどうかを設定します。"
+                    },
                     claudeUnifiedTerminal: {
                         title: "統合ターミナルランタイム",
                         footer: "有効にすると、Happier は別の Agent SDK ランナーを起動せず、同じ Claude Code ターミナルセッションにプロンプトを送信します。"
@@ -4286,6 +4290,10 @@ localTailscale: {
                     }
                 },
                 fields: {
+                    claudeDynamicModelProbeEnabled: {
+                        title: "利用可能なモデルを検出",
+                        subtitle: "選択した Claude アカウントを使って Happier が Anthropic に問い合わせることを許可します。オフにすると、Claude Code のネイティブ認証情報を読み取らずに Happier の組み込みモデルカタログを使用します。"
+                    },
                     claudeUnifiedTerminalEnabled: {
                         title: "統合ターミナルランタイムを使用",
                         subtitle: "UI とターミナルが同じ Claude Code 実行を共有できるよう、ターミナルセッション経由で Claude を操作します。"
@@ -4441,6 +4449,10 @@ localTailscale: {
             opencode: {
                 title: "OpenCode",
                 sections: {
+                    cliGeneration: {
+                        title: "OpenCode のバージョン",
+                        footer: "自動では opencode を優先し、なければ opencode2 を使い、起動後にサーバー API を検出します。安定版は常に opencode を選びますが、V1 または V2 の検出は引き続き行います。V2 は opencode2 を優先し、なければ V2 を選択して opencode を使います。Happier の MCP ツールは V2 の ACP モードで利用できますが、サーバー API は動的 MCP 登録にまだ対応していません。"
+                    },
                     backendMode: {
                         title: "バックエンドモード",
                         footer: "サーバーモードでは質問機能とネイティブフォークが使えます。ACP モードはレガシーなフォールバックです。"
@@ -4451,6 +4463,15 @@ localTailscale: {
                     }
                 },
                 fields: {
+                    opencodeCliGeneration: {
+                        title: "CLI 世代",
+                        subtitle: "Happier が起動するインストール済み OpenCode コマンドを選択します。",
+                        options: {
+                            auto: { title: "自動（推奨）", subtitle: "opencode を優先し、なければ opencode2 を使います。" },
+                            stable: { title: "安定版", subtitle: "常に opencode を起動し、起動後にサーバー API を検出します。" },
+                            v2: { title: "V2", subtitle: "opencode2 を優先し、なければ V2 を選択して opencode を起動します。" }
+                        }
+                    },
                     opencodeBackendMode: {
                         title: "OpenCode バックエンドモード",
                         subtitle: "統合バックエンドを選択します。",

@@ -18,7 +18,6 @@ type CacheEntry = Readonly<{
     model: SessionListRowModel;
     inputSignature: string;
     itemRef: SessionListRowSessionItem;
-    dataIndex: number;
     adjacency: Readonly<{ isFirst: boolean; isLast: boolean; isSingle: boolean }>;
     stableSettings: StablePresentationSettingsRefs;
     itemSessionRef: SessionListRowSessionItem['session'];
@@ -32,6 +31,19 @@ type CacheEntry = Readonly<{
 export type SessionListRowModelsCache = {
     entries: Map<string, CacheEntry>;
 };
+
+export type SessionListRowModelAdjacency = Readonly<{
+    isFirst: boolean;
+    isLast: boolean;
+    isSingle: boolean;
+}>;
+
+const SESSION_LIST_ROW_MODEL_ADJACENCY_VALUES: ReadonlyArray<SessionListRowModelAdjacency> = Object.freeze([
+    Object.freeze({ isFirst: false, isLast: false, isSingle: false }),
+    Object.freeze({ isFirst: true, isLast: false, isSingle: false }),
+    Object.freeze({ isFirst: false, isLast: true, isSingle: false }),
+    Object.freeze({ isFirst: true, isLast: true, isSingle: true }),
+]);
 
 type StablePresentationSettingsRefs = Readonly<{
     currentUserId: SessionListRowPresentationSettings['currentUserId'];
@@ -61,7 +73,6 @@ type StablePresentationSettingsRefs = Readonly<{
 export type BuildCachedSessionListRowModelInput = Readonly<{
     item: SessionListRowSessionItem;
     snapshot: SessionListRowStateSnapshot;
-    dataIndex: number;
     adjacency: Readonly<{ isFirst: boolean; isLast: boolean; isSingle: boolean }>;
     settings: SessionListRowPresentationSettings;
     cache: SessionListRowModelsCache;
@@ -157,7 +168,6 @@ function areStablePresentationSettingsRefsEqual(
 function buildInputSignature(input: Readonly<{
     item: SessionListRowSessionItem;
     rowKey: string;
-    dataIndex: number;
     adjacency: Readonly<{ isFirst: boolean; isLast: boolean; isSingle: boolean }>;
     snapshot: SessionListRowStateSnapshot;
     settings: SessionListRowPresentationSettings;
@@ -167,7 +177,6 @@ function buildInputSignature(input: Readonly<{
     const rowTags = settings.sessionTagsByKey[rowKey] ?? [];
     const reachableDisplay = settings.reachableSessionDisplayByKey[rowKey];
     appendSignaturePart(parts, rowKey);
-    appendSignaturePart(parts, input.dataIndex);
     appendSignaturePart(parts, item.section);
     appendSignaturePart(parts, item.groupKey);
     appendSignaturePart(parts, item.groupKind);
@@ -276,14 +285,12 @@ function canReuseEntryWithoutSignature(input: Readonly<{
     entry: CacheEntry;
     snapshot: SessionListRowStateSnapshot;
     item: SessionListRowSessionItem;
-    dataIndex: number;
     adjacency: Readonly<{ isFirst: boolean; isLast: boolean; isSingle: boolean }>;
     settings: SessionListRowPresentationSettings;
     stableSettings: StablePresentationSettingsRefs;
 }>): boolean {
     const entry = input.entry;
     return entry.itemRef === input.item
-        && entry.dataIndex === input.dataIndex
         && entry.adjacency.isFirst === input.adjacency.isFirst
         && entry.adjacency.isLast === input.adjacency.isLast
         && entry.adjacency.isSingle === input.adjacency.isSingle
@@ -300,7 +307,7 @@ function canReuseEntryWithoutSignature(input: Readonly<{
 export function resolveSessionListRowModelAdjacency(
     items: ReadonlyArray<SessionListViewItem>,
     index: number,
-): Readonly<{ isFirst: boolean; isLast: boolean; isSingle: boolean }> {
+): SessionListRowModelAdjacency {
     const item = items[index];
     const groupKey = isSessionItem(item) ? String(item.groupKey ?? '').trim() : '';
     const prev = index > 0 ? items[index - 1] : null;
@@ -309,11 +316,7 @@ export function resolveSessionListRowModelAdjacency(
     const nextGroupKey = next && isSessionItem(next) ? String(next.groupKey ?? '').trim() : '';
     const isFirst = !groupKey || prevGroupKey !== groupKey;
     const isLast = !groupKey || nextGroupKey !== groupKey;
-    return {
-        isFirst,
-        isLast,
-        isSingle: isFirst && isLast,
-    };
+    return SESSION_LIST_ROW_MODEL_ADJACENCY_VALUES[(isFirst ? 1 : 0) | (isLast ? 2 : 0)];
 }
 
 export function buildCachedSessionListRowModel(input: BuildCachedSessionListRowModelInput): SessionListRowModel {
@@ -324,7 +327,6 @@ export function buildCachedSessionListRowModel(input: BuildCachedSessionListRowM
         entry: cached,
         snapshot: input.snapshot,
         item: input.item,
-        dataIndex: input.dataIndex,
         adjacency: input.adjacency,
         settings: input.settings,
         stableSettings,
@@ -335,7 +337,6 @@ export function buildCachedSessionListRowModel(input: BuildCachedSessionListRowM
     const inputSignature = buildInputSignature({
         item: input.item,
         rowKey,
-        dataIndex: input.dataIndex,
         adjacency: input.adjacency,
         snapshot: input.snapshot,
         settings: input.settings,
@@ -352,7 +353,6 @@ export function buildCachedSessionListRowModel(input: BuildCachedSessionListRowM
         : buildSessionListRowModel({
             item: input.item,
             state: input.snapshot,
-            dataIndex: input.dataIndex,
             isFirst: input.adjacency.isFirst,
             isLast: input.adjacency.isLast,
             isSingle: input.adjacency.isSingle,
@@ -362,7 +362,6 @@ export function buildCachedSessionListRowModel(input: BuildCachedSessionListRowM
         model,
         inputSignature,
         itemRef: input.item,
-        dataIndex: input.dataIndex,
         adjacency: input.adjacency,
         stableSettings,
         itemSessionRef: input.item.session,

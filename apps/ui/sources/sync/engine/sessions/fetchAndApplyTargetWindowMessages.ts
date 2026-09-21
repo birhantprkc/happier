@@ -300,7 +300,7 @@ export async function fetchAndApplyTargetWindowMessages(params: {
 
     const pageResults: TargetWindowPageResult[] = [result];
     if (useInitialMaterialization) {
-        pageResults.push(await loadPage({
+        const newerResult = await loadPage({
             direction: 'newer',
             requestPath: buildSessionMessagesPath({
                 sessionId: params.sessionId,
@@ -310,7 +310,23 @@ export async function fetchAndApplyTargetWindowMessages(params: {
                 afterSeq: targetSequence,
             }),
             afterSeq: targetSequence,
-        }));
+        });
+        if (newerResult.skippedMissingSession) {
+            const latestWindowState = params.getWindowState();
+            return {
+                status: 'skipped_missing_session',
+                windowId: params.windowId,
+                targetSeq: targetSequence,
+                targetPresent: false,
+                rawSeqs: result.rawSeqs,
+                appliedSeqs: result.appliedSeqs,
+                olderCursor: latestWindowState.olderCursor,
+                newerCursor: latestWindowState.newerCursor,
+                hasMoreOlder: latestWindowState.hasMoreOlder,
+                hasMoreNewer: latestWindowState.hasMoreNewer,
+            };
+        }
+        pageResults.push(newerResult);
     }
 
     const rawSeqs = pageResults.flatMap((pageResult) => pageResult.rawSeqs);

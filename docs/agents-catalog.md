@@ -152,8 +152,9 @@ Built-in ACP `supportsModes: 'no'` disables mode projection and both mode mutati
 
 Agents whose ACP server advertises `session/list` expose their own sessions as **resume-only** candidates through the existing direct-sessions RPC family, using the generic `{ kind: 'acpSessionList', cwd? }` source instead of a provider-owned session store.
 
-- Static policy: `isBuiltInAcpSessionListingDeclared(agentId)` in `packages/agents/src/acp.ts` — true only for built-in ACP agents whose manifest declares `sessionCapabilities.sessionListing: 'supported'` (today Kimi and FX). The catalog-defined ACP entry adds `getDirectSessionProviderOps` only for those agents; the UI default behavior adds the browse source under the same declaration. No shared code branches on agent ids.
+- Static policy: `isAcpSessionListingDeclared(agentId)` in `packages/agents/src/acp.ts` — true only when the manifest declares both `sessionCapabilities.sessionListing: 'supported'` and `sessionListingSource: 'acp'` (currently Auggie, Qwen, Kimi, Kilo, Devin, Copilot, and FX). Generic and provider-owned ACP catalog entries project that same declaration into `getDirectSessionProviderOps`; the UI default behavior adds the browse source under the same declaration. No shared code branches on agent ids.
 - Runtime authority: `AcpBackend.listSessions` checks the negotiated `agentCapabilities.sessionCapabilities.list` from `initialize` and fails with `AcpSessionCapabilityNotNegotiatedError` before dispatching `session/list`; the daemon reports it as `provider_unavailable`.
+- UI/daemon compatibility: before sending the new `{ kind: 'acpSessionList' }` source, the canonical UI machine-direct-sessions operation probes `daemon.directSessions.acpSessionList.capability.get`. A missing method on the released `cli-v0.2.12` daemon degrades only this browse source to `provider_unavailable`; the UI never sends that daemon a source its released schema rejects. The capability is explicitly `resumeOnly: true` and grants no adjacent direct-session operation.
 - Candidates are opaque provider identifiers preserved byte-exactly after nonblank validation, plus title/cwd/updatedAt. They feed the new-session **resume** picker only. Transcript paging, activity, follow leases, linking and takeover are intentionally absent for this source (optional members on `DirectSessionProviderOps`), and `listDirectBrowseProviderIds()` excludes `resumeOnly` browse sources so the link/open browse list never offers them.
 - `session/close` is dispatched at `AcpBackend.dispose()` for the active session when negotiated, so agents that own session resources beyond the local process release them. When the live handshake also negotiates `session/delete`, the resume picker advertises a provider-owned candidate action and dispatches exactly one generic delete request after destructive confirmation. Agents that omit the capability remain valid and see no delete action; deleting a persisted Happier session never deletes the provider-owned candidate.
 
@@ -194,6 +195,12 @@ later failed refresh retains the bounded last successful account snapshot, serve
 failure cooldown, and retries discovery after that cooldown without replacing it on repeat failure.
 Effort tiers are resolved once when the session mode is built and travel on the mode, so spawn-time
 resolution and launch-option hashing see the same value and hashing stays pure.
+
+Claude dynamic discovery is one canonical allow/deny decision at that catalog owner. The account
+setting `claudeDynamicModelProbeEnabled` defaults to `true`; setting it to `false`, or setting
+`HAPPIER_CLAUDE_DYNAMIC_MODEL_PROBE_ENABLED=0` in the CLI/daemon environment, returns the static
+catalog before resolving any credential or reading the provider-owned cache. The environment value
+is a local kill switch and cannot re-enable discovery after the account setting disables it.
 
 Provider-owned probing:
 - The CLI capability RPC resolves the selected backend profile once before any model, mode, or

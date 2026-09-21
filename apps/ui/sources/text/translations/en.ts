@@ -3701,6 +3701,10 @@ export const en = {
             claude: {
                 title: "Claude Code",
                 sections: {
+                    claudeModelDiscovery: {
+                        title: "Model discovery",
+                        footer: "Control whether Happier asks Anthropic which models are available to the selected Claude account."
+                    },
                     claudeUnifiedTerminal: {
                         title: "Unified terminal runtime",
                         footer: "When enabled, Happier sends prompts into the same Claude Code terminal session instead of starting a separate Agent SDK runner."
@@ -3715,6 +3719,10 @@ export const en = {
                     }
                 },
                 fields: {
+                    claudeDynamicModelProbeEnabled: {
+                        title: "Discover available models",
+                        subtitle: "Allow Happier to query Anthropic using the selected Claude account. Turn this off to use Happier's built-in model catalog without reading native Claude Code credentials."
+                    },
                     claudeUnifiedTerminalEnabled: {
                         title: "Use unified terminal runtime",
                         subtitle: "Drive Claude through the terminal session so the UI and terminal share one Claude Code run."
@@ -3870,6 +3878,10 @@ export const en = {
             opencode: {
                 title: "OpenCode",
                 sections: {
+                    cliGeneration: {
+                        title: "OpenCode version",
+                        footer: "Auto prefers opencode, falls back to opencode2, and detects the server API after startup. Stable always selects opencode but still detects V1 or V2. V2 prefers opencode2 and otherwise uses opencode with V2 selected. OpenCode V2 supports Happier MCP tools in ACP mode; its server API does not currently expose dynamic MCP registration."
+                    },
                     backendMode: {
                         title: "Backend mode",
                         footer: "Server mode unlocks questions and native forking. ACP mode is a legacy fallback."
@@ -3880,6 +3892,24 @@ export const en = {
                     }
                 },
                 fields: {
+                    opencodeCliGeneration: {
+                        title: "CLI generation",
+                        subtitle: "Choose which installed OpenCode command Happier launches.",
+                        options: {
+                            auto: {
+                                title: "Auto (recommended)",
+                                subtitle: "Prefer opencode, then fall back to opencode2."
+                            },
+                            stable: {
+                                title: "Stable",
+                                subtitle: "Always launch opencode and detect its server API after startup."
+                            },
+                            v2: {
+                                title: "V2",
+                                subtitle: "Prefer opencode2; otherwise launch opencode with V2 selected."
+                            }
+                        }
+                    },
                     opencodeBackendMode: {
                         title: "OpenCode backend mode",
                         subtitle: "Choose the integration backend.",

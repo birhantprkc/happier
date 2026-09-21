@@ -42,13 +42,6 @@ vi.mock('@/agents/registry/registryUi', () => ({
     getAgentPickerIconScale: () => 1,
 }));
 
-// Hover-capable throughout: on this host the machine is only asked once the reader
-// reaches for the Agent chip, which is the harder case for a restored arm and the
-// one that shipped broken. Every case below restores without touching the chip.
-vi.mock('@/utils/platform/webMobileHeuristics', () => ({
-    isHoverCapablePrimaryPointer: () => true,
-}));
-
 let scopeSequence = 0;
 let SCOPE: ServerAccountScope = { serverId: 'server-1', accountId: 'account-0' };
 
@@ -132,14 +125,11 @@ async function renderControls(props: HookProps = {}) {
 
 const CURRENT_AGENT_ROW = { id: 'engine:claude', label: 'Claude Code', renderDetailContent: () => null };
 
-/** Reach for the Agent chip, let the machine answer, then select a target row. */
+/** Let the preflight answer, then select a target row. */
 async function armTarget(
     hook: Awaited<ReturnType<typeof renderControls>>,
     optionId: string,
 ): Promise<void> {
-    await act(async () => {
-        hook.getCurrent().onAgentPickerIntent();
-    });
     await act(async () => { await Promise.resolve(); });
     await act(async () => { await Promise.resolve(); });
     await act(async () => {
@@ -182,7 +172,12 @@ describe('useInSessionAgentPickerControls arm draft', () => {
         SCOPE = { serverId: 'server-1', accountId: `account-${++scopeSequence}` };
         announceAccessibilityMessage.mockClear();
         machineRpcWithServerScope.mockReset();
-        machineRpcWithServerScope.mockResolvedValue(AVAILABLE);
+        machineRpcWithServerScope.mockImplementation((params: { payload: { selections: readonly unknown[] } }) => (
+            Promise.resolve({
+                v: 1,
+                inspections: params.payload.selections.map(() => AVAILABLE),
+            })
+        ));
     });
 
     it('keeps the armed Agent across a remount, exactly as the draft text already survives one', async () => {
@@ -284,11 +279,12 @@ describe('useInSessionAgentPickerControls arm draft', () => {
         expect(hook.getCurrent().armedContinuation).toEqual(armedIntentFor('codex'));
     });
 
-    it('asks nothing for an unarmed Session until the reader reaches for the chip', async () => {
+    it('preflights an unarmed Session without arming anything', async () => {
         const hook = await renderControls();
 
-        expect(machineRpcWithServerScope).not.toHaveBeenCalled();
+        expect(machineRpcWithServerScope).toHaveBeenCalledTimes(1);
         expect(hook.getCurrent().armedContinuation).toBeNull();
+        expect(readPersistedArm()).toBeUndefined();
     });
 
     it('does not resurrect an arm the reader already cancelled', async () => {
@@ -314,8 +310,13 @@ describe('useInSessionAgentPickerControls arm draft', () => {
             intent: armedIntentFor('codex'),
             modelLabel: null,
         });
-        machineRpcWithServerScope.mockImplementation((params: { payload: { selection: { agentId: string } } }) => (
-            Promise.resolve(params.payload.selection.agentId === 'codex' ? UNSUPPORTED : AVAILABLE)
+        machineRpcWithServerScope.mockImplementation((params: { payload: { selections: readonly { agentId: string }[] } }) => (
+            Promise.resolve({
+                v: 1,
+                inspections: params.payload.selections.map((selection) => (
+                    selection.agentId === 'codex' ? UNSUPPORTED : AVAILABLE
+                )),
+            })
         ));
 
         const hook = await renderControls({ entries: [entry('claude'), entry('codex'), entry('gemini')] });
@@ -427,7 +428,7 @@ describe('useInSessionAgentPickerControls arm draft', () => {
         await armTarget(hook, 'builtInAgent:codex');
         const localId = hook.getCurrent().armedContinuationLocalId;
         expect(localId).toEqual(expect.any(String));
-        const reinspection = createDeferred<typeof AVAILABLE>();
+        const reinspection = createDeferred<{ v: 1; inspections: readonly (typeof AVAILABLE)[] }>();
         machineRpcWithServerScope.mockImplementationOnce(() => reinspection.promise);
 
         await hook.rerender({ machine: { ...onlineMachine, daemonGeneration: 2 } });
@@ -441,7 +442,7 @@ describe('useInSessionAgentPickerControls arm draft', () => {
         expect(readPersistedArm()).toBeDefined();
 
         await act(async () => {
-            reinspection.resolve(AVAILABLE);
+            reinspection.resolve({ v: 1, inspections: [AVAILABLE] });
             await Promise.resolve();
         });
         await act(async () => { await Promise.resolve(); });
@@ -456,7 +457,7 @@ describe('useInSessionAgentPickerControls arm draft', () => {
         await armTarget(hook, 'builtInAgent:codex');
         const localId = hook.getCurrent().armedContinuationLocalId;
         expect(localId).toEqual(expect.any(String));
-        const reinspection = createDeferred<typeof UNSUPPORTED>();
+        const reinspection = createDeferred<{ v: 1; inspections: readonly (typeof UNSUPPORTED)[] }>();
         machineRpcWithServerScope.mockImplementationOnce(() => reinspection.promise);
 
         await hook.rerender({ machine: { ...onlineMachine, connectionGeneration: 2 } });
@@ -469,7 +470,7 @@ describe('useInSessionAgentPickerControls arm draft', () => {
         expect(readPersistedArm()).toBeDefined();
 
         await act(async () => {
-            reinspection.resolve(UNSUPPORTED);
+            reinspection.resolve({ v: 1, inspections: [UNSUPPORTED] });
             await Promise.resolve();
         });
         await act(async () => { await Promise.resolve(); });

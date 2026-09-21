@@ -154,6 +154,7 @@ export {
   getBuiltInAcpConfig,
   hasBuiltInAcpConfig,
   isBuiltInAcpSessionListingDeclared,
+  isAcpSessionListingDeclared,
   type BuiltInAcpConfig,
   type BuiltInAcpTransportProfile,
   type BuiltInAcpYesNoAuto,

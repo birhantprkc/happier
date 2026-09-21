@@ -3,9 +3,13 @@ import * as React from 'react';
 import type { ActionOperationSnapshotV1, ActionOperationStateV1 } from '@happier-dev/protocol';
 
 import {
+    createActionOperationActivitySummarySelector,
     createInboxActionOperationEntriesSelector,
+    createInboxActionOperationSummarySelector,
     createActionOperationSelector,
+    type ActionOperationActivitySummary,
     type InboxActionOperationEntry,
+    type InboxActionOperationSummary,
     selectActionOperationObservation,
     selectActionOperationObservationForOperation,
     selectActionOperationsNeedAttention,
@@ -147,11 +151,51 @@ export function useInboxActionOperationEntries(accountId: string): readonly Inbo
     );
 }
 
+export function useInboxActionOperationSummary(accountId: string): InboxActionOperationSummary {
+    const selector = React.useMemo(
+        () => createInboxActionOperationSummarySelector(
+            accountId,
+            actionOperationReentry.resolvePresentation,
+        ),
+        [accountId],
+    );
+    React.useSyncExternalStore(
+        actionOperationReentry.subscribe,
+        actionOperationReentry.getRevision,
+        actionOperationReentry.getRevision,
+    );
+    return React.useSyncExternalStore(
+        actionOperationStore.subscribe,
+        () => selector(actionOperationStore.getState()),
+        () => selector(actionOperationStore.getState()),
+    );
+}
+
 export function useActionOperationsNeedAttention(accountId: string): boolean {
     return React.useSyncExternalStore(
         actionOperationStore.subscribe,
         () => selectActionOperationsNeedAttention(actionOperationStore.getState(), accountId),
         () => selectActionOperationsNeedAttention(actionOperationStore.getState(), accountId),
+    );
+}
+
+export function useActionOperationActivitySummary(accountId: string): ActionOperationActivitySummary {
+    const selector = React.useMemo(
+        () => createActionOperationActivitySummarySelector(
+            accountId,
+            actionOperationReentry.resolvePresentation,
+        ),
+        [accountId],
+    );
+    React.useSyncExternalStore(
+        actionOperationReentry.subscribe,
+        actionOperationReentry.getRevision,
+        actionOperationReentry.getRevision,
+    );
+    return React.useSyncExternalStore(
+        actionOperationStore.subscribe,
+        () => selector(actionOperationStore.getState()),
+        () => selector(actionOperationStore.getState()),
     );
 }
 

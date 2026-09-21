@@ -3940,6 +3940,10 @@ export const ru: TranslationStructure = {
             claude: {
                 title: "Claude Code",
                 sections: {
+                    claudeModelDiscovery: {
+                        title: "Обнаружение моделей",
+                        footer: "Определяет, будет ли Happier запрашивать у Anthropic модели, доступные выбранной учетной записи Claude."
+                    },
                     claudeUnifiedTerminal: {
                         title: "Единый терминальный runtime",
                         footer: "Когда включено, Happier отправляет промпты в ту же терминальную сессию Claude Code, а не запускает отдельный Agent SDK runner."
@@ -3954,6 +3958,10 @@ export const ru: TranslationStructure = {
                     }
                 },
                 fields: {
+                    claudeDynamicModelProbeEnabled: {
+                        title: "Обнаруживать доступные модели",
+                        subtitle: "Разрешает Happier обращаться к Anthropic с выбранной учетной записью Claude. Отключите, чтобы использовать встроенный каталог Happier без чтения собственных учетных данных Claude Code."
+                    },
                     claudeUnifiedTerminalEnabled: {
                         title: "Использовать единый терминальный runtime",
                         subtitle: "Управляйте Claude через терминальную сессию, чтобы UI и терминал совместно использовали один запуск Claude Code."
@@ -4109,6 +4117,10 @@ export const ru: TranslationStructure = {
             opencode: {
                 title: "OpenCode",
                 sections: {
+                    cliGeneration: {
+                        title: "Версия OpenCode",
+                        footer: "Автовыбор предпочитает opencode, переключается на opencode2 и определяет API сервера после запуска. Стабильный режим всегда выбирает opencode, но всё равно определяет V1 или V2. V2 предпочитает opencode2, а иначе использует opencode с выбранным V2. Инструменты MCP Happier работают с V2 в режиме ACP; серверный API пока не поддерживает динамическую регистрацию MCP."
+                    },
                     backendMode: {
                         title: "Режим бэкенда",
                         footer: "Серверный режим открывает вопросы и нативный форк. Режим ACP — устаревший резервный вариант."
@@ -4119,6 +4131,15 @@ export const ru: TranslationStructure = {
                     }
                 },
                 fields: {
+                    opencodeCliGeneration: {
+                        title: "Поколение CLI",
+                        subtitle: "Выберите установленную команду OpenCode, которую запускает Happier.",
+                        options: {
+                            auto: { title: "Автоматически (рекомендуется)", subtitle: "Предпочитает opencode и переключается на opencode2." },
+                            stable: { title: "Стабильная", subtitle: "Всегда запускает opencode и определяет API после запуска." },
+                            v2: { title: "V2", subtitle: "Предпочитает opencode2; иначе запускает opencode с выбранным V2." }
+                        }
+                    },
                     opencodeBackendMode: {
                         title: "Режим бэкенда OpenCode",
                         subtitle: "Выберите интеграционный бэкенд.",

@@ -2,6 +2,7 @@ import type {
   DirectSessionCandidateV1,
   DirectSessionsSource,
   DirectTranscriptRawMessageV1,
+  DirectTranscriptTruncationReason,
 } from '@happier-dev/protocol';
 
 import type {
@@ -31,12 +32,14 @@ export type DirectSessionTranscriptPage = Readonly<{
   tailCursor: string | null;
   hasMore: boolean;
   truncated: boolean;
+  truncationReason?: DirectTranscriptTruncationReason;
 }>;
 
 export type DirectSessionTranscriptReadAfter = Readonly<{
   items: DirectTranscriptRawMessageV1[];
   nextCursor: string | null;
   truncated: boolean;
+  truncationReason?: DirectTranscriptTruncationReason;
 }>;
 
 /**

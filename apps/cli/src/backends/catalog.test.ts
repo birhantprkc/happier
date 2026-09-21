@@ -253,6 +253,11 @@ describe('AGENTS', () => {
       getActivity: expect.any(Function),
       resolveTakeoverSpawnOptions: expect.any(Function),
     });
+    for (const providerId of ['auggie', 'qwen', 'kilo', 'devin', 'kimi', 'copilot', 'fx'] as const) {
+      await expect(getDirectSessionProviderOps(providerId)).resolves.toMatchObject({
+        listCandidates: expect.any(Function),
+      });
+    }
   });
 
   it('loads provider-attach ops through backend catalog hooks only for supporting providers', async () => {

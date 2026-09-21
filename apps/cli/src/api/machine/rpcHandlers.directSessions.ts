@@ -8,6 +8,7 @@ import {
   DirectSessionStatusGetRequestSchema,
   DirectSessionTakeoverPersistRequestSchema,
   DirectSessionTakeoverRequestSchema,
+  DirectSessionsAcpSessionListCapabilityRequestSchema,
   DirectSessionsCandidatesListRequestSchema,
   DirectTranscriptPageRequestSchema,
   DirectTranscriptReadAfterRequestSchema,
@@ -21,6 +22,7 @@ import {
   type DirectSessionStatusGetResponse,
   type DirectSessionTakeoverPersistResponse,
   type DirectSessionTakeoverResponse,
+  type DirectSessionsAcpSessionListCapabilityResponse,
   type DirectSessionsCandidatesListResponse,
   type DirectTranscriptPageResponse,
   type DirectTranscriptReadAfterResponse,
@@ -299,6 +301,18 @@ export function registerMachineDirectSessionsRpcHandlers(params: Readonly<{
     }
   });
 
+  rpcHandlerManager.registerHandler(RPC_METHODS.DAEMON_DIRECT_SESSIONS_ACP_SESSION_LIST_CAPABILITY_GET, async (raw: unknown) => {
+    const parsed = DirectSessionsAcpSessionListCapabilityRequestSchema.safeParse(raw);
+    if (!parsed.success) return err('invalid_request');
+    return {
+      ok: true,
+      capability: 'acp_session_list_v1',
+      protocolVersion: 1,
+      sourceKind: 'acpSessionList',
+      resumeOnly: true,
+    } satisfies DirectSessionsAcpSessionListCapabilityResponse;
+  });
+
   rpcHandlerManager.registerHandler(RPC_METHODS.DAEMON_DIRECT_SESSIONS_CANDIDATES_LIST, async (raw: unknown) => {
     const parsed = DirectSessionsCandidatesListRequestSchema.safeParse(raw);
     if (!parsed.success) return err('invalid_request') satisfies DirectSessionsCandidatesListResponse;
@@ -537,6 +551,7 @@ export function registerMachineDirectSessionsRpcHandlers(params: Readonly<{
         tailCursor: res.tailCursor,
         hasMore: res.hasMore,
         truncated: res.truncated,
+        ...(res.truncationReason ? { truncationReason: res.truncationReason } : {}),
       } satisfies DirectTranscriptPageResponse;
     } catch (error) {
       return errFromProviderFailure(error) satisfies DirectTranscriptPageResponse;
@@ -569,7 +584,7 @@ export function registerMachineDirectSessionsRpcHandlers(params: Readonly<{
         maxBytes,
         maxItems,
       });
-      return { ok: true, items: res.items, nextCursor: res.nextCursor, truncated: res.truncated } satisfies DirectTranscriptReadAfterResponse;
+      return { ok: true, ...res } satisfies DirectTranscriptReadAfterResponse;
     } catch (error) {
       return errFromProviderFailure(error) satisfies DirectTranscriptReadAfterResponse;
     }

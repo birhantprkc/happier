@@ -4013,6 +4013,10 @@ export const pl: TranslationStructure = {
             claude: {
                 title: "Claude Code",
                 sections: {
+                    claudeModelDiscovery: {
+                        title: "Wykrywanie modeli",
+                        footer: "Określa, czy Happier pyta Anthropic o modele dostępne dla wybranego konta Claude."
+                    },
                     claudeUnifiedTerminal: {
                         title: "Ujednolicony runtime terminala",
                         footer: "Po włączeniu Happier wysyła prompty do tej samej sesji terminala Claude Code zamiast uruchamiać osobny runner Agent SDK."
@@ -4027,6 +4031,10 @@ export const pl: TranslationStructure = {
                     }
                 },
                 fields: {
+                    claudeDynamicModelProbeEnabled: {
+                        title: "Wykrywaj dostępne modele",
+                        subtitle: "Pozwala Happier pytać Anthropic przy użyciu wybranego konta Claude. Wyłącz, aby używać wbudowanego katalogu Happier bez odczytywania natywnych poświadczeń Claude Code."
+                    },
                     claudeUnifiedTerminalEnabled: {
                         title: "Użyj ujednoliconego runtime terminala",
                         subtitle: "Steruj Claude przez sesję terminala, aby UI i terminal współdzieliły jedno uruchomienie Claude Code."
@@ -4182,6 +4190,10 @@ export const pl: TranslationStructure = {
             opencode: {
                 title: "OpenCode",
                 sections: {
+                    cliGeneration: {
+                        title: "Wersja OpenCode",
+                        footer: "Tryb automatyczny preferuje opencode, przechodzi na opencode2 i wykrywa API serwera po uruchomieniu. Tryb stabilny zawsze wybiera opencode, ale nadal wykrywa V1 lub V2. V2 preferuje opencode2, a w przeciwnym razie używa opencode z wybranym V2. Narzędzia MCP Happier działają z V2 w trybie ACP; jego API serwera nie obsługuje jeszcze dynamicznej rejestracji MCP."
+                    },
                     backendMode: {
                         title: "Tryb backendu",
                         footer: "Tryb serwerowy odblokowuje pytania i natywny fork. Tryb ACP to starszy tryb awaryjny."
@@ -4192,6 +4204,15 @@ export const pl: TranslationStructure = {
                     }
                 },
                 fields: {
+                    opencodeCliGeneration: {
+                        title: "Generacja CLI",
+                        subtitle: "Wybierz zainstalowane polecenie OpenCode uruchamiane przez Happier.",
+                        options: {
+                            auto: { title: "Automatycznie (zalecane)", subtitle: "Preferuje opencode i przechodzi na opencode2." },
+                            stable: { title: "Stabilne", subtitle: "Zawsze uruchamia opencode i wykrywa API po uruchomieniu." },
+                            v2: { title: "V2", subtitle: "Preferuje opencode2; w przeciwnym razie uruchamia opencode z wybranym V2." }
+                        }
+                    },
                     opencodeBackendMode: {
                         title: "Tryb backendu OpenCode",
                         subtitle: "Wybierz backend integracyjny.",

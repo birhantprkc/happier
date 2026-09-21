@@ -70,7 +70,9 @@ Use the refresh button in the model section after changing provider login state,
 
 Not every provider has a dynamic model API.
 
-For static-only providers, Happier uses its built-in provider catalog instead. Claude is the main example: Claude models can still be selected and favorited even though the model list is static rather than dynamically probed.
+For static-only providers, Happier uses its built-in provider catalog instead. Claude also uses its
+built-in catalog when **Discover available models** is turned off in Claude settings; no Claude
+credential is read for model discovery and no model-catalog request is sent in that mode.
 
 Static model lists can still change when Happier updates its provider catalog.
 

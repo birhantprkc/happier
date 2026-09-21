@@ -4103,6 +4103,10 @@ export const pt: TranslationStructure = {
             claude: {
                 title: "Claude Code",
                 sections: {
+                    claudeModelDiscovery: {
+                        title: "Descoberta de modelos",
+                        footer: "Controla se o Happier pergunta à Anthropic quais modelos estão disponíveis para a conta Claude selecionada."
+                    },
                     claudeUnifiedTerminal: {
                         title: "Runtime de terminal unificado",
                         footer: "Quando ativado, o Happier envia prompts para a mesma sessao de terminal do Claude Code em vez de iniciar um runner Agent SDK separado."
@@ -4117,6 +4121,10 @@ export const pt: TranslationStructure = {
                     }
                 },
                 fields: {
+                    claudeDynamicModelProbeEnabled: {
+                        title: "Descobrir modelos disponíveis",
+                        subtitle: "Permite que o Happier consulte a Anthropic com a conta Claude selecionada. Desative para usar o catálogo integrado do Happier sem ler as credenciais nativas do Claude Code."
+                    },
                     claudeUnifiedTerminalEnabled: {
                         title: "Usar runtime de terminal unificado",
                         subtitle: "Controle o Claude pela sessao de terminal para que a UI e o terminal compartilhem uma execucao do Claude Code."
@@ -4272,6 +4280,10 @@ export const pt: TranslationStructure = {
             opencode: {
                 title: "OpenCode",
                 sections: {
+                    cliGeneration: {
+                        title: "Versão do OpenCode",
+                        footer: "Automático prefere opencode, recorre a opencode2 e detecta a API do servidor após a inicialização. Estável sempre seleciona opencode, mas ainda detecta V1 ou V2. V2 prefere opencode2 e, caso contrário, usa opencode com V2 selecionado. As ferramentas MCP do Happier funcionam com V2 no modo ACP; a API de servidor ainda não oferece registro MCP dinâmico."
+                    },
                     backendMode: {
                         title: "Modo de backend",
                         footer: "O modo servidor libera perguntas e fork nativo. O modo ACP e um fallback legado."
@@ -4282,6 +4294,15 @@ export const pt: TranslationStructure = {
                     }
                 },
                 fields: {
+                    opencodeCliGeneration: {
+                        title: "Geração da CLI",
+                        subtitle: "Escolha qual comando OpenCode instalado o Happier inicia.",
+                        options: {
+                            auto: { title: "Automático (recomendado)", subtitle: "Prefere opencode e recorre a opencode2." },
+                            stable: { title: "Estável", subtitle: "Sempre inicia opencode e detecta a API após a inicialização." },
+                            v2: { title: "V2", subtitle: "Prefere opencode2; caso contrário, inicia opencode com V2 selecionado." }
+                        }
+                    },
                     opencodeBackendMode: {
                         title: "Modo de backend do OpenCode",
                         subtitle: "Escolha o backend de integracao.",

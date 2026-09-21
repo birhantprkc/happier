@@ -10,7 +10,7 @@ import { fakeClaudeFixturePath } from '../../src/testkit/fakeClaude';
 import { gotoDomContentLoadedWithRetries, normalizeLoopbackBaseUrl } from '../../src/testkit/uiE2e/pageNavigation';
 import { mutateUiE2eLocalSettings } from '../../src/testkit/uiE2e/localSettingsStorage';
 import { mutateUiE2eScopedAccountSettings } from '../../src/testkit/uiE2e/scopedAccountSettingsStorage';
-import { createGitRepoWithChanges } from '../../src/testkit/uiE2e/gitRepoFixtures';
+import { createGitRepoWithChanges, execGit } from '../../src/testkit/uiE2e/gitRepoFixtures';
 import { spawnSessionFromDaemon } from '../../src/testkit/uiE2e/spawnSessionFromDaemon';
 import { toTestIdSafeValue } from '../../src/testkit/uiE2e/testIdSafeValue';
 import { waitForInitialAppUi } from '../../src/testkit/uiE2e/waitForInitialAppUi';
@@ -127,18 +127,31 @@ test.describe('ui e2e: session action rail', () => {
       daemon = runDaemon;
 
       const repoDir = resolve(join(testDir, 'repo'));
-      await createGitRepoWithChanges({ repoDir, fileCount: 2 });
+      await createGitRepoWithChanges({ repoDir, fileCount: 100 });
+
+      execGit(repoDir, ['branch', '-m', 'rail-tooltip-fixture']);
 
       const sessionId = await spawnSessionFromDaemon({ daemon: runDaemon, directory: repoDir });
       const sessionUrl = `${uiBaseUrl}/session/${sessionId}`;
 
       await mutateUiE2eScopedAccountSettings({ page, experiments: true, featureToggles: { 'terminal.embeddedPty': true } });
-      await mutateUiE2eLocalSettings({ page, settingsPatch: { themePreference: 'light', embeddedTerminalDockLocation: 'bottom' } });
+      await mutateUiE2eLocalSettings({ page, settingsPatch: { themePreference: 'light', embeddedTerminalDockLocation: 'bottom', uiContentWidthMode: 'compact' } });
       await page.goto(sessionUrl, { waitUntil: 'domcontentloaded' });
       const rail = page.getByTestId('session-action-rail');
       const review = page.getByTestId('session-action-rail:review');
       const files = page.getByTestId('session-action-rail:files');
       await expect(rail).toBeVisible({ timeout: 180_000 });
+      await expect(rail).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+      for (const edge of ['top', 'right', 'bottom', 'left']) {
+        await expect(rail).toHaveCSS(`border-${edge}-width`, '0px');
+      }
+      await expect(page.getByTestId('session-header-right-sidebar-button')).toHaveCount(0);
+      for (const action of ['subagents', 'transcript-navigation', 'terminal']) {
+        await expect(page.getByTestId(`session-header-${action}-button`)).toHaveCount(0);
+      }
+      await expect(page.getByTestId('session-action-rail:agents')).toBeVisible();
+      await expect(page.getByTestId('session-action-rail:navigation')).toBeVisible();
+      await expect(page.getByTestId('session-action-rail:terminal')).toBeVisible();
       // These live dimensions prove the current rail bundle is loaded and its targets remain compact.
       expect((await rail.boundingBox())?.width).toBe(44);
       expect((await review.boundingBox())?.width).toBe(36);
@@ -146,6 +159,40 @@ test.describe('ui e2e: session action rail', () => {
       expect((await review.locator('svg').boundingBox())?.width).toBe(18);
       await expect(rightPaneLocator(page)).toHaveCount(0);
       await expect(detailsPaneLocator(page)).toHaveCount(0);
+      const composer = page.getByTestId('session-composer-input');
+      await composer.fill(`action rail alignment ${run.runId}`);
+      const send = page.getByTestId('session-composer-send');
+      await expect(send).toBeEnabled({ timeout: 60_000 });
+      await send.click();
+      await expect(page.getByText('FAKE_CLAUDE_OK_1').first()).toBeVisible({ timeout: 180_000 });
+      await expect(page.locator('[data-testid^="transcript-message-"]').first()).toBeVisible({ timeout: 60_000 });
+      const measureHeaderAlignment = async () => page.evaluate(() => {
+        const avatar = document.querySelector('[data-testid="session-header-avatar"]')!;
+        const info = document.querySelector('[data-testid="session-header-info-button"]')!;
+        const headerRow = avatar.parentElement!;
+        const wrapper = headerRow.parentElement!;
+        const candidates = Array.from(document.querySelectorAll('[data-testid^="transcript-message-"] div'));
+        const cappedRow = candidates.find((node) => {
+          const style = getComputedStyle(node);
+          return style.maxWidth === '850px' && node.getBoundingClientRect().width > 0;
+        });
+        if (!cappedRow) throw new Error('missing visible width-capped transcript row');
+        const row = cappedRow.getBoundingClientRect();
+        const outer = wrapper.getBoundingClientRect();
+        const avatarRect = avatar.getBoundingClientRect();
+        const infoRect = info.getBoundingClientRect();
+        return { avatarLeft: avatarRect.left, transcriptLeft: row.left + 16,
+          actionsRight: infoRect.right, originalActionsRight: outer.right - Math.max(0, (outer.width - 850) / 2) - 16,
+          outerWidth: outer.width, rowWidth: row.width };
+      });
+      await expect.poll(async () => {
+        const geometry = await measureHeaderAlignment();
+        return Math.abs(geometry.avatarLeft - geometry.transcriptLeft);
+      }).toBeLessThanOrEqual(1);
+      const wideHeaderGeometry = await measureHeaderAlignment();
+      expect(Math.abs(wideHeaderGeometry.actionsRight - wideHeaderGeometry.originalActionsRight)).toBeLessThanOrEqual(1);
+      await testInfo.attach('closed-pane-header-geometry', { body: JSON.stringify(wideHeaderGeometry), contentType: 'application/json' });
+      await page.screenshot({ path: testInfo.outputPath('rail-closed-header-alignment.png') });
       await review.click();
       await expect(detailsPaneLocator(page)).toBeVisible();
       await expect(rightPaneLocator(page)).toHaveCount(0);
@@ -162,8 +209,50 @@ test.describe('ui e2e: session action rail', () => {
       await files.click();
       await expect(rightPaneLocator(page)).toBeVisible();
       await expect(detailsPaneLocator(page)).toBeVisible();
+      await expect(page.getByTestId('session-rightpanel-close')).toHaveCount(0);
+      // Badge stays compact while the tooltip exposes all 101 tracked changed files.
+      await expect(page.getByTestId('session-action-rail:git:badge')).toHaveText('99+', { timeout: 60_000 });
+      const gitAction = page.getByTestId('session-action-rail:git');
+      await gitAction.hover();
+      const gitTooltip = page.getByTestId('session-action-rail:git-tooltip');
+      await expect(gitTooltip).toBeVisible();
+      const changedCount = gitTooltip.getByText('Changed files: 101', { exact: true });
+      const addedLines = gitTooltip.getByText('+460', { exact: true });
+      const removedLines = gitTooltip.getByText('−240', { exact: true });
+      const branch = gitTooltip.getByText('rail-tooltip-fixture', { exact: true });
+      await expect(changedCount).toBeVisible();
+      await expect(addedLines).toBeVisible();
+      await expect(removedLines).toBeVisible();
+      await expect(branch).toBeVisible();
+      const countBox = (await changedCount.boundingBox())!;
+      const addedBox = (await addedLines.boundingBox())!;
+      const branchBox = (await branch.boundingBox())!;
+      expect(addedBox.y).toBeGreaterThanOrEqual(countBox.y + countBox.height);
+      expect(branchBox.y).toBeGreaterThanOrEqual(addedBox.y + addedBox.height);
+      const addedColor = await addedLines.evaluate((node) => getComputedStyle(node).color);
+      const removedColor = await removedLines.evaluate((node) => getComputedStyle(node).color);
+      expect(addedColor).not.toBe(removedColor);
+      expect(addedColor).not.toBe(await changedCount.evaluate((node) => getComputedStyle(node).color));
+      await page.screenshot({ path: testInfo.outputPath('git-rich-tooltip-hover.png') });
+      await page.mouse.move(0, 0);
+      await files.focus();
+      await page.keyboard.press('Shift+Tab');
+      await page.keyboard.press('Shift+Tab');
+      await expect(gitAction).toBeFocused();
+      await expect(branch).toBeVisible();
+      await page.screenshot({ path: testInfo.outputPath('git-rich-tooltip-keyboard.png') });
+      await gitAction.blur();
+      await page.mouse.move(0, 0);
+      await review.blur();
+      await expect(review).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+      const activeMarker = review.locator('div').filter({ hasNot: page.locator('svg') });
+      expect(await activeMarker.evaluateAll((nodes) => nodes.some((node) => {
+        const style = getComputedStyle(node);
+        return style.position === 'absolute' && style.width === '2px' && style.backgroundColor !== 'rgba(0, 0, 0, 0)';
+      }))).toBe(true);
       await page.screenshot({ path: testInfo.outputPath('rail-light-wide.png') });
       await review.hover();
+      await expect(review).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
       const tooltip = page.getByRole('tooltip');
       await expect(tooltip).toBeVisible();
       const tooltipBox = await tooltip.boundingBox();
@@ -217,6 +306,31 @@ test.describe('ui e2e: session action rail', () => {
       await review.click();
       await expect(reviewTab).toBeVisible();
       await page.screenshot({ path: testInfo.outputPath('rail-narrow-review.png') });
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto(sessionUrl, { waitUntil: 'domcontentloaded' });
+      const mobileBar = page.getByTestId(`session-cockpit-tabbar-${sessionId}`);
+      await expect(mobileBar).toBeVisible({ timeout: 60_000 });
+      await expect(page.getByTestId('session-header-terminal-button')).toHaveCount(0);
+      await expect(page.getByTestId('session-cockpit-tab-terminal')).toBeVisible();
+      const mobileTabs = mobileBar.getByRole('tab');
+      expect(await mobileTabs.count()).toBeGreaterThanOrEqual(5);
+      const mobileBoxes = await mobileTabs.evaluateAll((tabs) => tabs.map((tab) => {
+        const rect = tab.getBoundingClientRect();
+        return { x: rect.x, width: rect.width };
+      }));
+      for (const [index, box] of mobileBoxes.entries()) {
+        expect(box.width).toBeGreaterThanOrEqual(44);
+        if (index > 0) {
+          const previous = mobileBoxes[index - 1]!;
+          expect(Math.abs(box.x - previous.x - previous.width)).toBeLessThanOrEqual(1);
+        }
+      }
+      await page.screenshot({ path: testInfo.outputPath('mobile-cockpit-spacing.png') });
+      await mutateUiE2eScopedAccountSettings({ page, settingsPatch: { mobileWorkspaceExperienceV1: 'classic' } });
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await expect(page.getByTestId('session-header-terminal-button')).toBeVisible({ timeout: 60_000 });
+      await expect(mobileBar).toHaveCount(0);
+      await page.screenshot({ path: testInfo.outputPath('mobile-classic-header-fallback.png') });
     } catch (error) {
       throw appendBrowserDiagnostics(error, browserDiagnostics());
     } finally {

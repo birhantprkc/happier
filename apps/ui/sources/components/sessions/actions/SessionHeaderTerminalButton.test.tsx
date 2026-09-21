@@ -12,7 +12,7 @@ const layoutState = vi.hoisted(() => ({
     useRealPane: false,
     dockLocation: 'bottom' as 'bottom' | 'details' | 'sidebar',
     deviceType: 'tablet' as 'phone' | 'tablet',
-    platformOS: 'web' as 'web' | 'ios',
+    platformOS: 'web' as 'web' | 'ios' | 'android',
     windowWidthPx: 1400,
 }));
 const routerPushSpy = vi.hoisted(() => vi.fn());
@@ -178,6 +178,22 @@ describe('SessionHeaderTerminalButton', () => {
         expect(openBottomSpy).toHaveBeenCalledWith({ tabId: 'terminal' });
         expect(setBottomTabSpy).toHaveBeenCalledWith('terminal');
         expect(closeBottomSpy).not.toHaveBeenCalled();
+    });
+
+    it('uses an Android-native 48dp interactive box', async () => {
+        layoutState.platformOS = 'android';
+        layoutState.deviceType = 'phone';
+        layoutState.windowWidthPx = 390;
+
+        const { SessionHeaderTerminalButton } = await import('./SessionHeaderTerminalButton');
+        const screen = await renderScreen(<SessionHeaderTerminalButton sessionId="s1" scopeId="session:s1" serverId="server-session" />);
+        const button = screen.findByTestId('session-header-terminal-button');
+        if (!button || typeof button.props.style !== 'function') {
+            throw new Error('Expected the terminal Pressable style callback');
+        }
+
+        expect(button.props.style({ pressed: false })).toMatchObject({ width: 48, height: 48 });
+        expect(button.props.hitSlop).toBeUndefined();
     });
 
     it('closes the bottom pane when terminal is already open there', async () => {

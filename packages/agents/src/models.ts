@@ -282,9 +282,10 @@ export const AGENT_MODEL_CONFIG: Readonly<Record<AgentId, AgentModelConfig>> = O
   },
   qwen: {
     supportsSelection: true,
+    supportsFreeform: false,
     nonAcpApplyScope: 'next_prompt',
     acpModelConfigOptionId: 'model',
-    dynamicProbe: 'static-only',
+    dynamicProbe: 'auto',
     defaultMode: 'default',
     allowedModes: ['default'],
   },
@@ -301,9 +302,10 @@ export const AGENT_MODEL_CONFIG: Readonly<Record<AgentId, AgentModelConfig>> = O
   },
   kilo: {
     supportsSelection: true,
-    supportsFreeform: true,
+    supportsFreeform: false,
     nonAcpApplyScope: 'next_prompt',
     acpModelConfigOptionId: 'model',
+    dynamicProbe: 'auto',
     defaultMode: 'default',
     allowedModes: ['default'],
   },

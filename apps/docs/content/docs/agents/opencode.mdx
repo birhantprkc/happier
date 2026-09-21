@@ -8,7 +8,15 @@ This page documents how Happier integrates with **OpenCode** and what matters fo
 ## Requirements
 
 - OpenCode CLI installed on your machine.
-- Binary available on `PATH` as `opencode` or `opencode2` (or set `HAPPIER_OPENCODE_PATH`). Happier prefers the stable `opencode` name when both are installed; an explicit override is authoritative.
+- Binary available on `PATH` as `opencode` or `opencode2` (or set `HAPPIER_OPENCODE_PATH`).
+
+Choose **Auto**, **Stable**, or **V2** under **Settings → AI & Agents → AI backends → OpenCode**.
+Auto prefers `opencode`, falls back to the retained preview command `opencode2`, and detects the
+server dialect after startup. Stable always selects the released `opencode` command, but does not
+assume that command is V1: the server health probe still decides whether Happier uses the V1 or V2
+wire contract. V2 prefers `opencode2` when installed and otherwise launches the released `opencode`
+command with V2 selected. The same executable selection applies to managed servers, ACP sessions,
+terminal attach, handoff, and resume helpers.
 
 ## Install OpenCode
 
@@ -66,7 +74,17 @@ For most users, the important part is:
 
 By default, Happier uses a **managed local OpenCode server** on the machine and reuses it across sessions. Advanced users can set an explicit OpenCode server URL in settings; when you do that, Happier will keep using that explicit server for the session.
 
-The server-native backend negotiates the installed server's V1 or V2 API over the same authenticated connection. Operations still supplied only by the legacy API—dynamic MCP registration, session diff, and session fork—remain available on dual-surface beta servers. A pure-V2 server fails those operations explicitly instead of sending unsupported requests.
+The server-native backend negotiates the installed server's V1 or V2 API over the same authenticated connection. Dynamic MCP registration, session diff, and manual compaction remain available when the legacy V1 surface is present; a pure-V2 server fails those operations explicitly instead of sending unsupported requests. V1 also exposes a native session-fork route, but Happier cannot safely advertise that live-only distinction before child admission, so server-mode forks use replay for both dialects.
+
+Happier MCP tools are passed through normally when OpenCode runs through ACP. A pure V2
+server-native session cannot receive per-session Happier MCP tools because the current V2 server
+API has no dynamic MCP-registration route; the session remains usable and reports that capability
+as unavailable instead of pretending registration succeeded.
+
+Connected-account OAuth/request-auth is also V1-only. Happier's generated module is a callable V1
+auth factory, while the pure V2 loader accepts only `{ id, effect }` or `{ id, setup }` plugins and
+silently ignores incompatible modules. Use an OpenCode V1 installation or ACP for connected-account OAuth, or
+use a directly materialized OpenAI/Anthropic API key with V2.
 
 ## Start OpenCode from a terminal
 

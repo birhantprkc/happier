@@ -51,6 +51,7 @@ export const RPC_METHODS = {
   DAEMON_PROMPT_REGISTRY_DOWNLOAD_FINALIZE: 'daemon.promptRegistry.download.finalize',
   DAEMON_PROMPT_REGISTRY_DOWNLOAD_ABORT: 'daemon.promptRegistry.download.abort',
   DAEMON_PROMPT_REGISTRY_INSTALL: 'daemon.promptRegistry.install',
+  DAEMON_DIRECT_SESSIONS_ACP_SESSION_LIST_CAPABILITY_GET: 'daemon.directSessions.acpSessionList.capability.get',
   DAEMON_DIRECT_SESSIONS_CANDIDATES_LIST: 'daemon.directSessions.candidates.list',
   DAEMON_DIRECT_SESSION_CANDIDATE_DELETE: 'daemon.directSessions.candidate.delete',
   DAEMON_DIRECT_SESSION_LINK_ENSURE: 'daemon.directSessions.link.ensure',
@@ -102,6 +103,8 @@ export const RPC_METHODS = {
    * authority and persists nothing; the mutation revalidates every fact.
    */
   SESSION_CONTINUATION_INSPECT: 'session.continuation.inspect',
+  /** One source read/decrypt for every target shown by the Agent picker. */
+  SESSION_CONTINUATION_INSPECT_BATCH: 'session.continuation.inspectBatch',
   /**
    * Read-only rebuild of the activation brief one transition divider stands
    * for. Runs the same bounded context pass the transition ran, bounded by the

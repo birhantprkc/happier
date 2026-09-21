@@ -41,8 +41,8 @@ describe('sessionCapabilities', () => {
     expect(AGENTS_CORE.opencode.sessionCapabilities).toEqual({
       sessionListing: 'supported',
       sessionFork: {
-        conversation: 'supported',
-        fromMessage: 'supported',
+        conversation: 'unsupported',
+        fromMessage: 'unsupported',
       },
       sessionRollback: {
         conversation: 'unsupported',
@@ -94,7 +94,7 @@ describe('sessionCapabilities', () => {
   });
 
   it('provides a boolean helper for supported session capabilities', () => {
-    expect(isAgentSessionCapabilitySupported('opencode', 'sessionFork.fromMessage')).toBe(true);
+    expect(isAgentSessionCapabilitySupported('opencode', 'sessionFork.fromMessage')).toBe(false);
     expect(isAgentSessionCapabilitySupported('claude', 'sessionRollback.conversation')).toBe(false);
     expect(isAgentSessionCapabilitySupported('opencode', 'usageLimitRecovery.checkNow')).toBe(true);
     expect(isAgentSessionCapabilitySupported('pi', 'usageLimitRecovery.checkNow')).toBe(true);
@@ -144,7 +144,7 @@ describe('sessionCapabilities', () => {
     ).toBe('supported');
   });
 
-  it('downgrades opencode fork-from-message to server-only sessions', () => {
+  it('keeps ACP conversation fork scoped while server fork fails closed', () => {
     expect(
       evaluateAgentSessionCapabilitySupport({
         agentId: 'opencode',
@@ -160,6 +160,14 @@ describe('sessionCapabilities', () => {
         metadata: { opencodeBackendMode: 'acp' },
       }),
     ).toBe('supported');
+
+    expect(
+      evaluateAgentSessionCapabilitySupport({
+        agentId: 'opencode',
+        capability: 'sessionFork.conversation',
+        metadata: { opencodeBackendMode: 'server' },
+      }),
+    ).toBe('unsupported');
   });
 
   it('downgrades opencode usage-limit recovery check-now to server-only sessions', () => {
@@ -194,6 +202,6 @@ describe('sessionCapabilities', () => {
           opencodeBackendMode: 'acp',
         },
       }),
-    ).toBe('supported');
+    ).toBe('unsupported');
   });
 });

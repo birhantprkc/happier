@@ -127,10 +127,28 @@ describe('protocol package root exports', () => {
         expect(protocol.DirectSessionsProviderIdSchema.parse('claude')).toBe('claude');
         expect(protocol.DirectSessionsProviderIdSchema.parse('opencode')).toBe('opencode');
         expect(protocol.DirectSessionsProviderIdSchema.parse('pi')).toBe('pi');
+        expect(protocol.DirectSessionsProviderIdSchema.parse('devin')).toBe('devin');
+        expect(protocol.DirectSessionsProviderIdSchema.parse('auggie')).toBe('auggie');
+        expect(protocol.DirectSessionsProviderIdSchema.parse('qwen')).toBe('qwen');
+        expect(protocol.DirectSessionsProviderIdSchema.parse('kilo')).toBe('kilo');
+        expect(protocol.DirectSessionsProviderIdSchema.parse('copilot')).toBe('copilot');
         expect(protocol.DirectSessionsSourceSchema.safeParse({ kind: 'piAgentDir' }).success).toBe(true);
         expect(protocol.DirectSessionsSourceSchema.safeParse({ kind: 'piAgentDir', agentDir: '/custom/.pi/agent' }).success).toBe(true);
         expect(protocol.DirectSessionsSourceSchema.safeParse({ kind: 'piAgentDir', agentDir: '' }).success).toBe(false);
         expect(typeof protocol.DirectSessionsCandidatesListRequestSchema?.safeParse).toBe('function');
+        expect(protocol.DirectSessionsAcpSessionListCapabilityResponseSchema.parse({
+            ok: true,
+            capability: 'acp_session_list_v1',
+            protocolVersion: 1,
+            sourceKind: 'acpSessionList',
+            resumeOnly: true,
+        })).toEqual({
+            ok: true,
+            capability: 'acp_session_list_v1',
+            protocolVersion: 1,
+            sourceKind: 'acpSessionList',
+            resumeOnly: true,
+        });
         expect(protocol.DirectSessionsCandidatesListResponseSchema.safeParse({
             ok: true,
             candidates: [],

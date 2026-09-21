@@ -557,6 +557,31 @@ describe('registerMachineDirectSessionsRpcHandlers', () => {
     expect(res.candidates.map((c: any) => c.remoteSessionId)).toEqual(['sess-1']);
   });
 
+  it('advertises ACP session listing as resume-only without granting adjacent direct-session operations', async () => {
+    const registered = new Map<string, (params: any) => Promise<any>>();
+    const rpcHandlerManager = {
+      registerHandler: (method: string, handler: (params: any) => Promise<any>) => {
+        registered.set(method, handler);
+      },
+    } as any;
+
+    registerMachineDirectSessionsRpcHandlers({ rpcHandlerManager });
+
+    const capability = registered.get('daemon.directSessions.acpSessionList.capability.get');
+    expect(capability).toBeDefined();
+    await expect(capability!({})).resolves.toEqual({
+      ok: true,
+      capability: 'acp_session_list_v1',
+      protocolVersion: 1,
+      sourceKind: 'acpSessionList',
+      resumeOnly: true,
+    });
+    await expect(capability!({ unexpected: true })).resolves.toEqual(expect.objectContaining({
+      ok: false,
+      errorCode: 'invalid_request',
+    }));
+  });
+
   it('dispatches transcript.page to the claude adapter', async () => {
     const root = await mkdtemp(join(tmpdir(), 'happier-directSessions-rpc-page-'));
     const configDir = join(root, '.claude');
@@ -595,6 +620,11 @@ describe('registerMachineDirectSessionsRpcHandlers', () => {
     expect(res.items.length).toBeGreaterThanOrEqual(2);
     expect(res.items[0].raw.role).toBe('user');
     expect(res.tailCursor).toBeTruthy();
+    const readAfter = registered.get(RPC_METHODS.DAEMON_DIRECT_SESSION_TRANSCRIPT_READ_AFTER);
+    expect(await readAfter!({
+      machineId: 'm1', providerId: 'claude', remoteSessionId: 'sess-1',
+      source: { kind: 'claudeConfig', configDir, projectId: 'proj-a' }, cursor: 'invalid-cursor',
+    })).toMatchObject({ ok: true, truncated: true, truncationReason: 'source_discontinuity' });
   });
 
   it('rejects provider/source mismatches as invalid_request', async () => {

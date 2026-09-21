@@ -1,7 +1,7 @@
 import { realpathSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 
-import { isBuiltInAcpSessionListingDeclared, type AgentId } from '@happier-dev/agents';
+import { isAcpSessionListingDeclared, type AgentId } from '@happier-dev/agents';
 import type { DirectSessionsProviderId, DirectSessionsSource } from '@happier-dev/protocol';
 import { expandHomeDirPath } from '@happier-dev/cli-common/providers';
 
@@ -51,7 +51,7 @@ export function validateDirectMachineSource(params: Readonly<{
   // Generic ACP `session/list` source: no provider branch and no daemon-owned filesystem location.
   // Admission is the leaf capability declaration; the live ACP handshake remains the authority.
   if (source.kind === 'acpSessionList') {
-    if (!isBuiltInAcpSessionListingDeclared(providerId as AgentId)) {
+    if (!isAcpSessionListingDeclared(providerId as AgentId)) {
       return err('provider/source mismatch');
     }
     const rawCwd = typeof source.cwd === 'string' ? source.cwd.trim() : '';

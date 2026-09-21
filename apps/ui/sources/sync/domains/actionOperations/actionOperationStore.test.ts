@@ -7,7 +7,9 @@ import {
     type ActionOperationScope,
 } from './actionOperationStore';
 import {
+    createActionOperationActivitySummarySelector,
     createInboxActionOperationEntriesSelector,
+    createInboxActionOperationSummarySelector,
     createActionOperationSelector,
     selectActionOperationObservation,
     selectActionOperationObservationForOperation,
@@ -189,6 +191,46 @@ describe('actionOperationStore', () => {
         expect(selectInbox(store.getState())).toEqual([]);
     });
 
+    it('projects a stable closed-Activity summary without exposing detail collections', () => {
+        const store = createActionOperationStore();
+        let setupNeedsAttention = true;
+        const selectSummary = createActionOperationActivitySummarySelector(
+            primaryScope.accountId,
+            (operation) => operation.operationId === 'setup' && setupNeedsAttention
+                ? { kind: 'setup_needs_attention' }
+                : null,
+        );
+        const running = snapshot({ operationId: 'running', revision: 1, state: 'running' });
+        const unavailable = snapshot({ operationId: 'unavailable', revision: 1, state: 'running' });
+        const setup = snapshot({ operationId: 'setup', revision: 1, state: 'succeeded' });
+        store.merge(running);
+        store.merge(unavailable);
+        store.merge(setup);
+        store.markSeen(setup.operationId);
+        store.markUnavailable(unavailable.operationId);
+
+        const before = selectSummary(store.getState());
+        expect(before).toEqual({ activeCount: 1, hasAttention: true });
+
+        store.merge(snapshot({
+            operationId: 'other-account',
+            revision: 1,
+            state: 'running',
+            accountId: 'account-b',
+        }));
+        expect(selectSummary(store.getState())).toBe(before);
+
+        expect(store.dismissUnavailable(unavailable.operationId)).toBe(true);
+        expect(store.dismissUnavailable(running.operationId)).toBe(false);
+        store.setObservation(primaryScope, 'status_unavailable');
+        expect(selectSummary(store.getState())).toEqual({ activeCount: 0, hasAttention: true });
+
+        setupNeedsAttention = false;
+        expect(store.merge(snapshot({ operationId: running.operationId, revision: 2, state: 'succeeded' }))).toBe(true);
+        expect(store.markSeen(running.operationId)).toBe(true);
+        expect(selectSummary(store.getState())).toEqual({ activeCount: 0, hasAttention: false });
+    });
+
     it('projects only resolvable operation attention into Inbox and removes acknowledged or dismissed rows', () => {
         const store = createActionOperationStore();
         let setupNeedsAttention = true;
@@ -222,6 +264,52 @@ describe('actionOperationStore', () => {
         ]);
         setupNeedsAttention = false;
         expect(selectInbox(store.getState())).toEqual([]);
+    });
+
+    it('projects a stable exact Inbox operation summary through the shared entry classification', () => {
+        const store = createActionOperationStore();
+        let setupNeedsAttention = true;
+        const resolveLocalPresentation = (operation: ActionOperationSnapshotV1) => (
+            operation.operationId === 'setup' && setupNeedsAttention
+                ? { kind: 'setup_needs_attention' as const }
+                : null
+        );
+        const selectEntries = createInboxActionOperationEntriesSelector(
+            primaryScope.accountId,
+            resolveLocalPresentation,
+        );
+        const selectSummary = createInboxActionOperationSummarySelector(
+            primaryScope.accountId,
+            resolveLocalPresentation,
+        );
+        const routine = snapshot({ operationId: 'routine', revision: 1, state: 'running' });
+        const unavailable = snapshot({ operationId: 'unavailable', revision: 1, state: 'accepted' });
+        const failed = snapshot({ operationId: 'failed', revision: 1, state: 'failed' });
+        const setup = snapshot({ operationId: 'setup', revision: 1, state: 'succeeded' });
+        store.merge(routine);
+        store.merge(unavailable);
+        store.merge(failed);
+        store.merge(setup);
+        store.markSeen(setup.operationId);
+        store.markUnavailable(unavailable.operationId);
+
+        const before = selectSummary(store.getState());
+        expect(before).toEqual({ count: 3, hasAttention: true });
+        expect(before.count).toBe(selectEntries(store.getState()).length);
+
+        store.merge(snapshot({
+            operationId: 'other-account',
+            revision: 1,
+            state: 'failed',
+            accountId: 'account-b',
+        }));
+        expect(selectSummary(store.getState())).toBe(before);
+
+        expect(store.dismissUnavailable(unavailable.operationId)).toBe(true);
+        expect(store.markSeen(failed.operationId)).toBe(true);
+        setupNeedsAttention = false;
+        expect(selectSummary(store.getState())).toEqual({ count: 0, hasAttention: false });
+        expect(selectEntries(store.getState())).toEqual([]);
     });
 
     it('marks only the active account terminal operations seen in one store transition', () => {

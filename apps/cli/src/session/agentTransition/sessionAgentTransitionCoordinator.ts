@@ -35,6 +35,7 @@ import { resolveTrustedSessionAttachmentLocalImagePaths } from '@/session/attach
 import { admitSessionUserMessageToPendingQueue } from '@/session/services/admitSessionUserMessage';
 import { requestInactiveSessionResume } from '@/session/services/requestInactiveSessionResume';
 import { requestSessionStop } from '@/session/services/requestSessionStop';
+import { resolveSessionUserMessageRequestedAction } from '@/session/services/resolveSessionUserMessageRequestedAction';
 import { resolveSessionTransportContext } from '@/session/services/resolveSessionTransportContext';
 import {
   resolveSessionAgentSpawnConnectedServicesDefaults,
@@ -296,6 +297,7 @@ async function admitInputAndActivateTarget(params: Readonly<{
     text: request.input.text,
     meta: params.sanitizedMeta,
     permissionIntent,
+    requestedAction: resolveSessionUserMessageRequestedAction({ deliveryIntent: 'runtime_bootstrap' }),
     ...(request.selection.modelId ? { modelId: request.selection.modelId } : {}),
   });
   if (admission.status === 'unconfirmed') {

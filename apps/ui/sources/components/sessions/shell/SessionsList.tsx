@@ -12,7 +12,7 @@ import {
 import { SessionListVirtualizedList } from '@/components/ui/lists/flashListCompat/SessionListVirtualizedList';
 import { usePathname, useRouter } from 'expo-router';
 import { useNavigateToSession } from '@/hooks/session/useNavigateToSession';
-import { SessionListViewItem, storage, useSetting, useSettings } from '@/sync/domains/state/storage';
+import { SessionListViewItem, storage, useSetting } from '@/sync/domains/state/storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useVisibleSessionListViewData } from '@/hooks/session/useVisibleSessionListViewData';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -633,13 +633,13 @@ export const SessionsListContent = React.memo(function SessionsListContent(props
     const [refreshingSessions, setRefreshingSessions] = React.useState(false);
     const refreshingSessionsRef = React.useRef(false);
     const searchFocusTransferTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-    const sessionListMemoryCandidateKeys = React.useMemo(
+    const getSessionListMemoryCandidateKeys = React.useCallback(
         () => buildSessionCandidateKeySet(data ?? EMPTY_SESSION_LIST_VIEW_ITEMS),
         [data],
     );
     const memorySearch = useSessionListMemorySearchAugmentation({
         searchQuery,
-        candidateSessionKeys: sessionListMemoryCandidateKeys,
+        getCandidateSessionKeys: getSessionListMemoryCandidateKeys,
         enabled: surfaceOwnership.dataActive,
     });
     const activeMemoryMatchedSessionKeys = React.useMemo(() => {
@@ -771,13 +771,11 @@ export const SessionsListContent = React.memo(function SessionsListContent(props
     const sessionListActiveColorMode = useSetting('sessionListActiveColorModeV1');
     const sessionListSectionModeRaw = useSetting('sessionListSectionModeV1');
     const sessionReplayEnabled = useSetting('sessionReplayEnabled');
-    const sessionForkReplaySettings = useSettings();
     const executionRunsEnabled = useFeatureEnabled('execution.runs');
     const forkActionContext = React.useMemo(() => ({
-        settings: sessionForkReplaySettings,
         replayEnabled: sessionReplayEnabled === true,
         executionRunsEnabled: executionRunsEnabled === true,
-    }), [executionRunsEnabled, sessionForkReplaySettings, sessionReplayEnabled]);
+    }), [executionRunsEnabled, sessionReplayEnabled]);
     const sessionListSectionMode: SessionListOrderingSectionMode = sessionListSectionModeRaw === 'single'
         ? 'single'
         : 'activity';
@@ -963,12 +961,12 @@ export const SessionsListContent = React.memo(function SessionsListContent(props
     );
     const runtimePriorityRowStoreScopeSelector = React.useMemo(
         () => createSessionListRuntimePriorityRowScopeSelector(
-            rowStoreSubscriptionMode === 'viewable'
+            surfaceOwnership.dataActive && rowStoreSubscriptionMode === 'viewable'
                 ? rowStoreScopes
                 : EMPTY_SESSION_LIST_ROW_STORE_SCOPES,
             selection.activeServerId,
         ),
-        [rowStoreScopes, rowStoreSubscriptionMode, selection.activeServerId],
+        [rowStoreScopes, rowStoreSubscriptionMode, selection.activeServerId, surfaceOwnership.dataActive],
     );
     const runtimePriorityRowStoreScopes = storage(runtimePriorityRowStoreScopeSelector);
     const runtimePrioritySessionRowKeys = React.useMemo(
@@ -1107,19 +1105,6 @@ export const SessionsListContent = React.memo(function SessionsListContent(props
         showServerBadge,
         theme.colors.status,
     ]);
-    const sessionListSelectionTargetsByKey = React.useMemo(() => {
-        const targets = new Map<string, SessionBulkActionTarget>();
-        for (const item of selectionScopeListItems ?? EMPTY_SESSION_LIST_VIEW_ITEMS) {
-            if (item.type !== 'session') continue;
-            const target = buildSessionBulkActionTargetFromSessionItem(
-                item as SessionListSessionItem,
-                rowPresentationSettings,
-            );
-            targets.set(target.key, target);
-        }
-        return targets;
-    }, [rowPresentationSettings, selectionScopeListItems]);
-
     const handleVirtualizedListLayout = React.useCallback((event: LayoutChangeEvent) => {
         handleTreeListLayout(event);
         scrollRetention.handleLayout(event);
@@ -1713,6 +1698,19 @@ export const SessionsListContent = React.memo(function SessionsListContent(props
         sessionListSelectionStore.getSnapshot,
         sessionListSelectionStore.getSnapshot,
     );
+    const sessionListSelectionTargetsByKey = React.useMemo(() => {
+        const targets = new Map<string, SessionBulkActionTarget>();
+        if (!sessionListSelectionSnapshot.isSelectionMode) return targets;
+        for (const item of selectionScopeListItems ?? EMPTY_SESSION_LIST_VIEW_ITEMS) {
+            if (item.type !== 'session') continue;
+            const target = buildSessionBulkActionTargetFromSessionItem(
+                item as SessionListSessionItem,
+                rowPresentationSettings,
+            );
+            targets.set(target.key, target);
+        }
+        return targets;
+    }, [rowPresentationSettings, selectionScopeListItems, sessionListSelectionSnapshot.isSelectionMode]);
     const previousSelectionCountRef = React.useRef(sessionListSelectionSnapshot.count);
     React.useEffect(() => {
         if (!sessionListSelectionSnapshot.isSelectionMode) {
@@ -2152,6 +2150,7 @@ export const SessionsListContent = React.memo(function SessionsListContent(props
         [reachableSessionDisplayByKey],
     );
     const virtualizedRowExtraData = React.useMemo(() => ({
+        activeServerId: selection.activeServerId ?? null,
         allKnownTagsSignature,
         attentionStandingEnabled,
         attentionStandingSignature,
@@ -2159,6 +2158,8 @@ export const SessionsListContent = React.memo(function SessionsListContent(props
         compactSessionViewMinimal: Boolean(compactSessionView && compactSessionViewMinimal),
         currentUserId,
         draggingSessionKey,
+        forkExecutionRunsEnabled: forkActionContext.executionRunsEnabled,
+        forkReplayEnabled: forkActionContext.replayEnabled,
         folderActionsEnabled,
         folderMoveTargetsSignature,
         folderViewEnabled,
@@ -2167,8 +2168,15 @@ export const SessionsListContent = React.memo(function SessionsListContent(props
         pinnedKeysSignature,
         reachableDisplaySignature,
         rowLabelsSignature,
+        sessionListActiveColorMode: rowPresentationSettings.activeColorMode,
+        sessionListAgentActivityCountEnabled: rowPresentationSettings.agentActivityCountEnabled,
+        sessionListHideInactiveSessions: rowPresentationSettings.hideInactiveSessions,
+        sessionListIdentityDisplay: rowPresentationSettings.identityDisplay,
         sessionListOrderingMode,
         sessionListSectionMode,
+        sessionListStatusColors: rowPresentationSettings.statusColors,
+        sessionListSurfaceDataActive: surfaceOwnership.dataActive,
+        sessionListWorkingIndicatorMode: rowPresentationSettings.workingIndicatorMode,
         sessionTagsEnabled: sessionTagsEnabled === true,
         sessionTagsSignature,
         showStructuralDragHandles,
@@ -2178,6 +2186,7 @@ export const SessionsListContent = React.memo(function SessionsListContent(props
         workspaceLabelsSignature,
         workspaceMachineSubtitlesEnabled,
     }), [
+        selection.activeServerId,
         allKnownTagsSignature,
         attentionStandingEnabled,
         attentionStandingSignature,
@@ -2185,6 +2194,8 @@ export const SessionsListContent = React.memo(function SessionsListContent(props
         compactSessionViewMinimal,
         currentUserId,
         draggingSessionKey,
+        forkActionContext.executionRunsEnabled,
+        forkActionContext.replayEnabled,
         folderActionsEnabled,
         folderMoveTargetsSignature,
         folderViewEnabled,
@@ -2193,8 +2204,15 @@ export const SessionsListContent = React.memo(function SessionsListContent(props
         pinnedKeysSignature,
         reachableDisplaySignature,
         rowLabelsSignature,
+        rowPresentationSettings.activeColorMode,
+        rowPresentationSettings.agentActivityCountEnabled,
+        rowPresentationSettings.hideInactiveSessions,
+        rowPresentationSettings.identityDisplay,
+        rowPresentationSettings.statusColors,
+        rowPresentationSettings.workingIndicatorMode,
         sessionListOrderingMode,
         sessionListSectionMode,
+        surfaceOwnership.dataActive,
         sessionTagsEnabled,
         sessionTagsSignature,
         showStructuralDragHandles,
@@ -2221,6 +2239,7 @@ export const SessionsListContent = React.memo(function SessionsListContent(props
         return (
             <SessionListRowModelBoundary
                 activeServerId={selection.activeServerId}
+                adjacency={resolveSessionListRowModelAdjacency(renderedListItems, index)}
                 dataActive={surfaceOwnership.dataActive}
                 dataIndex={index}
                 dragEnabled={dragEnabled}
@@ -2234,7 +2253,6 @@ export const SessionsListContent = React.memo(function SessionsListContent(props
                 getRowTogglePinnedHandler={getRowTogglePinnedHandler}
                 groupKey={groupKey}
                 item={item}
-                items={renderedListItems}
                 nativeContextMenuSessionKey={nativeContextMenuSessionKey}
                 onDragStart={handleA11yDragStart}
                 onDropResult={handleA11yTreeDropResult}
@@ -2336,11 +2354,12 @@ export const SessionsListContent = React.memo(function SessionsListContent(props
 
     const onEndReached = surfaceOwnership.dataActive ? handleLoadMoreSessions : undefined;
     const nativeRefreshControl = React.useMemo(() => {
-        if (Platform.OS === 'web' || !surfaceOwnership.dataActive) return undefined;
+        if (Platform.OS === 'web') return undefined;
         return (
             <RefreshControl
-                refreshing={refreshingSessions}
-                onRefresh={handleRefreshSessions}
+                enabled={surfaceOwnership.dataActive}
+                refreshing={surfaceOwnership.dataActive && refreshingSessions}
+                onRefresh={surfaceOwnership.dataActive ? handleRefreshSessions : undefined}
             />
         );
     }, [handleRefreshSessions, refreshingSessions, surfaceOwnership.dataActive]);
@@ -2364,6 +2383,7 @@ export const SessionsListContent = React.memo(function SessionsListContent(props
             data={renderedListItems as any}
             renderItem={renderVirtualizedItem as any}
             extraData={virtualizedRowExtraData}
+            keyboardShouldPersistTaps="handled"
             keyExtractor={listItemKeyExtractor as any}
             contentContainerStyle={contentContainerStyle}
             onLayout={handleVirtualizedListLayout}
@@ -2397,6 +2417,7 @@ export const SessionsListContent = React.memo(function SessionsListContent(props
             data={renderedListItems as any}
             renderItem={renderVirtualizedItem as any}
             extraData={virtualizedRowExtraData}
+            keyboardShouldPersistTaps="handled"
             keyExtractor={listItemKeyExtractor as any}
             getItemType={getVirtualizedItemType}
             contentContainerStyle={contentContainerStyle}

@@ -1244,6 +1244,7 @@ export class SessionDraftRepository {
                 remoteDocument = await this.openRequiredDocument(runtime, response.record);
             } catch (error) {
                 if (!this.isCurrentRuntime(runtime)) return;
+                if (isSessionDraftContextUnavailableError(error)) throw error;
                 this.writeLatestReplicaStatus(scope, address, 'error');
                 throw error;
             }

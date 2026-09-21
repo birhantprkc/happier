@@ -6,9 +6,38 @@ import { installNavigationShellCommonModuleMocks } from './navigationShellTestHe
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
+const inboxLifecycle = vi.hoisted(() => ({
+    focused: true,
+    contentModelRenders: 0,
+    listeners: new Set<() => void>(),
+    subscribe(listener: () => void) {
+        this.listeners.add(listener);
+        return () => this.listeners.delete(listener);
+    },
+    emit() {
+        for (const listener of this.listeners) listener();
+    },
+}));
+
 vi.mock('@/components/inbox/useInboxContentModel', async (importOriginal) => {
     const actual = await importOriginal<typeof import('@/components/inbox/useInboxContentModel')>();
-    return { ...actual, useSharedInboxContentModel: actual.useInboxContentModel };
+    return {
+        ...actual,
+        useInboxContentModel: () => {
+            inboxLifecycle.contentModelRenders += 1;
+            return actual.useInboxContentModel();
+        },
+    };
+});
+
+vi.mock('@/components/sessions/shell/useSessionScreenIsFocused', async () => {
+    const ReactModule = await import('react');
+    return {
+        useSessionScreenIsFocused: () => ReactModule.useSyncExternalStore(
+            inboxLifecycle.subscribe.bind(inboxLifecycle),
+            () => inboxLifecycle.focused,
+        ),
+    };
 });
 
 const scrollOwner = vi.hoisted(() => ({
@@ -113,6 +142,13 @@ async function setFriendRequests(items: { id: string; username: string; status: 
     });
 }
 
+async function setInboxFocused(focused: boolean): Promise<void> {
+    await act(async () => {
+        inboxLifecycle.focused = focused;
+        inboxLifecycle.emit();
+    });
+}
+
 function countScrollViews(tree: renderer.ReactTestRenderer): number {
     return tree.root.findAll((node) => String(node.type) === 'ScrollView').length;
 }
@@ -122,6 +158,8 @@ describe('InboxView scroll owner stability', () => {
         scrollOwner.mounts = 0;
         scrollOwner.unmounts = 0;
         scrollOwner.offset = 0;
+        inboxLifecycle.focused = true;
+        inboxLifecycle.contentModelRenders = 0;
         friendRequestStore.state.items = [{ id: 'friend-1', username: 'friend', status: 'pending' }];
     });
 
@@ -153,5 +191,28 @@ describe('InboxView scroll owner stability', () => {
             .map((node) => String(node.props.children ?? ''));
         expect(emptyCopy).toContain('inbox.emptyTitle');
         expect(emptyCopy).toContain('inbox.emptyDescription');
+    });
+
+    it('unmounts the detailed model while blurred without remounting the retained scroll owner', async () => {
+        const { InboxView } = await import('./InboxView');
+        const screen = await renderScreen(<InboxView />);
+
+        expect(inboxLifecycle.contentModelRenders).toBeGreaterThan(0);
+        await setInboxFocused(false);
+        const rendersAfterBlur = inboxLifecycle.contentModelRenders;
+        scrollOwner.offset = 240;
+
+        await setFriendRequests([]);
+
+        expect(inboxLifecycle.contentModelRenders).toBe(rendersAfterBlur);
+        expect(screen.tree.root.findAll((node) => String(node.type) === 'UserCard')).toHaveLength(1);
+        expect(scrollOwner.unmounts).toBe(0);
+        expect(scrollOwner.offset).toBe(240);
+
+        await setInboxFocused(true);
+
+        expect(inboxLifecycle.contentModelRenders).toBeGreaterThan(rendersAfterBlur);
+        expect(scrollOwner.unmounts).toBe(0);
+        expect(scrollOwner.offset).toBe(240);
     });
 });

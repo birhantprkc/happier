@@ -1,6 +1,6 @@
 import type { PreflightSessionControlsProbeAdapter } from '@/capabilities/probes/preflightSessionControlsProbeAdapterTypes';
 import { killProcessTree } from '@/agent/runtime/process/killProcessTree';
-import { resolveProviderCliLaunchSpec } from '@/runtime/managedTools/requireProviderCliLaunchSpec';
+import { resolveOpenCodeCliLaunchSpec } from '@/backends/opencode/utils/resolveOpenCodeCliCommand';
 import { resolveWindowsCommandInvocation } from '@happier-dev/cli-common/process';
 import { spawn } from 'node:child_process';
 
@@ -107,9 +107,16 @@ async function probeOpenCodeModelsVerbose(params: Readonly<{
   processEnv?: NodeJS.ProcessEnv;
 }>): Promise<unknown[] | null> {
   const timeoutMs = Math.max(250, params.timeoutMs);
-  const launch = resolveProviderCliLaunchSpec('opencode', { processEnv: params.processEnv ?? process.env });
-  const command = launch?.command ?? 'opencode';
-  const args = [...(launch?.args ?? []), 'models', '--verbose'];
+  const launch = (() => {
+    try {
+      return resolveOpenCodeCliLaunchSpec(params.processEnv ?? process.env);
+    } catch {
+      return null;
+    }
+  })();
+  if (!launch) return null;
+  const command = launch.command;
+  const args = [...launch.args, 'models', '--verbose'];
 
   return await new Promise((resolve) => {
     let stdout = '';
