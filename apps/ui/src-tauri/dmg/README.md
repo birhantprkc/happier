@@ -50,6 +50,19 @@ bundle: check where Finder drops them for hidden-files-on users and, if needed,
 add a post-bundle repositioning step to the release pipeline (it must run
 BEFORE DMG signing/notarization).
 
+## Icon labels
+
+Finder renders the bundle and symlink names as icon labels. The current release
+pipeline uses Tauri's stock DMG output, so `Happier.app` and `Applications`
+remain visible at Finder's default text size.
+
+Do not rename the Applications symlink to a visually blank Unicode character:
+the filename is also its accessible label. Tauri's `DmgConfig` does not expose
+label text size or symlink naming. Any future label or hidden-item layout change
+therefore needs an implemented and validated post-bundle re-layout step before
+DMG signing and notarization; this document must not describe that behavior as
+shipped until the release pipeline owns it.
+
 ## Previewing without a build
 
 See the session scratchpad `dmg-preview/` approach: create a staging folder with
