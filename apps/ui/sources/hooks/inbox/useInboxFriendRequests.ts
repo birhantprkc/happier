@@ -12,12 +12,27 @@ type InboxFriendRequests = Readonly<{
 
 const NO_FRIEND_REQUESTS: ReturnType<typeof useFriendRequests> = [];
 
-/** One admission decision shared by the Inbox screen and navigation badge. */
-export function useInboxFriendRequests(): InboxFriendRequests {
+export function resolveInboxFriendRequestsVisible(input: Readonly<{
+    friendsEnabled: boolean;
+    identityReady: boolean;
+}>): boolean {
+    return input.friendsEnabled && input.identityReady;
+}
+
+/** Canonical admission decision shared by detailed Inbox and summary chrome. */
+export function useInboxFriendRequestsVisible(): boolean {
     const friendsEnabled = useFriendsEnabled();
     const identityReadiness = useFriendsIdentityReadiness();
+    return resolveInboxFriendRequestsVisible({
+        friendsEnabled,
+        identityReady: identityReadiness.isReady,
+    });
+}
+
+/** One admission decision shared by the Inbox screen and navigation badge. */
+export function useInboxFriendRequests(): InboxFriendRequests {
+    const visible = useInboxFriendRequestsVisible();
     const requests = useFriendRequests();
-    const visible = friendsEnabled && identityReadiness.isReady;
 
     return React.useMemo(
         () => ({ visible, requests: visible ? requests : NO_FRIEND_REQUESTS }),

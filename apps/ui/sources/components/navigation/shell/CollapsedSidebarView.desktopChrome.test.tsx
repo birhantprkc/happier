@@ -144,12 +144,12 @@ describe('CollapsedSidebarView desktop chrome', () => {
     it('renders both Inbox and Activity in the collapsed rail when Inbox is available', async () => {
         const { CollapsedSidebarView } = await import('./CollapsedSidebarView');
         const screen = await renderScreen(
-            <CollapsedSidebarView inboxEnabled inboxModel={inboxState.model as never} />,
+            <CollapsedSidebarView inboxEnabled inboxSummary={inboxState.model as never} />,
         );
 
         const inboxButton = screen.findByType('InboxPopoverButton' as never);
         expect(inboxButton.props).toMatchObject({
-            model: inboxState.model,
+            summary: inboxState.model,
             testID: 'collapsed-sidebar-inbox-button',
         });
         expect(screen.findByTestId('collapsed-sidebar-action-operations')).toBeTruthy();
@@ -158,7 +158,7 @@ describe('CollapsedSidebarView desktop chrome', () => {
     it('keeps action operations as the fallback when Inbox is unavailable', async () => {
         const { CollapsedSidebarView } = await import('./CollapsedSidebarView');
         const screen = await renderScreen(
-            <CollapsedSidebarView inboxEnabled={false} inboxModel={inboxState.model as never} />,
+            <CollapsedSidebarView inboxEnabled={false} inboxSummary={inboxState.model as never} />,
         );
 
         expect(screen.findAllByType('InboxPopoverButton' as never)).toHaveLength(0);

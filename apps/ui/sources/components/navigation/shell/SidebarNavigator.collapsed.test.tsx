@@ -18,7 +18,8 @@ const hoistedState = vi.hoisted(() => ({
     routerReplaceMock: vi.fn(),
     setActiveTabMock: vi.fn(async () => {}),
     tauriDesktop: false,
-    inboxModel: { hasContent: true },
+    inboxSummary: { hasContent: true },
+    inboxContentModelMounts: 0,
 }));
 
 installNavigationShellCommonModuleMocks({
@@ -276,10 +277,17 @@ vi.mock('@/components/appShell/panes/AppPaneProvider', () => ({
 }));
 
 vi.mock('@/components/inbox/useInboxContentModel', () => ({
-  useInboxContentModel: () => hoistedState.inboxModel,
-  InboxContentModelProvider: (props: any) => React.createElement(
-    'InboxContentModelProvider',
-    { model: props.model },
+  useInboxContentModel: () => {
+    hoistedState.inboxContentModelMounts += 1;
+    return { hasContent: true };
+  },
+}));
+
+vi.mock('@/hooks/inbox/useInboxSummary', () => ({
+  useInboxSummary: () => hoistedState.inboxSummary,
+  InboxSummaryProvider: (props: any) => React.createElement(
+    'InboxSummaryProvider',
+    { summary: props.summary },
     props.children,
   ),
 }));
@@ -313,17 +321,19 @@ describe('SidebarNavigator (collapsed sidebar)', () => {
     hoistedState.routerReplaceMock.mockReset();
     hoistedState.setActiveTabMock.mockClear();
     hoistedState.tauriDesktop = false;
+    hoistedState.inboxContentModelMounts = 0;
   });
 
-  it('shares one mounted Inbox model across the sidebar and routed screen branches', async () => {
+  it('shares one minimal Inbox summary without mounting the full content model', async () => {
     const { SidebarNavigator } = await import('./SidebarNavigator');
     const { Stack } = await import('expo-router');
     const screen = await renderScreen(<SidebarNavigator />);
 
-    const provider = screen.tree.findByType('InboxContentModelProvider' as never);
-    expect(provider.props.model).toBe(hoistedState.inboxModel);
+    const provider = screen.tree.findByType('InboxSummaryProvider' as never);
+    expect(provider.props.summary).toBe(hoistedState.inboxSummary);
     expect(provider.findByType(Stack)).toBeDefined();
-    expect(provider.findByType('SidebarView' as never).props.inboxModel).toBe(hoistedState.inboxModel);
+    expect(provider.findByType('SidebarView' as never).props.inboxSummary).toBe(hoistedState.inboxSummary);
+    expect(hoistedState.inboxContentModelMounts).toBe(0);
   });
 
   it.each(['web', 'ios'] as const)('preserves the mounted route through compact and wide layouts on %s', async (platform) => {
@@ -389,7 +399,7 @@ describe('SidebarNavigator (collapsed sidebar)', () => {
 
     const drawer = getSidebar(tree);
     expect(drawer.props.style.width).toBe(72);
-    expect(drawer.findByType('CollapsedSidebarView' as never).props.inboxModel).toBe(hoistedState.inboxModel);
+    expect(drawer.findByType('CollapsedSidebarView' as never).props.inboxSummary).toBe(hoistedState.inboxSummary);
   });
 
   it('forces the compact sidebar on narrow docked-sidebar viewports so routed content keeps width', async () => {

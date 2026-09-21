@@ -17,6 +17,22 @@ vi.mock('react-native-unistyles', async () => {
 const capture = vi.hoisted(() => ({
     popoverProps: null as Record<string, unknown> | null,
     contentProps: null as Record<string, unknown> | null,
+    contentModel: null as Record<string, unknown> | null,
+    contentModelMounts: 0,
+    activeContentModels: 0,
+}));
+
+vi.mock('./useInboxContentModel', () => ({
+    useInboxContentModel: () => {
+        capture.contentModelMounts += 1;
+        React.useEffect(() => {
+            capture.activeContentModels += 1;
+            return () => {
+                capture.activeContentModels -= 1;
+            };
+        }, []);
+        return capture.contentModel;
+    },
 }));
 
 vi.mock('@/components/ui/popover', () => ({
@@ -53,16 +69,21 @@ describe('InboxPopoverButton', () => {
             hasContent: true,
             openInbox,
         } as never;
+        capture.contentModel = model;
+        capture.contentModelMounts = 0;
+        capture.activeContentModels = 0;
         const { InboxPopoverButton } = await import('./InboxPopoverButton');
         const screen = await renderScreen(
             <InboxPopoverButton
-                model={model}
+                summary={{ hasContent: true }}
                 buttonSize={32}
                 iconSize={18}
                 testID="test-inbox-trigger"
             />,
         );
 
+        expect(capture.contentModelMounts).toBe(0);
+        expect(capture.activeContentModels).toBe(0);
         expect(screen.findByTestId('test-inbox-trigger')?.props.accessibilityState).toEqual({ expanded: false });
         await act(async () => {
             await screen.findByTestId('test-inbox-trigger')?.props.onPress({
@@ -73,6 +94,8 @@ describe('InboxPopoverButton', () => {
         });
 
         expect(screen.findByTestId('test-inbox-trigger')?.props.accessibilityState).toEqual({ expanded: true });
+        expect(capture.contentModelMounts).toBeGreaterThan(0);
+        expect(capture.activeContentModels).toBe(1);
         expect(capture.popoverProps).toMatchObject({
             open: true,
             placement: 'bottom',
@@ -88,16 +111,19 @@ describe('InboxPopoverButton', () => {
 
         expect(openInbox).toHaveBeenCalledTimes(1);
         expect(screen.findAllByType('Popover' as never)).toHaveLength(0);
+        expect(capture.activeContentModels).toBe(0);
         expect(screen.findByTestId('test-inbox-trigger')?.props.accessibilityState).toEqual({ expanded: false });
     });
 
     it('lets Inbox item navigation dismiss the popover without changing the model owner', async () => {
         const openInbox = vi.fn();
         const model = { hasContent: false, openInbox } as never;
+        capture.contentModel = model;
+        capture.contentModelMounts = 0;
         const { InboxPopoverButton } = await import('./InboxPopoverButton');
         const screen = await renderScreen(
             <InboxPopoverButton
-                model={model}
+                summary={{ hasContent: false }}
                 buttonSize={32}
                 iconSize={18}
             />,

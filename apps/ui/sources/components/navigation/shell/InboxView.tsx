@@ -5,9 +5,10 @@ import { StyleSheet } from 'react-native-unistyles';
 import { Header } from '@/components/navigation/Header';
 import { InboxContent } from '@/components/inbox/InboxContent';
 import {
-    useSharedInboxContentModel,
+    useInboxContentModel,
     type InboxContentModel,
 } from '@/components/inbox/useInboxContentModel';
+import { useSessionScreenIsFocused } from '@/components/sessions/shell/useSessionScreenIsFocused';
 import { useLayoutMaxWidth } from '@/components/ui/layout/layout';
 import { Text } from '@/components/ui/text/Text';
 import { Typography } from '@/constants/Typography';
@@ -34,8 +35,7 @@ function InboxHeaderTitle() {
     return <Text style={styles.headerTitle}>{t('tabs.inbox')}</Text>;
 }
 
-const InboxViewContent = React.memo(function InboxViewContent(props: Readonly<{ model: InboxContentModel }>) {
-    const model = props.model;
+const InboxViewFrame = React.memo(function InboxViewFrame(props: Readonly<{ children: React.ReactNode }>) {
     const contentMaxWidth = useLayoutMaxWidth();
     const scrollContentStyle = React.useMemo(
         () => [styles.scrollContent, { maxWidth: contentMaxWidth }],
@@ -51,13 +51,39 @@ const InboxViewContent = React.memo(function InboxViewContent(props: Readonly<{ 
                 headerTransparent
             />
             <ScrollView contentContainerStyle={scrollContentStyle}>
-                <InboxContent model={model} presentation="screen" />
+                {props.children}
             </ScrollView>
         </View>
     );
 });
 
+const FocusedInboxContent = React.memo(function FocusedInboxContent(props: Readonly<{
+    onModel: (model: InboxContentModel) => void;
+}>) {
+    const model = useInboxContentModel();
+    React.useLayoutEffect(() => {
+        props.onModel(model);
+    }, [model, props.onModel]);
+    return <InboxContent model={model} presentation="screen" />;
+});
+
 export const InboxView = React.memo(function InboxView() {
-    const model = useSharedInboxContentModel();
-    return <InboxViewContent model={model} />;
+    const isFocused = useSessionScreenIsFocused();
+    const retainedModelRef = React.useRef<InboxContentModel | null>(null);
+    const handleModel = React.useCallback((nextModel: InboxContentModel) => {
+        retainedModelRef.current = nextModel;
+    }, []);
+    const retainedModel = retainedModelRef.current;
+
+    return (
+        <>
+            <InboxViewFrame>
+                {isFocused ? (
+                    <FocusedInboxContent onModel={handleModel} />
+                ) : retainedModel ? (
+                    <InboxContent model={retainedModel} presentation="screen" />
+                ) : null}
+            </InboxViewFrame>
+        </>
+    );
 });

@@ -6,7 +6,7 @@ import { Text } from '@/components/ui/text/Text';
 import { useFriendsEnabled } from '@/hooks/server/useFriendsEnabled';
 import { t } from '@/text';
 import type { ItemAction } from '@/components/ui/lists/itemActions';
-import { useFriendRequests } from '@/sync/domains/state/storage';
+import { useFriendRequestCount } from '@/sync/domains/state/storage';
 import { runGuardedNavigation } from '@/utils/navigation/runGuardedNavigation';
 import { fireAndForget } from '@/utils/system/fireAndForget';
 import { desktopSidebarChromeStyles } from './desktopSidebarChromeStyles';
@@ -27,9 +27,8 @@ export function useSidebarHeaderActions(): SidebarHeaderActionsResult {
     const { theme } = useUnistyles();
     const router = useRouter();
     const resolveNewSessionOrdinaryEntryRoute = useResolveNewSessionOrdinaryEntryRoute();
-    const friendRequests = useFriendRequests();
+    const friendRequestCount = useFriendRequestCount();
     const friendsEnabled = useFriendsEnabled();
-    const friendRequestCount = friendRequests.length;
 
     const navigate = React.useCallback((pathname: string, tag: string) => {
         const result = runGuardedNavigation(() => router.push(pathname));

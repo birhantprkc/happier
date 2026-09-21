@@ -15,8 +15,8 @@ import { resolvePaneFocusModeRouteScopeId } from '@/components/appShell/panes/fo
 import { isTauriDesktop } from '@/utils/platform/tauri';
 import { DesktopMainContentDragSurface } from '@/components/navigation/desktopWindowChrome/DesktopMainContentDragSurface';
 import { isDesktopPetOverlayWindowContext } from '@/components/pets/desktop/runtime/isDesktopPetOverlayWindowContext';
-import { InboxContentModelProvider, useInboxContentModel } from '@/components/inbox/useInboxContentModel';
 import { useInboxAvailable } from '@/hooks/inbox/useInboxAvailable';
+import { InboxSummaryProvider, useInboxSummary } from '@/hooks/inbox/useInboxSummary';
 
 const TERMINAL_CONNECT_ROUTE = '/terminal/connect';
 const EXPANDED_SIDEBAR_MIN_WINDOW_WIDTH_PX = SIDEBAR_DOCK_MIN_WIDTH_PX + PANE_SIZING_DEFAULTS.mainMinPx;
@@ -102,7 +102,7 @@ export const SidebarNavigator = React.memo((props: SidebarNavigatorProps) => {
     const isDesktopPetOverlayWindow = isDesktopPetOverlayWindowContext();
     const bypassSidebar = Platform.OS === 'web' && isTerminalConnectWebPathname(pathname);
     const showSidebar = auth.isAuthenticated && isTablet && !isDesktopPetOverlayWindow && !bypassSidebar;
-    const inboxModel = useInboxContentModel();
+    const inboxSummary = useInboxSummary();
     const inboxEnabled = useInboxAvailable();
     const routeScopeId = React.useMemo(() => resolvePaneFocusModeRouteScopeId(pathname), [pathname]);
     const { state: paneState, dispatch: dispatchPaneAction } = useAppPaneContext();
@@ -229,7 +229,7 @@ export const SidebarNavigator = React.memo((props: SidebarNavigatorProps) => {
             focusModeActive={paneFocusModeChromeActive}
             onExitFocusMode={handleCollapsedSidebarExitFocusMode}
             onRequestExpand={handleCollapsedSidebarExpand}
-            inboxModel={inboxModel}
+            inboxSummary={inboxSummary}
             inboxEnabled={inboxEnabled}
         />
     ) : (
@@ -250,7 +250,7 @@ export const SidebarNavigator = React.memo((props: SidebarNavigatorProps) => {
                 <SidebarView
                     sidebarWidthPx={sidebarWidth}
                     desktopUpdateIndicator={props.desktopUpdateIndicator}
-                    inboxModel={inboxModel}
+                    inboxSummary={inboxSummary}
                     inboxEnabled={inboxEnabled}
                 />
             </View>
@@ -260,7 +260,7 @@ export const SidebarNavigator = React.memo((props: SidebarNavigatorProps) => {
     // A sidebar is presentation, not a second navigator. Keep the root Stack and its
     // ancestry mounted through resize, auth changes, and chrome-bypass routes.
     return (
-        <InboxContentModelProvider model={inboxModel}>
+        <InboxSummaryProvider summary={inboxSummary}>
         <DesktopMainContentDragSurface
             enabled={showSidebar && Platform.OS === 'web' && isTauriDesktop()}
             leftOffsetPx={sidebarWidth}
@@ -281,6 +281,6 @@ export const SidebarNavigator = React.memo((props: SidebarNavigatorProps) => {
                 />
             ) : null}
         </DesktopMainContentDragSurface>
-        </InboxContentModelProvider>
+        </InboxSummaryProvider>
     );
 });

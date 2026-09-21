@@ -5,6 +5,7 @@ import type { SessionListViewItem } from '@/sync/domains/session/listing/session
 import type { Session } from '@/sync/domains/state/storageTypes';
 
 import {
+    buildInboxSessionSummary,
     buildInboxSessionState,
     hasInboxSessionContent,
     resolveNextInboxSessionStateFreshnessAtMs,
@@ -236,6 +237,32 @@ describe('buildInboxSessionState', () => {
         ]);
     });
 
+    it('matches duplicate hydrated session ids within their server scope', () => {
+        const serverASession = makeSession({
+            id: 'shared-id',
+            serverId: 'server-a',
+            latestReadyEventSeq: 4,
+        });
+        const serverBSession = makeSession({
+            id: 'shared-id',
+            serverId: 'server-b',
+            latestReadyEventSeq: 4,
+        });
+
+        const state = buildInboxSessionState({
+            sessions: [serverASession, serverBSession],
+            sessionListViewDataByServerId: {
+                'server-a': makeScopedSessionList('server-a', [makeUnreadRenderable({ id: 'shared-id' })]),
+                'server-b': makeScopedSessionList('server-b', [makeUnreadRenderable({ id: 'shared-id' })]),
+            },
+        });
+
+        expect(state.reviewSessions.map(({ key, session }) => ({ key, session }))).toEqual([
+            { key: 'server-a:shared-id', session: serverASession },
+            { key: 'server-b:shared-id', session: serverBSession },
+        ]);
+    });
+
     it('retains the exact server target for an unread session that only exists in a background cache', () => {
         const backgroundSession = makeUnreadRenderable({ id: 'background-only' });
 
@@ -291,13 +318,22 @@ describe('buildInboxSessionState', () => {
         }]);
         expect(state.reviewSessions).toEqual([]);
         expect(state.markAllReadTargets).toEqual([]);
+        const summary = buildInboxSessionSummary({
+            sessions: [],
+            sessionListViewDataByServerId: {
+                background: makeScopedSessionList('background', [backgroundSession]),
+            },
+            nowMs: now,
+        });
+        expect(summary.hasContent).toBe(true);
+        expect(summary.nextFreshnessAtMs).toBeGreaterThan(now);
         expect(resolveNextInboxSessionStateFreshnessAtMs({
             sessions: [],
             sessionListViewDataByServerId: {
                 background: makeScopedSessionList('background', [backgroundSession]),
             },
             nowMs: now,
-        })).toBeGreaterThan(now);
+        })).toBe(summary.nextFreshnessAtMs);
     });
 
     it('surfaces canonically blocked pending delivery as session attention', () => {
@@ -378,6 +414,42 @@ describe('buildInboxSessionState', () => {
             session: firstSession,
             reason: 'ready',
         }]);
+    });
+
+    it('bounds hydrated-session lookup work while resolving scoped cache rows', () => {
+        const sessionCount = 64;
+        let hydratedSessionIdReads = 0;
+        const hydratedSessions = Array.from({ length: sessionCount }, (_, index) => {
+            const sessionId = `session-${index}`;
+            const session = makeSession({
+                id: sessionId,
+                serverId: 'server-a',
+                latestReadyEventSeq: 4,
+            });
+            Object.defineProperty(session, 'id', {
+                configurable: true,
+                enumerable: true,
+                get() {
+                    hydratedSessionIdReads += 1;
+                    return sessionId;
+                },
+            });
+            return session;
+        });
+        const cachedSessions = Array.from({ length: sessionCount }, (_, index) => (
+            makeUnreadRenderable({ id: `session-${index}` })
+        ));
+
+        const state = buildInboxSessionState({
+            sessions: hydratedSessions,
+            sessionListViewDataByServerId: {
+                'server-a': makeScopedSessionList('server-a', cachedSessions),
+            },
+        });
+
+        expect(state.reviewSessions).toHaveLength(sessionCount);
+        expect(state.sessionByKey.get('server-a:session-63')?.session).toBe(hydratedSessions[63]);
+        expect(hydratedSessionIdReads).toBeLessThanOrEqual(sessionCount * 8);
     });
 
     it('uses canonical unread state when a stale renderable says the hydrated session is read', () => {

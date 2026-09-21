@@ -2,7 +2,6 @@ import * as React from 'react';
 import { useRouter } from 'expo-router';
 import { useShallow } from 'zustand/react/shallow';
 
-import { isOpenApprovalInboxArtifact } from '@/components/approvals/approvalInboxHeader';
 import { executeSessionBulkAction } from '@/components/sessions/actions/sessionBulkActionExecution';
 import { useSessionListIdentityDisplay } from '@/components/sessions/shell/SessionListIdentity';
 import {
@@ -12,6 +11,7 @@ import {
 import { useNavigateToSession } from '@/hooks/session/useNavigateToSession';
 import { useInboxFriendRequests } from '@/hooks/inbox/useInboxFriendRequests';
 import { useInboxSessionState } from '@/hooks/inbox/useInboxSessionState';
+import { resolveInboxHasContent } from '@/hooks/inbox/useInboxSummary';
 import { Modal } from '@/modal';
 import { sessionSetManualReadStateWithServerScope } from '@/sync/ops';
 import { useArtifacts, useFriendsLoaded, useMachineDisplayById } from '@/sync/domains/state/storage';
@@ -19,7 +19,7 @@ import { storage } from '@/sync/domains/state/storageStore';
 import { buildSessionOrganizationProjection } from '@/sync/domains/session/organization';
 import { buildSessionOrganizationListViewState } from '@/sync/domains/session/organization/viewState';
 import { normalizeSessionListKeyParts } from '@/sync/domains/session/listing/sessionListKeyNormalization';
-import { readApprovalServerId } from '@/sync/domains/artifacts/approvalArtifacts';
+import { isOpenApprovalInboxArtifact, readApprovalServerId } from '@/sync/domains/artifacts/approvalArtifacts';
 import { t } from '@/text';
 import { trackFriendsProfileView } from '@/track';
 import { getSessionName } from '@/utils/sessions/sessionUtils';
@@ -111,11 +111,13 @@ export function useInboxContentModel() {
     const showFriendsActivity = friends.visible;
     const friendRequests = friends.requests;
     const isFriendsLoading = showFriendsActivity && !friendsLoaded;
-    const hasPrimaryAttention = openApprovals.length > 0
-        || sessionState.sessionsNeedingAttention.length > 0
-        || sessionState.reviewSessions.length > 0
-        || (showFriendsActivity && friendRequests.length > 0)
-        || actionOperationModel.inboxEntries.length > 0;
+    const hasPrimaryAttention = resolveInboxHasContent({
+        hasOpenApprovals: openApprovals.length > 0,
+        hasSessionContent: sessionState.sessionsNeedingAttention.length > 0
+            || sessionState.reviewSessions.length > 0,
+        hasVisibleFriendRequests: showFriendsActivity && friendRequests.length > 0,
+        hasActionOperationAttention: actionOperationModel.inboxEntries.length > 0,
+    });
     const showCaughtUp = !isFriendsLoading && !hasPrimaryAttention;
     const markAllPending = sessionState.markAllReadTargets.length > 0
         && sessionState.markAllReadTargets.every((target) => pendingReadKeys.has(target.key));
@@ -216,18 +218,3 @@ export function useInboxContentModel() {
 }
 
 export type InboxContentModel = ReturnType<typeof useInboxContentModel>;
-
-const InboxContentModelContext = React.createContext<InboxContentModel | null>(null);
-
-export function InboxContentModelProvider(props: Readonly<{
-    model: InboxContentModel;
-    children: React.ReactNode;
-}>) {
-    return React.createElement(InboxContentModelContext.Provider, { value: props.model }, props.children);
-}
-
-export function useSharedInboxContentModel(): InboxContentModel {
-    const model = React.useContext(InboxContentModelContext);
-    if (!model) throw new Error('InboxContentModelProvider is required');
-    return model;
-}

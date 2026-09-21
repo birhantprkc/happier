@@ -6,10 +6,9 @@ import { installNavigationShellCommonModuleMocks } from './navigationShellTestHe
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
-vi.mock('@/components/inbox/useInboxContentModel', async (importOriginal) => {
-    const actual = await importOriginal<typeof import('@/components/inbox/useInboxContentModel')>();
-    return { ...actual, useSharedInboxContentModel: actual.useInboxContentModel };
-});
+vi.mock('@/components/sessions/shell/useSessionScreenIsFocused', () => ({
+    useSessionScreenIsFocused: () => true,
+}));
 
 // The canonical read executor is `sessionSetManualReadStateWithServerScope`; every Inbox
 // mark-read surface (Ready-section mark-all and per-row control) must reach the network through it,
