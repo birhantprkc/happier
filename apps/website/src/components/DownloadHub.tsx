@@ -202,8 +202,16 @@ export function DownloadHub() {
     return (
         <div ref={root} className="max-w-[760px]">
             {/* aria-live so the redirect announces itself; visually it is the
-                line that explains why a .dmg just appeared in the tray. */}
-            <p className="min-h-[24px] text-[15px] leading-[1.6]" role="status" aria-live="polite" style={{ color: 'var(--fg)' }}>
+                line that explains why a .dmg just appeared in the tray — bold
+                and a step larger when the auto-download fires, so it reads as
+                the page's answer rather than a footnote. min-h covers the
+                larger variant so the swap never moves the grid below. */}
+            <p
+                className={`min-h-[27px] leading-[1.6] ${redirecting ? 'text-[16.5px] font-semibold' : 'text-[15px]'}`}
+                role="status"
+                aria-live="polite"
+                style={{ color: 'var(--fg)' }}
+            >
                 {redirecting
                     ? copy.p11.replace('{label}', redirecting.label).replace('{sublabel}', redirecting.sublabel)
                     : hint.kind === 'pick-your-mac'

@@ -29,7 +29,7 @@ data, not exclusive access.
 ## Product
 
 - [Happier home](https://happier.dev/): what it is, who it is for, and the install command.
-- [Web app](https://app.happier.dev/): the browser client; pairs with a machine running the CLI.
+- [Web app](https://cloud.happier.dev/): the browser client; pairs with a machine running the CLI.
 - [Install script (macOS/Linux)](https://happier.dev/install.sh): `curl -fsSL https://happier.dev/install.sh | sh`. Verifies every artifact with minisign before installing.
 - [Install script (Windows)](https://happier.dev/install.ps1): PowerShell equivalent.
 - [iOS app](https://apps.apple.com/us/app/happier-claude-codex-opencode/id6758554297): free, iOS 15.1+.

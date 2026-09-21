@@ -37,7 +37,7 @@ export function DownloadPage() {
                 <Island name="download-hub" component={DownloadHub} />
             </Prose>
 
-            <Prose heading={copy.p15} data-section="download-guidance">
+            <Prose heading={copy.p15}>
                 <P>{rich(copy.p16)}</P>
                 <P>{rich(copy.p17)}</P>
                 <P>{rich(copy.p18)}</P>
