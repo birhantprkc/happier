@@ -198,7 +198,7 @@ const defaultSettings: Settings = {
       id: 'cloud',
       name: 'Happier Cloud',
       serverUrl: 'https://api.happier.dev',
-      webappUrl: 'https://app.happier.dev',
+      webappUrl: 'https://cloud.happier.dev',
       createdAt: 0,
       updatedAt: 0,
       lastUsedAt: 0,
@@ -237,7 +237,7 @@ function migrateSettings(raw: any, fromVersion: number): any {
   // Migration from v4 to v5 (server profiles + per-server state)
   if (fromVersion < 5) {
     const DEFAULT_SERVER_URL = 'https://api.happier.dev';
-    const DEFAULT_WEBAPP_URL = 'https://app.happier.dev';
+    const DEFAULT_WEBAPP_URL = 'https://cloud.happier.dev';
     const now = Date.now();
 
     const cloudId = 'cloud';

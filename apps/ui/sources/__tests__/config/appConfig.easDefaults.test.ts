@@ -244,10 +244,16 @@ describe('app.config.js', () => {
 
         expect(exp.extra?.app?.variant).toBe('preview');
         // Production identity still enables universal links / app links.
-        expect(exp.ios?.associatedDomains).toEqual(['applinks:app.happier.dev']);
+        expect(exp.ios?.associatedDomains).toEqual([
+            'applinks:cloud.happier.dev',
+            'applinks:app.happier.dev',
+        ]);
         const data = exp.android?.intentFilters?.[0]?.data;
         const dataItems = Array.isArray(data) ? data : data ? [data] : [];
-        expect(dataItems[0]?.host).toBe('app.happier.dev');
+        expect(dataItems.map((item) => item?.host)).toEqual([
+            'cloud.happier.dev',
+            'app.happier.dev',
+        ]);
     });
 
     it('uses the ui package.json version for expo.version by default', () => {

@@ -676,10 +676,10 @@ function getWebSameOriginServerUrl(): string | null {
     try {
         const parsed = new URL(origin);
         if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
-        // Official hosted web app (app.happier.dev) is a static SPA; the API lives on api.happier.dev.
-        // When builds are missing EXPO_PUBLIC_HAPPIER_SERVER_URL (and legacy aliases), this prevents the default server
-        // from incorrectly pointing at the web host.
-        if (parsed.hostname.toLowerCase() === 'app.happier.dev') {
+        // Official hosted web origins are static SPAs; the API lives on api.happier.dev.
+        // Keep the legacy app.happier.dev alias valid while preferring cloud.happier.dev
+        // in new links and defaults.
+        if (['cloud.happier.dev', 'app.happier.dev'].includes(parsed.hostname.toLowerCase())) {
             return HAPPIER_CLOUD_SERVER_URL;
         }
         return origin;

@@ -103,7 +103,7 @@ ${chalk.bold('Examples:')}
 ${chalk.bold('Notes:')} 
   • You must be authenticated with Happier first (run 'happier auth login')
   • Credentials are encrypted and stored securely in Happier cloud
-  • You can manage your stored keys at app.happier.dev
+  • You can manage your stored keys at cloud.happier.dev
   ${opts.includeExperimental ? '' : '• Some providers are experimental; use --all to show them'}
 `);
 }

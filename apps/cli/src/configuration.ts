@@ -1144,7 +1144,7 @@ function resolveServerSelection(params: Readonly<{
   serversDir: string;
 }>): Readonly<{ activeServerId: string; serverUrl: string; apiServerUrl: string; webappUrl: string }> {
   const DEFAULT_SERVER_URL = 'https://api.happier.dev';
-  const DEFAULT_WEBAPP_URL = 'https://app.happier.dev';
+  const DEFAULT_WEBAPP_URL = 'https://cloud.happier.dev';
   const resolveActiveServerId = (fallbackId: string): string =>
     sanitizeServerIdForFilesystem(params.envActiveServerId ?? fallbackId, 'cloud');
 

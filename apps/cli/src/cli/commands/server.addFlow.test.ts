@@ -361,7 +361,7 @@ describe('happier server add guided flow', () => {
 
       const settings = await readSettings();
       expect(settings.servers?.CloudCopy?.serverUrl).toBe('https://api.happier.dev');
-      expect(settings.servers?.CloudCopy?.webappUrl).toBe('https://app.happier.dev');
+      expect(settings.servers?.CloudCopy?.webappUrl).toBe('https://cloud.happier.dev');
     } finally {
       restoreTty();
       if (prevHome === undefined) delete process.env.HAPPIER_HOME_DIR;
