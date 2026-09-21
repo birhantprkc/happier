@@ -125,11 +125,14 @@ async function renderControls(props: HookProps = {}) {
 
 const CURRENT_AGENT_ROW = { id: 'engine:claude', label: 'Claude Code', renderDetailContent: () => null };
 
-/** Let the preflight answer, then select a target row. */
+/** Demand inspection, let the preflight answer, then select a target row. */
 async function armTarget(
     hook: Awaited<ReturnType<typeof renderControls>>,
     optionId: string,
 ): Promise<void> {
+    await act(async () => {
+        hook.getCurrent().onAgentPickerIntent();
+    });
     await act(async () => { await Promise.resolve(); });
     await act(async () => { await Promise.resolve(); });
     await act(async () => {
@@ -279,9 +282,14 @@ describe('useInSessionAgentPickerControls arm draft', () => {
         expect(hook.getCurrent().armedContinuation).toEqual(armedIntentFor('codex'));
     });
 
-    it('preflights an unarmed Session without arming anything', async () => {
+    it('waits for picker demand before preflighting an unarmed Session', async () => {
         const hook = await renderControls();
 
+        expect(machineRpcWithServerScope).not.toHaveBeenCalled();
+        await act(async () => {
+            hook.getCurrent().onAgentPickerIntent();
+        });
+        await act(async () => { await Promise.resolve(); });
         expect(machineRpcWithServerScope).toHaveBeenCalledTimes(1);
         expect(hook.getCurrent().armedContinuation).toBeNull();
         expect(readPersistedArm()).toBeUndefined();

@@ -469,7 +469,8 @@ export function useInSessionAgentPickerControls(
         machine: params.machine,
         machinePresence: source.machinePresence,
         targetSelections: inspectableTargetSelections,
-        demanded: inspectableTargetSelections.length > 0 && pickerDemanded,
+        demanded: inspectableTargetSelections.length > 0
+            && (pickerDemanded || persistedArmedContinuation !== undefined),
     });
     const readInspection = inspections.read;
 
