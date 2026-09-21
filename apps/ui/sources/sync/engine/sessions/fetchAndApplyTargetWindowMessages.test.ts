@@ -359,7 +359,7 @@ describe('fetchAndApplyTargetWindowMessages', () => {
         });
     });
 
-    it('does not activate a seq target window when the fetched target row is not applied', async () => {
+    it('preserves the window and reports unavailable decryption instead of claiming the target is missing', async () => {
         const target = buildEncryptedApiMessage({ id: 'target', seq: 100 });
         const older = buildEncryptedApiMessage({ id: 'older', seq: 99 });
         const request = vi.fn(async () => new Response(
@@ -379,7 +379,7 @@ describe('fetchAndApplyTargetWindowMessages', () => {
             windowState = next;
         });
 
-        const result = await fetchAndApplyTargetWindowMessages({
+        const load = fetchAndApplyTargetWindowMessages({
             sessionId: 's1',
             windowId: 'window-100',
             target: { kind: 'seq', seq: 100 },
@@ -396,15 +396,9 @@ describe('fetchAndApplyTargetWindowMessages', () => {
             log: { log: () => {} },
         });
 
+        await expect(load).rejects.toMatchObject({ name: 'SessionMessagePageDecryptionError' });
         expect(decryptMessages.mock.calls[0]?.[0].map((message) => message.id)).toEqual(['older', 'target']);
-        expect(applyMessages.mock.calls[0]?.[1].map((message) => message.seq)).toEqual([99]);
-        expect(result).toMatchObject({
-            status: 'not_found',
-            targetSeq: 100,
-            targetPresent: false,
-            rawSeqs: [100, 99],
-            appliedSeqs: [99],
-        });
+        expect(applyMessages).not.toHaveBeenCalled();
         expect(setWindowState).not.toHaveBeenCalled();
         expect(windowState).toMatchObject({
             isWindowMode: false,

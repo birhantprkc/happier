@@ -357,6 +357,7 @@ export async function repairInvalidReadStateV1(params: {
 
 export async function fetchAndApplyMessages(params: {
     sessionId: string;
+    shouldContinue?: () => boolean;
     scope?: 'main' | 'sidechain' | 'all';
     sidechainId?: string | null;
     limit?: number;
@@ -404,6 +405,7 @@ export async function fetchAndApplyMessages(params: {
             sidechainId,
         },
         lifecyclePolicy: 'emit',
+        shouldContinue: params.shouldContinue,
         getSessionEncryption: params.getSessionEncryption,
         isSessionKnown: params.isSessionKnown,
         request,
@@ -418,7 +420,7 @@ export async function fetchAndApplyMessages(params: {
         messageDecryptYieldDelayMs: params.messageDecryptYieldDelayMs,
         yieldToMessageDecryptBatch: params.yieldToMessageDecryptBatch,
     });
-    if (result.skippedMissingSession) {
+    if (result.skippedMissingSession || result.skippedSuperseded) {
         return;
     }
 

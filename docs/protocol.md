@@ -198,6 +198,28 @@ See `api.md` for the full HTTP endpoint catalog and auth flows.
 - Sessions, machines, and artifacts have their own `seq` fields used by clients for ordering.
 - Versioned fields (metadata, agentState, daemonState, artifact header/body, access keys, KV) use optimistic concurrency with `expectedVersion` and return a version-mismatch response containing the current version/data.
 
+### Transcript catch-up and reading position
+
+The following describes the current development implementation, not a new server protocol or a released client guarantee.
+
+Account-change cursors, session sequence hints, and transcript paging cursors serve different purposes. A session hint announces newer durable content; it does not prove that this device has loaded the intervening rows. Likewise, acknowledging an account change need not download the entire transcript: the UI can retain the outstanding forward load in its existing deferred-transcript state. Failed shell loads, message loads, and revision repairs still block the affected checkpoint.
+
+`decideMessageCatchUpPolicy` owns hosted transcript catch-up decisions. The existing defaults allow three incremental pages, with a separate large-gap threshold of 500 sequence positions and a long-offline threshold of 30 minutes. Those positions are not necessarily main-transcript rows. Large backlogs go directly to the latest page when following the live tail; history readers defer forward loading. An explicit reopen can probe one page even when the session hint appears current. Known deferred backlog remains authoritative when that hint is stale; a failed catch-up read retains that demand for retry.
+
+Latest-page catch-up merges rows into the retained cache and records omitted history through the existing tail-discontinuity owner. It does not clear cached history. The current viewport intent is checked again after asynchronous work: a reader who has scrolled away or entered a target window must not acquire a new live-tail display floor from the outstanding response. Forward-edge paging, target-window paging, and jump-to-bottom keep their existing distinct navigation responsibilities; visibility alone is not an instruction to jump to the bottom.
+
+The shared message-page pipeline publishes coverage and received revisions only after decryption and application succeed. An unavailable encrypted row leaves the page retryable, rather than advancing past it. Realtime messages can arrive beyond a missing interval, so the deferred-transcript owner retains a gap floor independently of the highest observed message. A successful page acknowledges only the interval it covers; a successful latest snapshot transfers skipped history to the tail-discontinuity owner.
+
+Revision repair uses message identities and available sequence hints to fetch bounded affected ranges, rather than replaying every row between distant edits. Each group uses the configured page size and can refresh already-known neighbors without inserting unseen, unrequested rows. It suppresses historical lifecycle events and does not change the visible target window or forward paging cursor. Already-current revisions count as repaired; missing or unavailable rows remain outstanding. Account-change hints are coalesced per session and retain only the latest hint, not a complete journal of edited message identities. Consequently, bounded repair cannot certify the freshness of every historical row outside the fetched ranges.
+
+### Direct transcript continuation
+
+The development direct-session RPC response retains each agent's existing `truncated` boolean and adds optional `truncationReason: "page_limit" | "source_discontinuity"`. Old readers continue to see the original boolean; new readers use the explicit reason when present to distinguish an ordinary bounded page from invalidated source history. In particular, Claude can report `page_limit` while retaining its legacy `truncated: false`. A legacy response without a reason remains conservative.
+
+Ordinary forward paging extends the accepted transcript without replacing a detached reader's anchor. A source discontinuity requires a successful latest read before replacement, and the direct cursor owner retains that recovery requirement until replacement succeeds. Network failure or a reader leaving the live tail during the request preserves the accepted transcript. This is separate from CLI session-message replay, whose continuation cursor must be compared with the cursor sent for that page, not the maximum row just applied.
+
+Claude's file cursor records the consumed JSONL boundary, not an arbitrary file size: a partially written terminal record remains readable when the writer completes it. The existing bounded file pager supplies that boundary for snapshots, tail initialization, and source-reset recovery. If the existing read budget cannot establish the boundary, the read fails rather than publishing an unsafe cursor. A page budget and an incomplete terminal line are distinct outcomes.
+
 ## Implementation references
 - API routes: `apps/server/sources/app/api/routes`
 - Socket handlers: `apps/server/sources/app/api/socket`

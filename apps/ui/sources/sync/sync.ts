@@ -62,15 +62,20 @@ import {
 } from '@/sync/runtime/sessionMessagesWindowState';
 import {
     acknowledgeStaleTranscriptRepair,
+    acknowledgeTranscriptGap,
     clearDeferredTranscriptStateForSession,
     createDeferredTranscriptState,
     hasStaleTranscriptMarkers,
     markDeferredTranscriptRemoteSeq,
     markTranscriptDeferred,
+    markTranscriptGap,
     markTranscriptStale,
     readDeferredTranscriptDurableSeq,
     readStaleTranscriptMessageIds,
+    readStaleTranscriptMessageSeqs,
+    readStaleTranscriptMarkerVersion,
     readStaleTranscriptMinSeq,
+    readTranscriptGap,
     type DeferredTranscriptMarker,
     type DeferredTranscriptState,
 } from '@/sync/domains/session/realtime/deferredTranscriptState';
@@ -177,7 +182,7 @@ export type LoadTargetWindowMessagesResult = Readonly<{
 }>;
 
 function isRetryableTargetWindowLoadError(error: unknown): boolean {
-    if (isTransientConnectivityError(error) || isSocketIoAckTimeoutError(error)) {
+    if (error instanceof SessionMessagePageDecryptionError || isTransientConnectivityError(error) || isSocketIoAckTimeoutError(error)) {
         return true;
     }
     // React Native's fetch boundary uses this exact TypeError before endpoint
@@ -187,6 +192,7 @@ function isRetryableTargetWindowLoadError(error: unknown): boolean {
 }
 
 import { createSyncGenerationGuard } from './domains/scope/syncGenerationGuard';
+import { SessionMessagePageDecryptionError } from './engine/sessions/sessionMessagesPagePipeline';
 import {
     clearWarmCacheAccountScope,
     loadMachineDisplayWarmCacheEntries,
@@ -442,6 +448,7 @@ import {
     repairInvalidReadStateV1 as repairInvalidReadStateV1Engine,
 } from './engine/sessions/syncSessions';
 import { fetchAndApplyTargetWindowMessages, clearTargetWindowRequestEpochs } from './engine/sessions/fetchAndApplyTargetWindowMessages';
+import { fetchAndApplyTranscriptRepair } from './engine/sessions/fetchAndApplyTranscriptRepair';
 import {
     buildSessionListFetchHydrationTelemetryFields,
     type SessionListFetchHydrationTelemetrySource,
@@ -495,6 +502,7 @@ import {
     handleEphemeralSocketUpdate,
     handleSocketUpdate,
     parseUpdateContainer,
+    resetSocketSessionProjectionStateForServerScope,
 } from './engine/socket/socket';
 import { actionOperationStore } from './domains/actionOperations/actionOperationStore';
 import { openActionOperationRevisionEphemeral } from './domains/actionOperations/actionOperationEphemeral';
@@ -2070,6 +2078,7 @@ class Sync {
         // active next; persisted records themselves are scope-keyed and survive.
         this.sessionViewportHydratedStorageKey = null;
         this.sessionByIdHydrationInFlight.clear();
+        resetSocketSessionProjectionStateForServerScope();
         clearActiveViewingSessionsForServerScopeReset();
         clearMountedSessionRealtimeScmConsumerScopes();
         this.deferredForwardLoadingSessions.clear();
@@ -2233,6 +2242,8 @@ class Sync {
                 fireAndForget(this.repairDeferredStaleTranscriptRegion(sessionId, {
                     minSeq: staleMinSeq,
                     messageIds: staleMessageIds,
+                    messageSeqs: readStaleTranscriptMessageSeqs(this.deferredTranscriptState, sessionId),
+                    markerVersion: readStaleTranscriptMarkerVersion(this.deferredTranscriptState, sessionId),
                 }), {
                     tag: 'Sync.onSessionVisible.staleRefetch',
                 });
@@ -2248,11 +2259,6 @@ class Sync {
             }
             this.replayDeferredMessagesFetch(sessionId);
             this.getOrCreateMessagesSync(sessionId).invalidateCoalesced();
-
-            // C6/D3: reopening a session is a reactive, list-independent bottom arrival. Drain any
-            // deferred-newer backlog here so newer-message catch-up never stalls waiting for a
-            // ChatList scroll event.
-            this.maybeDrainDeferredNewerMessages(sessionId, { isPinned: true, distanceFromBottomPx: 0 });
 
             // Notify voice assistant about session visibility
             const session = storage.getState().sessions[sessionId];
@@ -2778,7 +2784,7 @@ class Sync {
             } else {
                 storage.getState().removePendingMessage(sessionId, localId);
             }
-            this.markSessionMaterializedMaxSeq(sessionId, ack.seq);
+            this.markSessionAckedMessageSeq(sessionId, ack.seq);
 
             // If we miss the broadcast socket update, we still need to advance session.seq so
             // catch-up (`afterSeq`) works correctly across reconnects.
@@ -3030,7 +3036,7 @@ class Sync {
                 } else {
                     storage.getState().removePendingMessage(params.sessionId, params.localId);
                 }
-                this.markSessionMaterializedMaxSeq(params.sessionId, ack.data.seq);
+                this.markSessionAckedMessageSeq(params.sessionId, ack.data.seq);
 
                 const currentSession = storage.getState().sessions[params.sessionId];
                 if (currentSession) {
@@ -5442,9 +5448,13 @@ class Sync {
           const hasExplicitTailProbe = this.explicitSessionTailProbeIds.has(sessionId);
           // IMPORTANT: `session.seq` is a "latest known session message seq" hint (often coming from `/sessions`),
           // not necessarily the last message seq that *this device has materialized*. Using it here can cause gaps.
-          const afterSeq = hasLoadedMessages ? (this.sessionMaterializedMaxSeqById[sessionId] ?? 0) : 0;
+          const afterSeq = hasLoadedMessages ? this.readSessionMessagesCatchUpAfterSeq(sessionId) : 0;
           const deferredDurableSeq = readDeferredTranscriptDurableSeq(this.deferredTranscriptState, sessionId);
-          const sessionSeqHint = Math.max(session?.seq ?? 0, deferredDurableSeq ?? 0);
+          const sessionSeqHint = Math.max(
+              session?.seq ?? 0,
+              deferredDurableSeq ?? 0,
+              readTranscriptGap(this.deferredTranscriptState, sessionId)?.throughSeq ?? 0,
+          );
 
           const viewport = this.sessionViewport.get(sessionId) ?? null;
           const isPinned = viewport?.isPinned ?? true;
@@ -5523,6 +5533,7 @@ class Sync {
                 offlineForMs,
                 hasAcceptedLocalPending,
                 hasExplicitTailProbe,
+                hasDeferredNewer: this.hasDeferredNewerMessages(sessionId),
                 thresholds: {
                     largeGapSeq: this.syncTuning.messageLargeGapSeq,
                     maxIncrementalPagesOnResume: this.syncTuning.messageMaxIncrementalPagesOnResume,
@@ -5535,12 +5546,18 @@ class Sync {
           // otherwise opening a normal session that advanced in the background performs real
           // newer-message fetching with no "Catching up…" overlay. `do_nothing` decisions and the
           // first-ever snapshot load (handled earlier) are intentionally NOT bracketed.
-          const isCatchUpWork = decision.kind !== 'do_nothing';
+          const isCatchUpWork = decision.kind === 'incremental_batched' || decision.kind === 'tail_reset_latest_page';
+          const canRefreshLiveTail = () => (this.sessionViewport.get(sessionId)?.isPinned ?? true)
+              && !this.getSessionTargetWindowState(sessionId).isWindowMode
+              && this.isForeground && !this.pauseController.isPaused()
+              && resolveSessionLiveConsumption(sessionId).isFullContentConsumer;
           const applyCatchUpDecision = () => applyMessageCatchUpDecision({
               decision,
               afterSeq,
-              onIncrementalExhausted: isPinned ? 'tail_reset_latest_page' : 'defer_forward_loading',
+              onIncrementalExhausted: () => canRefreshLiveTail()
+                  ? 'tail_reset_latest_page' : 'defer_forward_loading',
               fetchNewerPage: async (cursor) => {
+                  const expectedGap = readTranscriptGap(this.deferredTranscriptState, sessionId);
                   const result = await fetchAndApplyNewerMessages({
                       sessionId,
                       sessionEncryptionMode,
@@ -5551,7 +5568,8 @@ class Sync {
                       // large a background gap can be absorbed incrementally: 3 x 150 = 450
                       // messages, versus 3 x 12 = 36. Below that, a session that advanced while
                       // backgrounded falls to `onIncrementalExhausted` -> `tail_reset_latest_page`,
-                      // which REPLACES transcript content instead of extending it.
+                      // which merges the latest page and records any omitted interval
+                      // in the existing tail-discontinuity owner.
                       limit: this.getSessionMessagesPageSize(),
                       getSessionEncryption: (id) => this.encryption.getSessionEncryption(id),
                       isSessionKnown: (id) => this.isSessionKnownOnResolvedOwnerServer(id),
@@ -5562,6 +5580,9 @@ class Sync {
                       onTaskLifecycleEvent: (event) => this.applySessionThinkingFromTaskLifecycle(sessionId, event),
                       onMessagesPage: (page) => {
                           this.updateSessionMessagesPaginationFromPage(sessionId, { scope: 'main' }, page, { allowHasMoreInference: true, direction: 'newer' });
+                          this.deferredTranscriptState = acknowledgeTranscriptGap(this.deferredTranscriptState, sessionId, {
+                              afterSeq: cursor, expectedGap, page,
+                          });
                       },
                       ...this.getMessageDecryptBatchOptions(),
                       log,
@@ -5575,10 +5596,16 @@ class Sync {
               fetchSnapshotLatestPage: async () => {
                   // Read at snapshot time, not decision time: the incremental-exhausted
                   // branch advanced the contiguous head with its newer pages first.
-                  const prefixMaxSeqBeforeSnapshot = this.sessionMaterializedMaxSeqById[sessionId] ?? 0;
+                  const prefixMaxSeqBeforeSnapshot = this.readSessionMessagesCatchUpAfterSeq(sessionId);
+                  const expectedGap = readTranscriptGap(this.deferredTranscriptState, sessionId);
                   await fetchAndApplyMessages({
                       sessionId,
                       sessionEncryptionMode,
+                      shouldContinue: () => {
+                          const canRefresh = canRefreshLiveTail();
+                          if (!canRefresh) this.deferredForwardLoadingSessions.add(sessionId);
+                          return canRefresh;
+                      },
                       limit: this.getSessionMessagesPageSize(),
                       getSessionEncryption: (id) => this.encryption.getSessionEncryption(id),
                       isSessionKnown: (id) => this.isSessionKnownOnResolvedOwnerServer(id),
@@ -5596,6 +5623,9 @@ class Sync {
                               deferHistoryStartCoverage: true,
                           });
                           this.openSessionTailDiscontinuityFromSnapshotPage(sessionId, prefixMaxSeqBeforeSnapshot, page);
+                          this.deferredTranscriptState = acknowledgeTranscriptGap(this.deferredTranscriptState, sessionId, {
+                              afterSeq: prefixMaxSeqBeforeSnapshot, expectedGap, page,
+                          });
                       },
                       ...this.getMessageDecryptBatchOptions(),
                       log,
@@ -6959,8 +6989,8 @@ class Sync {
               return { loaded: 0, hasMore: false, status: 'no_more' };
           }
 
-          const afterSeq = this.sessionMaterializedMaxSeqById[sessionId] ?? 0;
-          if (!afterSeq) {
+          const afterSeq = this.readSessionMessagesCatchUpAfterSeq(sessionId);
+          if (!afterSeq && !readTranscriptGap(this.deferredTranscriptState, sessionId)) {
               return { loaded: 0, hasMore: true, status: 'not_ready' };
           }
 
@@ -6972,6 +7002,7 @@ class Sync {
           const session = storage.getState().sessions[sessionId] ?? null;
           const sessionEncryptionMode = session?.encryptionMode === 'plain' ? 'plain' : 'e2ee';
           try {
+              const expectedGap = readTranscriptGap(this.deferredTranscriptState, sessionId);
               const result = await fetchAndApplyNewerMessages({
                   sessionId,
                   sessionEncryptionMode,
@@ -6986,6 +7017,9 @@ class Sync {
                   onTaskLifecycleEvent: (event) => this.applySessionThinkingFromTaskLifecycle(sessionId, event),
                   onMessagesPage: (page) => {
                       this.updateSessionMessagesPaginationFromPage(sessionId, { scope: 'main' }, page, { allowHasMoreInference: true, direction: 'newer' });
+                      this.deferredTranscriptState = acknowledgeTranscriptGap(this.deferredTranscriptState, sessionId, {
+                          afterSeq, expectedGap, page,
+                      });
                   },
                   ...this.getMessageDecryptBatchOptions(),
                   log,
@@ -7013,16 +7047,12 @@ class Sync {
       }
 
       /**
-       * C6/D2a: re-materialize the stale (edited-while-hidden) region and merge it in place.
-       *
-       * Fetches newer messages from just below the lowest stale seq so the edited rows are
-       * re-pulled and upserted by applyMessages without dropping any other materialized row.
-       * Falls back to a coalesced catch-up invalidate when the stale seq is unknown (the
-       * catch-up policy then fetches-and-merges; it is non-destructive after D2b).
+       * Re-materialize edited rows in bounded groups without moving transcript pagination,
+       * target-window selection, viewport anchors, or current task activity.
        */
       private async fetchStaleTranscriptRegion(
           sessionId: string,
-          staleSnapshot: Readonly<{ minSeq: number | null; messageIds: readonly string[] }>,
+          staleSnapshot: Readonly<{ minSeq: number | null; messageIds: readonly string[]; messageSeqs?: Readonly<Record<string, number>>; markerVersion?: number }>,
       ): Promise<ReadonlySet<string>> {
           const staleMinSeq = staleSnapshot.minSeq;
           if (typeof staleMinSeq !== 'number' || !Number.isFinite(staleMinSeq) || staleMinSeq <= 0) {
@@ -7032,72 +7062,71 @@ class Sync {
           if (this.hasFetchedSessionsSnapshotForActiveServer && !this.isSessionKnownOnResolvedOwnerServer(sessionId)) {
               return new Set();
           }
-          let afterSeq = Math.max(0, Math.trunc(staleMinSeq) - 1);
           const requestMessages = this.createSessionMessagesRequest(sessionId);
           const session = storage.getState().sessions[sessionId] ?? null;
           const sessionEncryptionMode = session?.encryptionMode === 'plain' ? 'plain' : 'e2ee';
-          const unresolvedMessageIds = new Set(staleSnapshot.messageIds);
-          const resolvedMessageIds = new Set<string>();
+          const targets = staleSnapshot.messageIds.map((messageId) => ({
+              messageId,
+              seq: staleSnapshot.messageSeqs?.[messageId]
+                  ?? this.resolveDurableSessionMessageIdentity(sessionId, messageId).seq
+                  ?? staleMinSeq,
+          }));
           // Hidden edits and changes-feed revisions are deliberate catch-up. Their repair
           // can outlive the independent tail probe, so keep its signal until these pages settle.
           storage.getState().beginSessionCatchUpNewer(sessionId);
           try {
-              while (unresolvedMessageIds.size > 0) {
-                  const result = await fetchAndApplyNewerMessages({
-                      sessionId,
-                      sessionEncryptionMode,
-                      afterSeq,
-                      limit: this.getSessionMessagesPageSize(),
-                      getSessionEncryption: (id) => this.encryption.getSessionEncryption(id),
-                      isSessionKnown: (id) => this.isSessionKnownOnResolvedOwnerServer(id),
-                      request: requestMessages,
-                      sessionReceivedMessages: this.sessionReceivedMessages,
-                      applyMessages: (sid, messages) => this.applyMessages(sid, messages, { notifyVoice: false }),
-                      onNormalizedMessages: (messages) => {
-                          ingestWorkspaceMutationMessages(sessionId, messages);
-                          for (const message of messages) {
-                              if (!unresolvedMessageIds.delete(message.id)) continue;
-                              resolvedMessageIds.add(message.id);
-                          }
-                      },
-                      onTaskLifecycleEvent: (event) => this.applySessionThinkingFromTaskLifecycle(sessionId, event),
-                      onMessagesPage: (page) => {
-                          this.updateSessionMessagesPaginationFromPage(sessionId, { scope: 'main' }, page, { allowHasMoreInference: true, direction: 'newer' });
-                      },
-                      ...this.getMessageDecryptBatchOptions(),
-                      log,
-                  });
-                  const nextAfterSeq = result.page.nextAfterSeq;
-                  if (!nextAfterSeq || result.page.messages.length === 0) break;
-                  afterSeq = nextAfterSeq;
-              }
+              return await fetchAndApplyTranscriptRepair({
+                  sessionId,
+                  sessionEncryptionMode,
+                  targets,
+                  pageSize: this.getSessionMessagesPageSize(),
+                  isMessageMaterialized: (id, localId) => {
+                      const reducerState = storage.getState().sessionMessages[sessionId]?.reducerState;
+                      if (reducerState?.messageIds.has(id)) return true;
+                      const localMessageId = localId ? reducerState?.localIds.get(localId) : undefined;
+                      return localMessageId !== undefined && reducerState?.messages.get(localMessageId)?.realID === id;
+                  },
+                  getSessionEncryption: (id) => this.encryption.getSessionEncryption(id),
+                  isSessionKnown: (id) => this.isSessionKnownOnResolvedOwnerServer(id),
+                  request: requestMessages,
+                  sessionReceivedMessages: this.sessionReceivedMessages,
+                  applyMessages: (sid, messages) => this.applyMessages(sid, messages, { notifyVoice: false }),
+                  onNormalizedMessages: (messages) => ingestWorkspaceMutationMessages(sessionId, messages),
+                  ...this.getMessageDecryptBatchOptions(),
+                  log,
+              });
           } catch (error) {
               console.error('Failed to refetch stale transcript region:', error);
           } finally {
               storage.getState().endSessionCatchUpNewer(sessionId);
           }
-          return resolvedMessageIds;
+          return new Set();
       }
 
       private async repairDeferredStaleTranscriptRegion(
           sessionId: string,
-          staleSnapshot: Readonly<{ minSeq: number | null; messageIds: readonly string[] }>,
+          staleSnapshot: Readonly<{ minSeq: number | null; messageIds: readonly string[]; messageSeqs?: Readonly<Record<string, number>>; markerVersion?: number }>,
       ): Promise<void> {
           const resolvedMessageIds = await this.fetchStaleTranscriptRegion(sessionId, staleSnapshot);
           if (!staleSnapshot.messageIds.every((messageId) => resolvedMessageIds.has(messageId))) return;
           this.deferredTranscriptState = acknowledgeStaleTranscriptRepair(
               this.deferredTranscriptState,
               sessionId,
-              { messageIds: staleSnapshot.messageIds, minSeq: staleSnapshot.minSeq },
+              {
+                  messageIds: staleSnapshot.messageIds,
+                  minSeq: staleSnapshot.minSeq,
+                  markerVersion: staleSnapshot.markerVersion,
+              },
           );
       }
 
       private async repairSessionTranscriptRevision(
-          repair: Readonly<{ sessionId: string; minSeq: number; messageIds: readonly string[] }>,
+          repair: Readonly<{ sessionId: string; minSeq: number; messageIds: readonly string[]; messageSeqs?: Readonly<Record<string, number>> }>,
       ): Promise<void> {
           const resolvedMessageIds = await this.fetchStaleTranscriptRegion(repair.sessionId, {
               minSeq: repair.minSeq,
               messageIds: repair.messageIds,
+              messageSeqs: repair.messageSeqs,
           });
           if (!repair.messageIds.every((messageId) => resolvedMessageIds.has(messageId))) {
               throw new Error('Durable transcript revision could not be materialized');
@@ -7428,6 +7457,7 @@ class Sync {
                         shouldCatchUpSessionMessages: (sessionId) =>
                             resolveSessionLiveConsumption(sessionId).isFullContentConsumer,
                         getSessionMaterializedMaxSeq: (sessionId) => this.sessionMaterializedMaxSeqById[sessionId] ?? 0,
+                        isSessionMessagesDeferred: (sessionId) => this.hasDeferredNewerMessages(sessionId),
                         invalidate: {
                             settings: () => this.settingsSync.invalidateAndAwait(),
                             profile: () => this.profileSync.invalidateAndAwait(),
@@ -7644,9 +7674,7 @@ class Sync {
                 isSessionMessagesLoaded: (sessionId) => storage.getState().sessionMessages[sessionId]?.isLoaded === true,
                 getSessionMaterializedMaxSeq: (sessionId) => this.sessionMaterializedMaxSeqById[sessionId] ?? 0,
               markSessionMaterializedMaxSeq: (sessionId, seq) => this.markSessionMaterializedMaxSeq(sessionId, seq),
-              onMessageGapDetected: (sessionId, _info) => {
-                  this.getOrCreateMessagesSync(sessionId).invalidateCoalesced();
-              },
+              onMessageGapDetected: (sessionId, info) => this.recoverSessionMessageGap(sessionId, info),
               markSessionKnownRemoteSeq: (sessionId, seq) => this.markSessionKnownRemoteSeq(sessionId, seq),
               markSessionTranscriptDeferred: (sessionId, marker) => this.markSessionTranscriptDeferred(sessionId, marker),
               markSessionTranscriptStale: (sessionId, marker) => this.markSessionTranscriptStale(sessionId, marker),
@@ -8006,6 +8034,35 @@ class Sync {
         storage.getState().applySessions(sessions);
         const newActive = storage.getState().getActiveSessions();
         this.applySessionDiff(active, newActive);
+    }
+
+    private readSessionMessagesCatchUpAfterSeq(sessionId: string): number {
+        const materializedMaxSeq = this.sessionMaterializedMaxSeqById[sessionId] ?? 0;
+        const gap = readTranscriptGap(this.deferredTranscriptState, sessionId);
+        return gap ? Math.min(materializedMaxSeq, gap.afterSeq) : materializedMaxSeq;
+    }
+
+    private recoverSessionMessageGap(
+        sessionId: string,
+        info: Readonly<{ prevMaterializedMaxSeq: number; messageSeq: number | null }>,
+    ): void {
+        this.deferredTranscriptState = markTranscriptGap(this.deferredTranscriptState, sessionId, {
+            afterSeq: info.prevMaterializedMaxSeq,
+            throughSeq: info.messageSeq,
+        });
+        // Retain a later cycle when this observation races an already-running page.
+        this.getOrCreateMessagesSync(sessionId).invalidate();
+    }
+
+    private markSessionAckedMessageSeq(sessionId: string, seq: number): void {
+        const prevMaterializedMaxSeq = this.sessionMaterializedMaxSeqById[sessionId] ?? 0;
+        this.markSessionMaterializedMaxSeq(sessionId, seq);
+        if (
+            seq > prevMaterializedMaxSeq + 1
+            && storage.getState().sessionMessages[sessionId]?.isLoaded === true
+        ) {
+            this.recoverSessionMessageGap(sessionId, { prevMaterializedMaxSeq, messageSeq: seq });
+        }
     }
 
     private markSessionMaterializedMaxSeq(sessionId: string, seq: number): void {
