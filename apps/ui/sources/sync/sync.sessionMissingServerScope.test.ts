@@ -1640,6 +1640,7 @@ describe('sync.fetchMessages server-scoped known-session checks', () => {
         { truncated: false, continuation: 'terminal' },
         { truncated: false, continuation: 'stacked' },
         { truncated: false, continuation: 'stalled' },
+        { truncated: false, continuation: 'authority switch' },
     ] as const)('merges known capped live direct backlog and walks the gap ($continuation, legacy truncated=$truncated)', async ({ truncated, continuation }) => {
         const sessionId = `direct_session_read_after_page_limit_${truncated}_${continuation}`;
         storage.getState().applySessions([createDirectSession(sessionId)]);
@@ -1706,6 +1707,27 @@ describe('sync.fetchMessages server-scoped known-session checks', () => {
         expect(boundary).toEqual({ kind: 'messageIds', messageIds: [latestId] });
         expect(sync.getSessionTailDiscontinuityOlderAvailability(sessionId)).toBe(true);
 
+        if (continuation === 'authority switch') {
+            // Handoff changes the same session's storage authority by replacing
+            // its metadata; the hosted transcript cannot inherit opaque cursors.
+            storage.getState().applySessions([{ ...createSession(sessionId), encryptionMode: 'plain', seq: 1 }]);
+            requestMock.mockResolvedValueOnce(new Response(JSON.stringify({
+                messages: [{ id: 'hosted-row', seq: 1, localId: null, createdAt: 20_000,
+                    content: { t: 'plain', v: { role: 'user', content: { type: 'text', text: 'hosted' } } } }],
+                hasMore: false, nextBeforeSeq: null,
+            }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+            markSessionVisible(sessionId);
+            try {
+                await sync.refreshSessionMessages(sessionId);
+            } finally {
+                markSessionHidden(sessionId);
+            }
+            expect(storage.getState().getSessionTailContiguousBoundary(sessionId)).toBeNull();
+            expect(sync.getSessionTailDiscontinuityOlderAvailability(sessionId)).toBeNull();
+            expect(Object.values(storage.getState().sessionMessages[sessionId]?.messagesById ?? {}).map((message) => message.realID))
+                .toEqual(['hosted-row']);
+            return;
+        }
         if (continuation === 'terminal') {
             machineDirectSessionTranscriptPageMock.mockResolvedValueOnce({
                 ok: true, items: [], nextCursor: null, hasMore: false,

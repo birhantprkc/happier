@@ -52,6 +52,7 @@ import {
 import {
     applyTailDiscontinuityOlderPage,
     applyTailDiscontinuityOpaqueOlderPage,
+    applyTailDiscontinuityOpaqueForwardPage,
     openTailDiscontinuityFromSnapshot,
     openTailDiscontinuityFromOpaqueSnapshot,
     type SessionMessagesTailDiscontinuity,
@@ -5449,6 +5450,14 @@ class Sync {
 
           const session = storage.getState().sessions[sessionId] ?? null;
           const directSessionLink = readDirectSessionLink(session?.metadata);
+          if (!directSessionLink && (
+              this.directSessionTailStateBySessionId.has(sessionId)
+              || this.sessionMessagesTailDiscontinuityBySessionId.get(sessionId)?.kind === 'opaque'
+          )) {
+              // A storage-mode handoff keeps the Session ID but retires the old
+              // source's rows and opaque pagination authority before hosted loading.
+              this.resetSessionTranscriptState(sessionId);
+          }
           const hasLoadedMessages = storage.getState().sessionMessages[sessionId]?.isLoaded === true;
           const hasExplicitTailProbe = this.explicitSessionTailProbeIds.has(sessionId);
           // IMPORTANT: `session.seq` is a "latest known session message seq" hint (often coming from `/sessions`),
@@ -7951,6 +7960,13 @@ class Sync {
         options?: { notifyVoice?: boolean; notifyActivity?: boolean }
     ) => {
         const result = storage.getState().applyMessages(sessionId, messages);
+        const tailGap = this.sessionMessagesTailDiscontinuityBySessionId.get(sessionId);
+        if (tailGap?.kind === 'opaque') {
+            this.commitSessionTailDiscontinuity(sessionId, applyTailDiscontinuityOpaqueForwardPage({
+                prev: tailGap,
+                pageMaterializedMessageIds: result.changed,
+            }));
+        }
         let receivedCommittedUserLocalIds: Set<string> | null = null;
         for (const message of messages) {
             if (message.role === 'user' && typeof message.localId === 'string' && message.localId.length > 0) {
