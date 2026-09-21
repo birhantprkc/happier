@@ -1,4 +1,4 @@
-import { isBuiltInAcpSessionListingDeclared, type AgentId } from '@happier-dev/agents';
+import { isAcpSessionListingDeclared, type AgentId } from '@happier-dev/agents';
 import type { DirectSessionCandidateV1 } from '@happier-dev/protocol';
 
 import {
@@ -67,7 +67,7 @@ export function createAcpSessionListDirectSessionProviderOps(agentId: AgentId): 
           `Agent '${agentId}' only enumerates sessions through the ACP session/list source.`,
         );
       }
-      if (!isBuiltInAcpSessionListingDeclared(agentId)) {
+      if (!isAcpSessionListingDeclared(agentId)) {
         throw new DirectSessionsProviderUnavailableError(
           `Agent '${agentId}' does not declare ACP session listing.`,
         );
@@ -115,7 +115,7 @@ export function createAcpSessionListDirectSessionProviderOps(agentId: AgentId): 
           `Agent '${agentId}' only deletes sessions through the ACP session/list source.`,
         );
       }
-      if (!isBuiltInAcpSessionListingDeclared(agentId)) {
+      if (!isAcpSessionListingDeclared(agentId)) {
         throw new DirectSessionsProviderUnavailableError(
           `Agent '${agentId}' does not declare ACP session listing.`,
         );

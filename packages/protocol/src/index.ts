@@ -2509,6 +2509,8 @@ export {
 export {
   DirectSessionsProviderIdSchema,
   DirectSessionsSourceSchema,
+  DirectSessionsAcpSessionListCapabilityRequestSchema,
+  DirectSessionsAcpSessionListCapabilityResponseSchema,
   DirectSessionCandidateV1Schema,
   DirectSessionsCandidatesListRequestSchema,
   DirectSessionsCandidatesListResponseSchema,
@@ -2537,6 +2539,8 @@ export {
   DirectSessionTakeoverPersistResponseSchema,
   type DirectSessionsProviderId,
   type DirectSessionsSource,
+  type DirectSessionsAcpSessionListCapabilityRequest,
+  type DirectSessionsAcpSessionListCapabilityResponse,
   type DirectSessionCandidateV1,
   type DirectSessionsCandidatesListRequest,
   type DirectSessionsCandidatesListResponse,

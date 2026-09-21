@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { RpcError } from '@/sync/runtime/rpcErrors';
+import { RPC_ERROR_CODES } from '@happier-dev/protocol/rpc';
 
 const machineRpcWithServerScopeMock = vi.hoisted(() => vi.fn());
 const storageState = vi.hoisted(() => ({
@@ -56,6 +58,72 @@ describe('machine direct sessions ops server-scoped routing', () => {
                 limit: 20,
             }),
         }));
+    });
+
+    it('negotiates ACP session-list capability before calling a current daemon', async () => {
+        machineRpcWithServerScopeMock
+            .mockResolvedValueOnce({
+                ok: true,
+                capability: 'acp_session_list_v1',
+                protocolVersion: 1,
+                sourceKind: 'acpSessionList',
+                resumeOnly: true,
+            })
+            .mockResolvedValueOnce({ ok: true, candidates: [], nextCursor: null });
+        const { machineDirectSessionsCandidatesList } = await import('./machineDirectSessions');
+
+        await expect(machineDirectSessionsCandidatesList({
+            machineId: 'machine-1',
+            providerId: 'kimi',
+            source: { kind: 'acpSessionList', cwd: '/work/repo' },
+        }, { serverId: 'server-a' })).resolves.toEqual({ ok: true, candidates: [], nextCursor: null });
+
+        expect(machineRpcWithServerScopeMock).toHaveBeenNthCalledWith(1, expect.objectContaining({
+            method: 'daemon.directSessions.acpSessionList.capability.get',
+            payload: {},
+        }));
+        expect(machineRpcWithServerScopeMock).toHaveBeenNthCalledWith(2, expect.objectContaining({
+            method: 'daemon.directSessions.candidates.list',
+            payload: expect.objectContaining({ source: { kind: 'acpSessionList', cwd: '/work/repo' } }),
+        }));
+    });
+
+    it('degrades ACP listing without sending its new source to the released v0.2.12 daemon', async () => {
+        machineRpcWithServerScopeMock.mockRejectedValueOnce(new RpcError(
+            'RPC method not available',
+            RPC_ERROR_CODES.METHOD_NOT_AVAILABLE,
+        ));
+        const { machineDirectSessionsCandidatesList } = await import('./machineDirectSessions');
+
+        await expect(machineDirectSessionsCandidatesList({
+            machineId: 'machine-1',
+            providerId: 'kimi',
+            source: { kind: 'acpSessionList', cwd: '/work/repo' },
+        })).resolves.toEqual({
+            ok: false,
+            errorCode: 'provider_unavailable',
+            error: 'acp_session_list_requires_daemon_upgrade',
+        });
+        expect(machineRpcWithServerScopeMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not reinterpret a capable daemon rejecting a relative ACP directory as compatibility fallback', async () => {
+        machineRpcWithServerScopeMock
+            .mockResolvedValueOnce({
+                ok: true,
+                capability: 'acp_session_list_v1',
+                protocolVersion: 1,
+                sourceKind: 'acpSessionList',
+                resumeOnly: true,
+            })
+            .mockResolvedValueOnce({ ok: false, errorCode: 'invalid_request', error: 'cwd must be absolute' });
+        const { machineDirectSessionsCandidatesList } = await import('./machineDirectSessions');
+
+        await expect(machineDirectSessionsCandidatesList({
+            machineId: 'machine-1',
+            providerId: 'kimi',
+            source: { kind: 'acpSessionList', cwd: 'relative/repo' },
+        })).resolves.toEqual({ ok: false, errorCode: 'invalid_request', error: 'cwd must be absolute' });
     });
 
     it('routes direct session linking hints through server-scoped machine rpc', async () => {

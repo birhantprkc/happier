@@ -1,7 +1,6 @@
 import {
   AGENTS_CORE,
   hasBuiltInAcpConfig,
-  isBuiltInAcpSessionListingDeclared,
   type AgentId,
 } from '@happier-dev/agents';
 
@@ -10,6 +9,7 @@ import type { AgentCatalogEntry } from '@/backends/types';
 import { createCatalogDefinedCliAuthSpec } from './auth/createCatalogDefinedCliAuthSpec';
 import { createCatalogDefinedAcpBackend } from './createCatalogDefinedAcpBackend';
 import { createCatalogDefinedCliDetect } from './createCatalogDefinedCliDetect';
+import { createAcpSessionListCatalogHook } from './createAcpSessionListCatalogHook';
 
 export function createCatalogDefinedAcpEntry(agentId: AgentId): AgentCatalogEntry {
   if (!hasBuiltInAcpConfig(agentId)) {
@@ -33,17 +33,7 @@ export function createCatalogDefinedAcpEntry(agentId: AgentId): AgentCatalogEntr
     getAcpBackendFactory: async () => {
       return (opts) => ({ backend: createCatalogDefinedAcpBackend(agentId, opts as never) });
     },
-    // Resume-only session enumeration over ACP `session/list`, offered only where the leaf
-    // declaration allows it. The live handshake still decides whether the call is dispatched.
-    ...(isBuiltInAcpSessionListingDeclared(agentId)
-      ? {
-        getDirectSessionProviderOps: async () => {
-          const { createAcpSessionListDirectSessionProviderOps } = await import(
-            '@/backends/directSessions/acpSessionListProviderOps'
-          );
-          return createAcpSessionListDirectSessionProviderOps(agentId);
-        },
-      }
-      : {}),
+    // The live handshake remains authoritative before `session/list` is dispatched.
+    ...createAcpSessionListCatalogHook(agentId),
   };
 }

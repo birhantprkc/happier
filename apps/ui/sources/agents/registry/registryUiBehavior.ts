@@ -26,7 +26,7 @@ import { PI_UI_BEHAVIOR_OVERRIDE } from '@/agents/providers/pi/uiBehavior';
 import { AGY_UI_BEHAVIOR_OVERRIDE } from '@/agents/providers/agy/uiBehavior';
 import { CUSTOM_ACP_UI_BEHAVIOR_OVERRIDE } from '@/agents/providers/customAcp/uiBehavior';
 import type { AgentInputExtraActionChip } from '@/components/sessions/agentInput';
-import { isBuiltInAcpSessionListingDeclared, resolveAgentIdFromSessionMetadata } from '@happier-dev/agents';
+import { isAcpSessionListingDeclared, resolveAgentIdFromSessionMetadata } from '@happier-dev/agents';
 import type { PendingInputServerWireMode } from '@/sync/engine/pending/pendingInputServerWireContract';
 import { resolveSessionGoalExecutionCapabilities } from '@/sync/domains/session/control/sessionGoalExecutionCapabilities';
 
@@ -353,7 +353,7 @@ function buildDefaultAgentUiBehavior(agentId: AgentId): AgentUiBehavior {
         },
         // Agents whose ACP server declares `session/list` expose their own sessions as resume
         // candidates through the one generic source; no provider-owned module is needed.
-        ...(isBuiltInAcpSessionListingDeclared(agentId)
+        ...(isAcpSessionListingDeclared(agentId)
             ? {
                 directSessions: {
                     browse: {

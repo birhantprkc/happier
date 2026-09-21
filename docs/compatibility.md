@@ -126,6 +126,22 @@ Every retained compatibility path records:
 
 Remove the path when its support window has ended and evidence shows no supported reader, writer, or stored shape still requires it. Do not remove a released-data reader merely because current writers stopped producing that shape.
 
+### ACP session-list browse source
+
+The released `cli-v0.2.12` and `cli-v0.2.12-preview.1` daemon at
+`a357c65536ba89669422977d6f7daf9aa0d17e73` does not register the ACP session-list
+capability method and its direct-session source schema rejects `{ kind: 'acpSessionList' }`.
+Updated UIs therefore probe `daemon.directSessions.acpSessionList.capability.get` through
+the canonical machine direct-sessions operation before sending that source. A missing method
+degrades only ACP candidate listing to `provider_unavailable`; legacy direct-session listing
+continues unchanged. Updated daemons advertise protocol version 1 with `resumeOnly: true`.
+That capability authorizes candidate listing for resume and nothing else: it does not imply
+transcript import, following, takeover, terminal identity, linking, or writer safety.
+
+The probe can be removed only when daemons predating this method are no longer supported.
+Directory validation remains daemon-owned after successful negotiation, and a relative `cwd`
+continues to return `invalid_request` rather than being reclassified as compatibility fallback.
+
 ### Account-pool quota-reset opt-in (development)
 
 `autoUseQuotaResetsWhenExhausted` is optional in the V1 pool policy; absence means

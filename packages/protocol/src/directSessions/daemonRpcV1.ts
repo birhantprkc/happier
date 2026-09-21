@@ -81,6 +81,22 @@ export const DirectSessionsSourceSchema = z.discriminatedUnion('kind', [
 ]);
 export type DirectSessionsSource = z.infer<typeof DirectSessionsSourceSchema>;
 
+/**
+ * Negotiates only the generic ACP `session/list` browse source. This capability is intentionally
+ * resume-only and grants no transcript, follow, takeover, terminal, or writer authority.
+ */
+export const DirectSessionsAcpSessionListCapabilityRequestSchema = z.object({}).strict();
+export type DirectSessionsAcpSessionListCapabilityRequest = z.infer<typeof DirectSessionsAcpSessionListCapabilityRequestSchema>;
+
+export const DirectSessionsAcpSessionListCapabilityResponseSchema = z.object({
+  ok: z.literal(true),
+  capability: z.literal('acp_session_list_v1'),
+  protocolVersion: z.literal(1),
+  sourceKind: z.literal('acpSessionList'),
+  resumeOnly: z.literal(true),
+}).strict();
+export type DirectSessionsAcpSessionListCapabilityResponse = z.infer<typeof DirectSessionsAcpSessionListCapabilityResponseSchema>;
+
 export const DirectSessionsSearchModeSchema = z.enum(['fast', 'full']);
 export type DirectSessionsSearchMode = z.infer<typeof DirectSessionsSearchModeSchema>;
 
