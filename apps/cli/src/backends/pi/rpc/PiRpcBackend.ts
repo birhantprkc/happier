@@ -228,7 +228,7 @@ const DEFAULT_PI_RPC_COMPACTION_RESUME_GRACE_MS = 30_000;
 const DEFAULT_PI_RPC_AGENT_END_SETTLE_MS = 250;
 const DEFAULT_PI_RPC_AGENT_END_BUSY_GRACE_MS = 30_000;
 const PI_RPC_RECOVERABLE_ASSISTANT_ERROR_PATTERN =
-  /(?:context[_ -]?length[_ -]?exceeded|server[_ -]?is[_ -]?overloaded|service[_ -]?unavailable|websocket[^\n]*closed|\bECONN(?:RESET|REFUSED|ABORTED)\b)/iu;
+  /(?:context[_ -]?length[_ -]?exceeded|server[_ -]?is[_ -]?overloaded|service[_ -]?unavailable|\bhappier_broker_bridge_status_5\d\d\b|websocket[^\n]*closed|\bECONN(?:RESET|REFUSED|ABORTED)\b)/iu;
 
 const PI_RPC_TURN_STALL_TIMEOUT_ENV = 'HAPPIER_PI_RPC_TURN_STALL_TIMEOUT_MS';
 const PI_RPC_COMPACTION_RESUME_GRACE_ENV = 'HAPPIER_PI_RPC_COMPACTION_RESUME_GRACE_MS';
