@@ -85,6 +85,8 @@ export type OlderPaginationEvent =
     | (Readonly<{ type: 'scrollObserved' }> & OlderPaginationScrollObservation)
     | Readonly<{ type: 'loadStarted' }>
     | Readonly<{ type: 'loadFinished'; loaded: number; hasMore: boolean; error?: boolean }>
+    /** Initial-fill and navigation reads use the same source without arming this pager. */
+    | Readonly<{ type: 'sourceExhausted' }>
     | Readonly<{ type: 'cooldownElapsed' }>
     | Readonly<{ type: 'suspend'; reason: OlderPaginationSuspendReason }>
     | Readonly<{ type: 'resume'; reason: OlderPaginationSuspendReason }>
@@ -292,6 +294,16 @@ export function reduceOlderPagination(state: OlderPaginationState, event: OlderP
                 committedExactEdgeDuringLoad: successfulExactEdgeContinuation,
                 successfulLoadAwaitingCommittedLayout,
                 hasMore,
+            };
+        }
+        case 'sourceExhausted': {
+            if (!state.hasMore) return state;
+            return {
+                ...state,
+                phase: state.phase === 'loading' ? 'loading' : 'idle',
+                hasMore: false,
+                committedExactEdgeDuringLoad: false,
+                successfulLoadAwaitingCommittedLayout: false,
             };
         }
         case 'cooldownElapsed': {

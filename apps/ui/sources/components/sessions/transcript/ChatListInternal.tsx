@@ -319,6 +319,7 @@ export const ChatListInternal = React.memo((props: ChatListInternalProps) => {
     const nativeMountSettleAutoPinSuppressedRef = React.useRef(false);
     const loadOlderInFlight = React.useRef(false);
     const hasMoreOlderRef = React.useRef<boolean | null>(null);
+    const observeOlderLoadResultRef = React.useRef<((result: TranscriptPrependOlderLoadResult | null) => void) | null>(null);
     const olderLoadSpinnerDelayTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const nativeFirstPaintFallbackReleaseTimeoutRef = React.useRef<{
         sessionId: string;
@@ -1870,7 +1871,8 @@ export const ChatListInternal = React.memo((props: ChatListInternalProps) => {
                     mainTranscriptRendererOwnerPolicy.prependRestore === 'app',
             }
             : options;
-        return await runTranscriptPrependOlderLoad({
+        const observeLoadResult = observeOlderLoadResultRef.current;
+        const result = await runTranscriptPrependOlderLoad({
             clearOlderLoadSpinnerDelay,
             hasActiveEntrySliceWindow: () => entrySliceWindowRef.current?.sessionId === props.sessionId,
             hideOlderLoadSpinner,
@@ -1891,6 +1893,8 @@ export const ChatListInternal = React.memo((props: ChatListInternalProps) => {
             setIsLoadingOlder,
             showOlderLoadSpinner,
         });
+        if (currentSessionIdRef.current === props.sessionId) observeLoadResult?.(result);
+        return result;
     }, [
         clearOlderLoadSpinnerDelay,
         hideOlderLoadSpinner,
@@ -1920,6 +1924,7 @@ export const ChatListInternal = React.memo((props: ChatListInternalProps) => {
         readHasMoreAfterExhaustion: () => sync.getSessionTailDiscontinuityOlderAvailability(props.sessionId),
     });
     // Navigation consumes the pager's result; it does not own another exhaustion cache.
+    useCommittedTranscriptRef(observeOlderLoadResultRef, olderPagination.observeLoadResult);
     useCommittedTranscriptRef(hasMoreOlderRef, olderPagination.hasMore);
     useCommittedTranscriptRef(
         olderPaginationSnapshotRef,
@@ -2197,6 +2202,7 @@ export const ChatListInternal = React.memo((props: ChatListInternalProps) => {
         executeViewportCommandWithAnimation,
         forkedTranscriptEnabled: props.forkedTranscriptEnabled,
         hasMoreOlderRef,
+        observeOlderLoadResult: olderPagination.observeLoadResult,
         invalidateViewportAnchorCapture,
         isLoaded: props.isLoaded,
         isPinnedRef,

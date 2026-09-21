@@ -64,6 +64,8 @@ export type UseTranscriptOlderPaginationResult = Readonly<{
     isLoadingOlder: boolean;
     hasMore: boolean;
     getSnapshot: () => TranscriptOlderPaginationSnapshot;
+    /** Feed completed reads from initial fill or navigation into the same availability owner. */
+    observeLoadResult: (result: TranscriptOlderPaginationLoadResult | null) => void;
     reset: () => void;
 }>;
 
@@ -286,6 +288,14 @@ export function useTranscriptOlderPagination(input: UseTranscriptOlderPagination
         };
     }, []);
 
+    const observeLoadResult = React.useCallback((result: TranscriptOlderPaginationLoadResult | null) => {
+        if (!mountedRef.current) return;
+        const finished = mapLoadResultToFinishedEvent(result);
+        if (finished.error || finished.hasMore) return;
+        clearCooldownTimeout();
+        dispatch({ type: 'sourceExhausted' });
+    }, [clearCooldownTimeout, dispatch]);
+
     React.useEffect(() => {
         mountedRef.current = true;
         return () => {
@@ -296,5 +306,5 @@ export function useTranscriptOlderPagination(input: UseTranscriptOlderPagination
         };
     }, [clearCooldownTimeout, clearSpinnerTimeout]);
 
-    return { onScrollObservation, isReadyForLoad, isNearOlderEdge, isLoadingOlder, hasMore, getSnapshot, reset };
+    return { onScrollObservation, isReadyForLoad, isNearOlderEdge, isLoadingOlder, hasMore, getSnapshot, observeLoadResult, reset };
 }

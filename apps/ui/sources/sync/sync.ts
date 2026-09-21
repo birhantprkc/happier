@@ -6205,6 +6205,10 @@ class Sync {
               await this.fetchDirectSessionMessages(ephemeralUpdate.sessionId, directSessionLink, { mode: 'replace' });
               return;
           }
+          if (this.directSessionLatestSnapshotPendingBySessionId.has(ephemeralUpdate.sessionId)) {
+              await this.catchUpDirectSessionMessages(ephemeralUpdate.sessionId, directSessionLink);
+              return;
+          }
           const resolvedCursor = this.resolveDirectSessionTranscriptDeltaCursor(ephemeralUpdate);
           const hasAnchoredFromCursor = typeof ephemeralUpdate.fromCursor === 'string'
               && ephemeralUpdate.fromCursor.trim().length > 0;

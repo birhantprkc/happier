@@ -2149,8 +2149,12 @@ describe('sync.fetchMessages server-scoped known-session checks', () => {
         ]);
     });
 
-    it.each([true, false])('merges known capped live direct backlog after a push with legacy truncated=%s', async (truncated) => {
-        const sessionId = `direct_session_truncated_delta_${truncated}`;
+    it.each([
+        { truncated: true, nextDemand: 'refresh' },
+        { truncated: false, nextDemand: 'refresh' },
+        { truncated: false, nextDemand: 'another capped push' },
+    ])('merges known capped live direct backlog after a push ($nextDemand, legacy truncated=$truncated)', async ({ truncated, nextDemand }) => {
+        const sessionId = `direct_session_truncated_delta_${truncated}_${nextDemand}`;
         storage.getState().applySessions([createDirectSession(sessionId)]);
         machineDirectSessionTranscriptPageMock.mockResolvedValueOnce({
                 ok: true,
@@ -2218,7 +2222,21 @@ describe('sync.fetchMessages server-scoped known-session checks', () => {
             nextCursor: 'tail-cursor-3',
             truncated: false,
         });
-        await sync.refreshSessionMessages(sessionId);
+        if (nextDemand === 'another capped push') {
+            const internals = sync as unknown as {
+                handleDirectSessionTranscriptEphemeralUpdate(update: {
+                    sessionId: string; items: Array<{ id: string; createdAtMs: number; raw: unknown }>;
+                    fromCursor: string; nextCursor: string; truncated: boolean; truncationReason: 'page_limit';
+                }): Promise<void>;
+            };
+            await internals.handleDirectSessionTranscriptEphemeralUpdate({
+                sessionId,
+                items: [{ id: 'replayed-next-page', createdAtMs: 3, raw: { role: 'user', content: { type: 'text', text: 'should not replay another page' } } }],
+                fromCursor: 'tail-cursor-2', nextCursor: 'tail-cursor-3', truncated, truncationReason: 'page_limit',
+            });
+        } else {
+            await sync.refreshSessionMessages(sessionId);
+        }
         expect(machineDirectSessionTranscriptPageMock).toHaveBeenCalledTimes(2);
         expect(machineDirectSessionTranscriptReadAfterMock).not.toHaveBeenCalled();
         expect(sync.hasDeferredNewerMessages(sessionId)).toBe(false);
