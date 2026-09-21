@@ -592,6 +592,7 @@ describe('runClaude startup metadata ordering', () => {
                 text: 'Commit this first turn before launch.',
                 localId: 'spawn-first:claude-direct',
                 meta: { model: 'opus', source: 'ui', sentFrom: 'cli' },
+                requestedAction: { v: 1, kind: 'send_now' },
             });
             expect(lastSessionClient!.onUserMessage.mock.invocationCallOrder[0]!).toBeLessThan(
                 enqueueSessionUserMessageMock.mock.invocationCallOrder[0]!,

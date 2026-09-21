@@ -81,6 +81,9 @@ export function createPendingFirstInputCommitter(
           text: pendingFirstInput.text,
           localId: pendingFirstInput.localId,
           meta: { ...pendingFirstInput.meta, source: 'ui', sentFrom: 'cli' },
+          // This prompt starts the fresh provider runtime, so waiting for that runtime to report
+          // idle would create a startup cycle: no Activity exists until the prompt is admitted.
+          requestedAction: { v: 1, kind: 'send_now' },
         });
         if (result?.recoveryBlocked) {
           throw new Error(`Pending first input was blocked: ${result.recoveryBlocked.status}`);
