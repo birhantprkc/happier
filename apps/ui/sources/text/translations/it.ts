@@ -4324,6 +4324,10 @@ export const it: TranslationStructure = {
             claude: {
                 title: "Claude Code",
                 sections: {
+                    claudeModelDiscovery: {
+                        title: "Rilevamento dei modelli",
+                        footer: "Controlla se Happier chiede ad Anthropic quali modelli sono disponibili per l'account Claude selezionato."
+                    },
                     claudeUnifiedTerminal: {
                         title: "Runtime terminale unificato",
                         footer: "Quando è attivo, Happier invia i prompt alla stessa sessione terminale di Claude Code invece di avviare un runner Agent SDK separato."
@@ -4338,6 +4342,10 @@ export const it: TranslationStructure = {
                     }
                 },
                 fields: {
+                    claudeDynamicModelProbeEnabled: {
+                        title: "Rileva i modelli disponibili",
+                        subtitle: "Consente a Happier di interrogare Anthropic con l'account Claude selezionato. Disattiva questa opzione per usare il catalogo integrato di Happier senza leggere le credenziali native di Claude Code."
+                    },
                     claudeUnifiedTerminalEnabled: {
                         title: "Usa runtime terminale unificato",
                         subtitle: "Controlla Claude tramite la sessione terminale in modo che UI e terminale condividano una sola esecuzione di Claude Code."

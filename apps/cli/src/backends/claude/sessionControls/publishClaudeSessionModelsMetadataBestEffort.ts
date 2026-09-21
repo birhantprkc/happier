@@ -48,6 +48,7 @@ export async function publishClaudeSessionModelsMetadataBestEffort(params: Reado
   cwd: string;
   timeoutMs: number;
   currentModelId: string;
+  accountSettings?: Readonly<Record<string, unknown>> | null;
   session: Readonly<{
     ensureMetadataSnapshot: (opts: Readonly<{ timeoutMs: number }>) => Promise<unknown>;
     updateMetadata: (updater: (prev: Metadata) => Metadata) => Promise<void>;
@@ -68,6 +69,7 @@ export async function publishClaudeSessionModelsMetadataBestEffort(params: Reado
     timeoutMs: params.timeoutMs,
     currentModelId,
     nowMs: params.nowMs ?? (() => Date.now()),
+    accountSettings: params.accountSettings,
     ...(params.probeInstalledRuntimeCapabilities
       ? { probeInstalledRuntimeCapabilities: params.probeInstalledRuntimeCapabilities }
       : {}),

@@ -127,6 +127,13 @@ function serializeClaudeRemoteDebugCategories(raw: unknown): string {
 }
 
 export const CLAUDE_REMOTE_PROVIDER_FIELDS = {
+  claudeDynamicModelProbeEnabled: {
+    schema: z.boolean(),
+    default: true,
+    description: 'Let Happier query the selected Claude account for available models',
+    storageScope: 'account',
+    analytics: { trackCurrentState: true, trackChanges: true, valueKind: 'boolean', privacy: 'safe', identityScope: 'person' },
+  },
   claudeRemoteAgentSdkEnabled: {
     schema: z.boolean(),
     default: true,

@@ -210,6 +210,7 @@ The one exception is **Experimental: local permission bridge**, which affects **
 
 | Setting | Default | What it does |
 | --- | --- | --- |
+| **Discover available models** | On | Lets Happier ask Anthropic which models are available to the selected Claude account. Turn it off to use Happier's built-in Claude model catalog without reading native Claude Code credentials or sending a model-catalog request. |
 | **Use Agent SDK (remote)** | On | Enables the official Agent SDK remote runner (`@anthropic-ai/claude-agent-sdk`). When off, Happier uses the legacy remote runner. |
 | **Setting sources** | User + Project | Controls what Claude settings get loaded: **Project only** loads repo config (for example `CLAUDE.md`); **User + Project** includes user-global config too (including user-defined MCP servers); **None** ignores both for maximum determinism. |
 | **Force-enable Agent Teams (experimental)** | Off | When enabled, Happier force-enables Claude Code experimental Agent Teams for all Claude starts (local + remote). When off, Happier does not force-disable and Claude uses its own defaults. |
@@ -232,6 +233,11 @@ Happier does not have a Claude-specific “env var” CLI flag. To set environme
 - **Remote mode (from the app UI)**: set env vars on the profile/session in the UI (Happier forwards them to the spawned Claude process).
 
 Remote Agent SDK mode uses a filtered environment by default, but **explicit** GUI/profile env vars (and connected-services auth env vars) are forwarded to the Claude subprocess so workflows like GitHub integration can work without leaking the full parent `process.env`.
+
+For a machine-local opt-out from dynamic Claude model discovery, set
+`HAPPIER_CLAUDE_DYNAMIC_MODEL_PROBE_ENABLED=0` in the Happier CLI/daemon environment. This has the
+same static-catalog result as turning off **Discover available models**, and the account setting
+cannot be overridden back on by the environment variable.
 
 ## Agent Teams (Claude swarms) in Happier
 

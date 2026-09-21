@@ -3940,6 +3940,10 @@ export const ru: TranslationStructure = {
             claude: {
                 title: "Claude Code",
                 sections: {
+                    claudeModelDiscovery: {
+                        title: "Обнаружение моделей",
+                        footer: "Определяет, будет ли Happier запрашивать у Anthropic модели, доступные выбранной учетной записи Claude."
+                    },
                     claudeUnifiedTerminal: {
                         title: "Единый терминальный runtime",
                         footer: "Когда включено, Happier отправляет промпты в ту же терминальную сессию Claude Code, а не запускает отдельный Agent SDK runner."
@@ -3954,6 +3958,10 @@ export const ru: TranslationStructure = {
                     }
                 },
                 fields: {
+                    claudeDynamicModelProbeEnabled: {
+                        title: "Обнаруживать доступные модели",
+                        subtitle: "Разрешает Happier обращаться к Anthropic с выбранной учетной записью Claude. Отключите, чтобы использовать встроенный каталог Happier без чтения собственных учетных данных Claude Code."
+                    },
                     claudeUnifiedTerminalEnabled: {
                         title: "Использовать единый терминальный runtime",
                         subtitle: "Управляйте Claude через терминальную сессию, чтобы UI и терминал совместно использовали один запуск Claude Code."

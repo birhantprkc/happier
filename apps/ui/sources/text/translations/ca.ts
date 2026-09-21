@@ -3780,6 +3780,10 @@ export const ca: TranslationStructure = {
             claude: {
                 title: "Claude Code",
                 sections: {
+                    claudeModelDiscovery: {
+                        title: "Descobriment de models",
+                        footer: "Controla si Happier pregunta a Anthropic quins models estan disponibles per al compte de Claude seleccionat."
+                    },
                     claudeUnifiedTerminal: {
                         title: "Entorn d'execució de terminal unificat",
                         footer: "Quan està activat, Happier envia els missatges a la mateixa sessió de terminal de Claude Code en lloc d'iniciar un executor Agent SDK separat."
@@ -3794,6 +3798,10 @@ export const ca: TranslationStructure = {
                     }
                 },
                 fields: {
+                    claudeDynamicModelProbeEnabled: {
+                        title: "Descobreix els models disponibles",
+                        subtitle: "Permet que Happier consulti Anthropic amb el compte de Claude seleccionat. Desactiva-ho per usar el catàleg integrat de Happier sense llegir les credencials natives de Claude Code."
+                    },
                     claudeUnifiedTerminalEnabled: {
                         title: "Usa l'entorn de terminal unificat",
                         subtitle: "Controla Claude a través de la sessió de terminal perquè la UI i el terminal comparteixin una execució de Claude Code."

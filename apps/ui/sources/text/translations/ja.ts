@@ -4272,6 +4272,10 @@ localTailscale: {
             claude: {
                 title: "Claude Code",
                 sections: {
+                    claudeModelDiscovery: {
+                        title: "モデルの検出",
+                        footer: "選択した Claude アカウントで利用できるモデルを Happier が Anthropic に問い合わせるかどうかを設定します。"
+                    },
                     claudeUnifiedTerminal: {
                         title: "統合ターミナルランタイム",
                         footer: "有効にすると、Happier は別の Agent SDK ランナーを起動せず、同じ Claude Code ターミナルセッションにプロンプトを送信します。"
@@ -4286,6 +4290,10 @@ localTailscale: {
                     }
                 },
                 fields: {
+                    claudeDynamicModelProbeEnabled: {
+                        title: "利用可能なモデルを検出",
+                        subtitle: "選択した Claude アカウントを使って Happier が Anthropic に問い合わせることを許可します。オフにすると、Claude Code のネイティブ認証情報を読み取らずに Happier の組み込みモデルカタログを使用します。"
+                    },
                     claudeUnifiedTerminalEnabled: {
                         title: "統合ターミナルランタイムを使用",
                         subtitle: "UI とターミナルが同じ Claude Code 実行を共有できるよう、ターミナルセッション経由で Claude を操作します。"

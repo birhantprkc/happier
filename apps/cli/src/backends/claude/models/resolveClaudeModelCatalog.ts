@@ -3,7 +3,7 @@ import {
   providers,
   type AgentModelDescriptor,
 } from '@happier-dev/agents';
-import type { ConnectedServiceBindingsV1 } from '@happier-dev/protocol';
+import { parseBooleanEnv, type ConnectedServiceBindingsV1 } from '@happier-dev/protocol';
 
 import { buildDiscoveredClaudeModelDescriptor } from './deriveDiscoveredClaudeModel';
 import { fetchAnthropicModels, type AnthropicModelEntry } from './fetchAnthropicModels';
@@ -135,6 +135,12 @@ export type ResolveClaudeModelCatalogParams = Readonly<{
   nowMs?: () => number;
 }>;
 
+function isClaudeDynamicModelProbeEnabled(params: ResolveClaudeModelCatalogParams): boolean {
+  if (params.accountSettings?.claudeDynamicModelProbeEnabled === false) return false;
+  const processEnv = params.processEnv ?? process.env;
+  return parseBooleanEnv(processEnv.HAPPIER_CLAUDE_DYNAMIC_MODEL_PROBE_ENABLED, true);
+}
+
 /**
  * The models this account can run. A successful Models API response owns membership; static rows
  * enrich matching returned ids. The curated catalog is used only until the first success, after
@@ -143,6 +149,10 @@ export type ResolveClaudeModelCatalogParams = Readonly<{
 export async function resolveClaudeModelCatalogResolution(
   params: ResolveClaudeModelCatalogParams,
 ): Promise<ClaudeModelCatalogResolution> {
+  if (!isClaudeDynamicModelProbeEnabled(params)) {
+    return { models: resolveStaticClaudeModels(), source: 'static' };
+  }
+
   const nowMs = params.nowMs ?? (() => Date.now());
   // Resolving the target first is what lets the cache key carry the credential identity. It is env
   // reads plus at most one local credential-file read — cheap next to the network fetch it guards,

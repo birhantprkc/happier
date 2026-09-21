@@ -3701,6 +3701,10 @@ export const en = {
             claude: {
                 title: "Claude Code",
                 sections: {
+                    claudeModelDiscovery: {
+                        title: "Model discovery",
+                        footer: "Control whether Happier asks Anthropic which models are available to the selected Claude account."
+                    },
                     claudeUnifiedTerminal: {
                         title: "Unified terminal runtime",
                         footer: "When enabled, Happier sends prompts into the same Claude Code terminal session instead of starting a separate Agent SDK runner."
@@ -3715,6 +3719,10 @@ export const en = {
                     }
                 },
                 fields: {
+                    claudeDynamicModelProbeEnabled: {
+                        title: "Discover available models",
+                        subtitle: "Allow Happier to query Anthropic using the selected Claude account. Turn this off to use Happier's built-in model catalog without reading native Claude Code credentials."
+                    },
                     claudeUnifiedTerminalEnabled: {
                         title: "Use unified terminal runtime",
                         subtitle: "Drive Claude through the terminal session so the UI and terminal share one Claude Code run."

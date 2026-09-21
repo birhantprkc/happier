@@ -195,6 +195,12 @@ failure cooldown, and retries discovery after that cooldown without replacing it
 Effort tiers are resolved once when the session mode is built and travel on the mode, so spawn-time
 resolution and launch-option hashing see the same value and hashing stays pure.
 
+Claude dynamic discovery is one canonical allow/deny decision at that catalog owner. The account
+setting `claudeDynamicModelProbeEnabled` defaults to `true`; setting it to `false`, or setting
+`HAPPIER_CLAUDE_DYNAMIC_MODEL_PROBE_ENABLED=0` in the CLI/daemon environment, returns the static
+catalog before resolving any credential or reading the provider-owned cache. The environment value
+is a local kill switch and cannot re-enable discovery after the account setting disables it.
+
 Provider-owned probing:
 - The CLI capability RPC resolves the selected backend profile once before any model, mode, or
   config-option probe. It uses the same profile environment and Saved Secret resolver as session

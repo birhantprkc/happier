@@ -13,6 +13,7 @@ export async function resolveClaudeSessionModelsState(params: Readonly<{
   timeoutMs: number;
   currentModelId: string;
   nowMs: () => number;
+  accountSettings?: Readonly<Record<string, unknown>> | null;
   probeInstalledRuntimeCapabilities?: (
     params: Readonly<{ cwd: string; timeoutMs: number }>,
   ) => Promise<ClaudeInstalledRuntimeCapabilities>;
@@ -26,7 +27,10 @@ export async function resolveClaudeSessionModelsState(params: Readonly<{
   // which models exist or which effort tiers they support. The catalog owns credential-aware
   // caching and falls back to the curated list when the Models API is unavailable. No binding is
   // needed here: the in-session process already runs with the selected account environment.
-  const models = await resolveClaudeModelCatalog({ timeoutMs: params.timeoutMs });
+  const models = await resolveClaudeModelCatalog({
+    timeoutMs: params.timeoutMs,
+    accountSettings: params.accountSettings,
+  });
 
   return {
     v: 1,

@@ -180,12 +180,13 @@ describe('getProviderSettingsPlugin', () => {
         expect(visibleFieldKeys.has('kimiAcpPythonSelector')).toBe(false);
     });
 
-    it('exposes Claude unified terminal provider settings in UI sections', () => {
+    it('exposes Claude model discovery and unified terminal provider settings in UI sections', () => {
         const claudePlugin = getProviderSettingsPlugin('claude');
         const visibleFields = claudePlugin?.uiSections.flatMap((section) => section.fields) ?? [];
         const visibleFieldKeys = new Set(visibleFields.map((field) => field.key));
         const resumeChoiceField = visibleFields.find((field) => field.key === 'claudeUnifiedTerminalResumeChoice');
 
+        expect(visibleFieldKeys.has('claudeDynamicModelProbeEnabled')).toBe(true);
         expect(visibleFieldKeys.has('claudeUnifiedTerminalEnabled')).toBe(true);
         expect(visibleFieldKeys.has('claudeUnifiedTerminalHost')).toBe(true);
         expect(visibleFieldKeys.has('claudeUnifiedTerminalResumeChoice')).toBe(true);

@@ -3624,6 +3624,10 @@ const zhHantOverrides: DeepPartial<TranslationStructure> = {
             claude: {
                 title: "Claude Code",
                 sections: {
+                    claudeModelDiscovery: {
+                        title: "模型探索",
+                        footer: "控制 Happier 是否向 Anthropic 查詢所選 Claude 帳戶可用的模型。"
+                    },
                     claudeUnifiedTerminal: {
                         title: "統一終端執行階段",
                         footer: "啟用後，Happier 會將提示送入同一個 Claude Code 終端工作階段，而不是啟動獨立的 Agent SDK runner。"
@@ -3638,6 +3642,10 @@ const zhHantOverrides: DeepPartial<TranslationStructure> = {
                     }
                 },
                 fields: {
+                    claudeDynamicModelProbeEnabled: {
+                        title: "探索可用模型",
+                        subtitle: "允許 Happier 使用所選 Claude 帳戶查詢 Anthropic。關閉後將使用 Happier 內建模型目錄，且不會讀取 Claude Code 原生憑證。"
+                    },
                     claudeUnifiedTerminalEnabled: {
                         title: "使用統一終端執行階段",
                         subtitle: "透過終端工作階段驅動 Claude，讓 UI 與終端共享同一次 Claude Code 執行。"

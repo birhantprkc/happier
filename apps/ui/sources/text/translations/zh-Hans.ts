@@ -3869,6 +3869,10 @@ export const zhHans: TranslationStructure = {
             claude: {
                 title: "Claude Code",
                 sections: {
+                    claudeModelDiscovery: {
+                        title: "模型发现",
+                        footer: "控制 Happier 是否向 Anthropic 查询所选 Claude 账户可用的模型。"
+                    },
                     claudeUnifiedTerminal: {
                         title: "统一终端运行时",
                         footer: "启用后，Happier 会把提示发送到同一个 Claude Code 终端会话，而不是启动单独的 Agent SDK runner。"
@@ -3883,6 +3887,10 @@ export const zhHans: TranslationStructure = {
                     }
                 },
                 fields: {
+                    claudeDynamicModelProbeEnabled: {
+                        title: "发现可用模型",
+                        subtitle: "允许 Happier 使用所选 Claude 账户查询 Anthropic。关闭后将使用 Happier 内置模型目录，且不会读取 Claude Code 原生凭据。"
+                    },
                     claudeUnifiedTerminalEnabled: {
                         title: "使用统一终端运行时",
                         subtitle: "通过终端会话驱动 Claude，让 UI 和终端共享同一次 Claude Code 运行。"
