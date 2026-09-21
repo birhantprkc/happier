@@ -78,6 +78,7 @@ import { ExternalLinkIcon } from '@hugeicons/core-free-icons';
 import { EyeIcon } from '@hugeicons/core-free-icons';
 import { File01Icon } from '@hugeicons/core-free-icons';
 import { FileCodeIcon } from '@hugeicons/core-free-icons';
+import { FileDiffIcon } from '@hugeicons/core-free-icons';
 import { FileDownloadIcon } from '@hugeicons/core-free-icons';
 import { FileEmpty01Icon } from '@hugeicons/core-free-icons';
 import { FileMinusIcon } from '@hugeicons/core-free-icons';
@@ -317,6 +318,7 @@ export const HUGE_ICON_REGISTRY = {
     'file-arrow-up': FileUploadIcon,
     'file-code': FileCodeIcon,
     'file-dashed': FileEmpty01Icon,
+    'file-diff': FileDiffIcon,
     'file-minus': FileMinusIcon,
     'file-plus': FilePlusIcon,
     'file-text': File01Icon,

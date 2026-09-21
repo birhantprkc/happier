@@ -326,6 +326,7 @@ export const ICON_REGISTRY = {
     'file-arrow-up': FileArrowUpIcon,
     'file-code': FileCodeIcon,
     'file-dashed': FileDashedIcon,
+    'file-diff': GitDiffIcon,
     'file-minus': FileMinusIcon,
     'file-plus': FilePlusIcon,
     'file-text': FileTextIcon,
