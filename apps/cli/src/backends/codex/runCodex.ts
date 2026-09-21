@@ -1714,6 +1714,7 @@ export async function runCodex(opts: {
         codexAppServerConfigOverrides = buildCodexAppServerConfigOverrides(mcpServers, {
             happierSessionId: codexProviderProcessEnv.HAPPIER_SESSION_ID,
             happierMcpToolCallTimeoutMs: configuration.codexHappierMcpToolCallTimeoutMs,
+            processEnv: codexAppServerProcessEnv,
         });
     }
     const resolveFreshSessionSystemPrompt = async (baseOverride?: string | null): Promise<string> =>
