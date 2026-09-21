@@ -51,6 +51,8 @@ export type AgentSessionAuthSwitchTransition =
     | 'same_connected_group';
 export type AgentSessionCapabilities = Readonly<{
     sessionListing: AgentSessionCapabilitySupportLevel;
+    /** Canonical generic transport for listing agent-owned sessions, when one exists. */
+    sessionListingSource?: 'acp' | 'provider-native';
     sessionFork: Readonly<{
         conversation: AgentSessionCapabilitySupportLevel;
         fromMessage: AgentSessionCapabilitySupportLevel;

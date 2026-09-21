@@ -62,15 +62,16 @@ export const BUILT_IN_ACP_CONFIG: Readonly<Partial<Record<AgentId, BuiltInAcpCon
     supportsModes: 'yes',
     supportsModels: 'yes',
     promptImageSupport: 'yes',
-    // Devin 3000.10.21 ignores standard ACP MCP descriptors; the CLI adapter materializes its native config instead.
+    // Devin 3000.10.31 ignores standard ACP MCP descriptors; the CLI adapter materializes its native config instead.
     mcpServers: 'drop',
     permissionModeMapping: {
       // Preserve the user's configured Devin permission mode unless Happier explicitly overrides it.
       default: null,
-      'read-only': 'ask',
-      'safe-yolo': 'smart',
-      yolo: 'bypass',
-      plan: 'plan',
+      'read-only': 'normal',
+      'safe-yolo': 'accept-edits',
+      yolo: 'dangerous',
+      // Devin has no read-only planning mode; do not send an invalid ACP mode id.
+      plan: null,
     },
   },
   agy: {
@@ -132,12 +133,19 @@ export function getBuiltInAcpConfig(agentId: AgentId): BuiltInAcpConfig | null {
 }
 
 /**
- * Static policy for offering ACP `session/list` as a resume source: the agent must run through the
- * shared built-in ACP path and its manifest must declare session listing. This is the single leaf
- * declaration; it permits offering the surface and never certifies it. The live ACP handshake stays
- * the runtime authority and must fail clearly before `session/list` when it disagrees.
+ * Static policy for offering ACP `session/list` as a resume source. The manifest is the single leaf
+ * declaration for both generic and provider-owned ACP backends; it permits offering the surface and
+ * never certifies it. The live ACP handshake stays the runtime authority and must fail clearly before
+ * `session/list` when it disagrees.
  */
+export function isAcpSessionListingDeclared(agentId: AgentId): boolean {
+  const capabilities = AGENTS_CORE[agentId].sessionCapabilities;
+  return capabilities?.sessionListing === 'supported'
+    && 'sessionListingSource' in capabilities
+    && capabilities.sessionListingSource === 'acp';
+}
+
+/** @deprecated Use `isAcpSessionListingDeclared`; retained for package compatibility. */
 export function isBuiltInAcpSessionListingDeclared(agentId: AgentId): boolean {
-  if (!hasBuiltInAcpConfig(agentId)) return false;
-  return AGENTS_CORE[agentId].sessionCapabilities?.sessionListing === 'supported';
+  return isAcpSessionListingDeclared(agentId);
 }

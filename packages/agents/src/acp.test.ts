@@ -6,7 +6,7 @@ import {
   BUILT_IN_ACP_CONFIG,
   getBuiltInAcpConfig,
   hasBuiltInAcpConfig,
-  isBuiltInAcpSessionListingDeclared,
+  isAcpSessionListingDeclared,
 } from './acp.js';
 import { getProviderCliRuntimeSpec } from './providers/providerCliRuntime.js';
 import { getAgentSessionCapability } from './sessionControls/sessionCapabilities.js';
@@ -114,10 +114,10 @@ describe('built-in ACP config', () => {
       mcpServers: 'drop',
       permissionModeMapping: {
         default: null,
-        'read-only': 'ask',
-        'safe-yolo': 'smart',
-        yolo: 'bypass',
-        plan: 'plan',
+        'read-only': 'normal',
+        'safe-yolo': 'accept-edits',
+        yolo: 'dangerous',
+        plan: null,
       },
     });
   });
@@ -149,13 +149,13 @@ describe('built-in ACP config', () => {
 
 describe('ACP session-listing declaration', () => {
   it('derives the listing declaration from the manifest capability, not a second ACP-local flag', () => {
-    const declared = AGENT_IDS.filter((agentId) => isBuiltInAcpSessionListingDeclared(agentId));
-    expect(declared.sort()).toEqual(['fx', 'kimi']);
-    // Declared by manifest but not a built-in ACP agent, so the ACP source stays unavailable.
+    const declared = AGENT_IDS.filter((agentId) => isAcpSessionListingDeclared(agentId));
+    expect(declared.sort()).toEqual(['auggie', 'copilot', 'devin', 'fx', 'kilo', 'kimi', 'qwen']);
+    // Claude lists through its provider-native direct-session owner, not the generic ACP source.
     expect(getAgentSessionCapability('claude', 'sessionListing')).toBe('supported');
-    expect(isBuiltInAcpSessionListingDeclared('claude')).toBe(false);
+    expect(isAcpSessionListingDeclared('claude')).toBe(false);
     // Built-in ACP agent that does not declare listing.
-    expect(isBuiltInAcpSessionListingDeclared('droid')).toBe(false);
+    expect(isAcpSessionListingDeclared('droid')).toBe(false);
   });
 
   /**
@@ -164,7 +164,7 @@ describe('ACP session-listing declaration', () => {
    */
   it('keeps every ACP-listing agent admitted by the direct-sessions provider id contract', () => {
     const missing = AGENT_IDS
-      .filter((agentId) => isBuiltInAcpSessionListingDeclared(agentId))
+      .filter((agentId) => isAcpSessionListingDeclared(agentId))
       .filter((agentId) => !(AGENT_PROVIDER_IDS_V1 as readonly string[]).includes(agentId));
     expect(missing).toEqual([]);
   });

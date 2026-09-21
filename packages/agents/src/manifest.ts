@@ -185,7 +185,10 @@ export const AGENTS_CORE = {
         sessionStorage: { direct: true, persisted: true },
         sessionCapabilities: {
             sessionListing: 'supported',
-            sessionFork: { conversation: 'supported', fromMessage: 'supported' },
+            // Server dialect is detected only after the runtime connects. This
+            // static declaration must therefore describe the least capable
+            // reachable server: pure V2 has no session-fork route.
+            sessionFork: { conversation: 'unsupported', fromMessage: 'unsupported' },
             sessionRollback: { conversation: 'unsupported' },
             usageLimitRecovery: { checkNow: 'supported' },
         },
@@ -198,7 +201,7 @@ export const AGENTS_CORE = {
                     overrides: {
                         sessionStorage: { direct: false },
                         sessionCapabilities: {
-                            sessionFork: { fromMessage: 'unsupported' },
+                            sessionFork: { conversation: 'supported', fromMessage: 'unsupported' },
                             usageLimitRecovery: { checkNow: 'unsupported' },
                         },
                         localControl: null,
@@ -257,12 +260,13 @@ export const AGENTS_CORE = {
         resume: { vendorResume: 'supported', vendorResumeIdField: 'auggieSessionId' },
         sessionStorage: { direct: false, persisted: true },
         sessionCapabilities: {
-            sessionListing: 'unsupported',
+            sessionListing: 'supported',
+            sessionListingSource: 'acp',
             sessionFork: { conversation: 'unsupported', fromMessage: 'unsupported' },
             sessionRollback: { conversation: 'unsupported' },
         },
         handoff: { vendorStateTransfer: 'unsupported' },
-        tools: { delivery: 'shell_bridge', support: 'experimental' },
+        tools: { delivery: 'native_mcp', support: 'experimental' },
         media: {
             acceptsImageInput: 'experimental',
             emitsSessionMedia: EXPERIMENTAL_SESSION_MEDIA_OUTPUT,
@@ -279,12 +283,13 @@ export const AGENTS_CORE = {
         resume: { vendorResume: 'supported', vendorResumeIdField: 'qwenSessionId' },
         sessionStorage: { direct: false, persisted: true },
         sessionCapabilities: {
-            sessionListing: 'unsupported',
+            sessionListing: 'supported',
+            sessionListingSource: 'acp',
             sessionFork: { conversation: 'unsupported', fromMessage: 'unsupported' },
             sessionRollback: { conversation: 'unsupported' },
         },
         handoff: { vendorStateTransfer: 'unsupported' },
-        tools: { delivery: 'shell_bridge', support: 'experimental' },
+        tools: { delivery: 'native_mcp', support: 'experimental' },
         media: {
             acceptsImageInput: 'experimental',
             emitsSessionMedia: GENERIC_SESSION_MEDIA_OUTPUT,
@@ -302,6 +307,7 @@ export const AGENTS_CORE = {
         sessionStorage: { direct: false, persisted: true },
         sessionCapabilities: {
             sessionListing: 'supported',
+            sessionListingSource: 'acp',
             sessionFork: { conversation: 'supported', fromMessage: 'unsupported' },
             sessionRollback: { conversation: 'unsupported' },
         },
@@ -327,12 +333,13 @@ export const AGENTS_CORE = {
         resume: { vendorResume: 'supported', vendorResumeIdField: 'kiloSessionId' },
         sessionStorage: { direct: false, persisted: true },
         sessionCapabilities: {
-            sessionListing: 'unsupported',
+            sessionListing: 'supported',
+            sessionListingSource: 'acp',
             sessionFork: { conversation: 'unsupported', fromMessage: 'unsupported' },
             sessionRollback: { conversation: 'unsupported' },
         },
         handoff: { vendorStateTransfer: 'unsupported' },
-        tools: { delivery: 'shell_bridge', support: 'experimental' },
+        tools: { delivery: 'native_mcp', support: 'experimental' },
         media: {
             acceptsImageInput: 'experimental',
             emitsSessionMedia: GENERIC_SESSION_MEDIA_OUTPUT,
@@ -372,7 +379,8 @@ export const AGENTS_CORE = {
         resume: { vendorResume: 'supported', vendorResumeIdField: 'devinSessionId' },
         sessionStorage: { direct: true, persisted: true },
         sessionCapabilities: {
-            sessionListing: 'unsupported',
+            sessionListing: 'supported',
+            sessionListingSource: 'acp',
             sessionFork: { conversation: 'unsupported', fromMessage: 'unsupported' },
             sessionRollback: { conversation: 'unsupported' },
         },
@@ -476,12 +484,13 @@ export const AGENTS_CORE = {
         resume: { vendorResume: 'supported', vendorResumeIdField: 'copilotSessionId' },
         sessionStorage: { direct: false, persisted: true },
         sessionCapabilities: {
-            sessionListing: 'unsupported',
+            sessionListing: 'supported',
+            sessionListingSource: 'acp',
             sessionFork: { conversation: 'unsupported', fromMessage: 'unsupported' },
             sessionRollback: { conversation: 'unsupported' },
         },
         handoff: { vendorStateTransfer: 'unsupported' },
-        tools: { delivery: 'shell_bridge', support: 'experimental' },
+        tools: { delivery: 'native_mcp', support: 'experimental' },
         media: {
             acceptsImageInput: 'experimental',
             emitsSessionMedia: GENERIC_SESSION_MEDIA_OUTPUT,
@@ -508,7 +517,7 @@ export const AGENTS_CORE = {
         },
         handoff: { vendorStateTransfer: 'unsupported' },
         localControl: { supported: true, topology: 'exclusive', attachStrategy: 'unsupported' },
-        tools: { delivery: 'shell_bridge', support: 'experimental' },
+        tools: { delivery: 'native_mcp', support: 'experimental' },
         media: {
             acceptsImageInput: 'unsupported',
             emitsSessionMedia: 'supported',
@@ -585,6 +594,7 @@ export const AGENTS_CORE = {
         sessionStorage: { direct: true, persisted: true },
         sessionCapabilities: {
             sessionListing: 'supported',
+            sessionListingSource: 'acp',
             sessionFork: { conversation: 'unsupported', fromMessage: 'unsupported' },
             sessionRollback: { conversation: 'unsupported' },
         },
