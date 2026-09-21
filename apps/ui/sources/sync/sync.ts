@@ -1541,6 +1541,18 @@ class Sync {
           return Math.max(1, Math.trunc(this.syncTuning.sessionMessagesPageSize));
       }
 
+      private getInitialSessionMessagesPageSize(): number {
+          if (Platform.OS === 'web') {
+              return WEB_INITIAL_SESSION_MESSAGES_PAGE_SIZE;
+          }
+          // A first native viewport and a native history prepend have the same
+          // bounded rendering job. Reuse the transcript page owner instead of
+          // decrypting a larger catch-up page before the first paint.
+          return this.getSessionMessagesPageSize({
+              limit: this.syncTuning.transcriptNativeOlderMessagesPageSize,
+          });
+      }
+
       private getMessageDecryptBatchOptions() {
           return {
               initialMessageDecryptBatchSize: this.syncTuning.initialMessageDecryptBatchSize,
@@ -5463,9 +5475,7 @@ class Sync {
               const fetchSnapshot = () => fetchAndApplyMessages({
                   sessionId,
                   sessionEncryptionMode,
-                  limit: Platform.OS === 'web'
-                      ? WEB_INITIAL_SESSION_MESSAGES_PAGE_SIZE
-                      : this.getSessionMessagesPageSize(),
+                  limit: this.getInitialSessionMessagesPageSize(),
                   getSessionEncryption: (id) => this.encryption.getSessionEncryption(id),
                   isSessionKnown: (id) => this.isSessionKnownOnResolvedOwnerServer(id),
                   request: requestMessages,
