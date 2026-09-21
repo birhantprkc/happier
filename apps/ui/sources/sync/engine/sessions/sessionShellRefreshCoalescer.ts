@@ -18,6 +18,7 @@ type SessionLeadingTrailingEntry<Payload> = {
 
 export type SessionLeadingTrailingCoalescer<Payload, TriggerResult = void> = Readonly<{
     request: (sessionId: string, payload: Payload) => TriggerResult | undefined;
+    drop: (sessionId: string) => void;
     reset: () => void;
 }>;
 
@@ -61,6 +62,11 @@ export function createSessionLeadingTrailingCoalescer<Payload, TriggerResult = v
                 triggerNow(sessionId, existing);
             }, Math.max(0, params.floorMs - elapsedMs));
             return undefined;
+        },
+        drop: (sessionId: string) => {
+            const entry = entries.get(sessionId);
+            if (entry?.trailingTimer) clearTimeout(entry.trailingTimer);
+            entries.delete(sessionId);
         },
         reset: () => {
             for (const entry of entries.values()) {

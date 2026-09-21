@@ -43,6 +43,13 @@ export type SessionListPlacementProjection = Readonly<{
     explicitStanding: boolean;
 }>;
 
+const UNPLACED_SESSION_LIST_PROJECTION: SessionListPlacementProjection = {
+    kind: 'none',
+    timestamp: null,
+    retainedWorking: false,
+    explicitStanding: false,
+};
+
 export function projectSessionListPlacement(params: Readonly<{
     session: SessionListRenderableSession;
     nowMs: number;
@@ -77,15 +84,14 @@ export function projectSessionListPlacement(params: Readonly<{
     }
 
     const sessionKey = params.sessionKey ?? normalizeSessionListPlacementKey(null, params.session.id);
-    const retainedWorking = shouldRetainSessionListWorkingPlacement({
+    const retainedPlacement = applySessionListWorkingRetentionToPlacement({
+        placement: UNPLACED_SESSION_LIST_PROJECTION,
         session: params.session,
         sessionKey,
-        retainedKeys: normalizeSessionListWorkingRetentionKeys(params.retainedWorkingSessionKeys),
+        retainedWorkingSessionKeys: params.retainedWorkingSessionKeys,
         nowMs: params.nowMs,
     });
-    if (retainedWorking) {
-        return { kind: 'working', timestamp: null, retainedWorking: true, explicitStanding: false };
-    }
+    if (retainedPlacement.kind === 'working') return retainedPlacement;
     // Attention standing is a FLOOR, never an override: it only reaches a
     // session whose own signals place it nowhere, so a read session the user
     // asked to keep stays in the band while unread/ready/working/failed
@@ -96,7 +102,30 @@ export function projectSessionListPlacement(params: Readonly<{
     if (standingSource !== 'none') {
         return { kind: 'standing', timestamp: null, retainedWorking: false, explicitStanding: standingSource === 'override' };
     }
-    return { kind: 'none', timestamp: null, retainedWorking: false, explicitStanding: false };
+    return UNPLACED_SESSION_LIST_PROJECTION;
+}
+
+/**
+ * Adds retained-working placement to an already classified row without
+ * repeating the row's runtime projection. Existing placement always wins.
+ */
+export function applySessionListWorkingRetentionToPlacement(params: Readonly<{
+    placement: SessionListPlacementProjection;
+    session: SessionListRenderableSession;
+    sessionKey: string | null;
+    retainedWorkingSessionKeys?: SessionListWorkingRetentionKeySource;
+    nowMs: number;
+}>): SessionListPlacementProjection {
+    if (params.placement.kind !== 'none') return params.placement;
+    const retainedWorking = shouldRetainSessionListWorkingPlacement({
+        session: params.session,
+        sessionKey: params.sessionKey,
+        retainedKeys: normalizeSessionListWorkingRetentionKeys(params.retainedWorkingSessionKeys),
+        nowMs: params.nowMs,
+    });
+    return retainedWorking
+        ? { kind: 'working', timestamp: null, retainedWorking: true, explicitStanding: false }
+        : params.placement;
 }
 
 /**
