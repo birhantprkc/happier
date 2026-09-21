@@ -463,7 +463,7 @@ export function createSessionOrganizationDomain<S extends SessionOrganizationDom
                     assignment.folderId,
                 ] as const),
             );
-            if (nextAssignments === state.sessionOrganizationFolderAssignmentsBySessionKey) return {} as Partial<S>;
+            if (nextAssignments === state.sessionOrganizationFolderAssignmentsBySessionKey) return state;
             return {
                 sessionOrganizationFolderAssignmentsBySessionKey: nextAssignments,
                 sessionFolderAssignmentsBySessionKey: nextAssignments,
@@ -491,7 +491,7 @@ export function createSessionOrganizationDomain<S extends SessionOrganizationDom
             set((state) => {
                 const currentVersion = state.sessionOrganizationSnapshotVersionByServerId[serverId];
                 if (typeof currentVersion === 'number' && snapshot.version < currentVersion) {
-                    return {} as Partial<S>;
+                    return state;
                 }
                 const pins = replaceServerRecord(
                     state.sessionOrganizationPinsBySessionKey,
@@ -575,24 +575,23 @@ export function createSessionOrganizationDomain<S extends SessionOrganizationDom
             });
         },
         setSessionOrganizationLoading: (serverId, loading) => {
-            set((state) => ({
-                sessionOrganizationLoadingByServerId: {
-                    ...state.sessionOrganizationLoadingByServerId,
-                    [serverId]: loading,
-                },
-                sessionFolderAssignmentsLoadingByServerId: {
-                    ...state.sessionFolderAssignmentsLoadingByServerId,
-                    [serverId]: loading,
-                },
-            }) as Partial<S>);
+            set((state) => {
+                const organizationLoading = setRecordValue(state.sessionOrganizationLoadingByServerId, serverId, loading);
+                const assignmentsLoading = setRecordValue(state.sessionFolderAssignmentsLoadingByServerId, serverId, loading);
+                if (organizationLoading === state.sessionOrganizationLoadingByServerId
+                    && assignmentsLoading === state.sessionFolderAssignmentsLoadingByServerId) return state;
+                return {
+                    sessionOrganizationLoadingByServerId: organizationLoading,
+                    sessionFolderAssignmentsLoadingByServerId: assignmentsLoading,
+                } as Partial<S>;
+            });
         },
         setSessionOrganizationError: (serverId, error) => {
-            set((state) => ({
-                sessionOrganizationErrorByServerId: {
-                    ...state.sessionOrganizationErrorByServerId,
-                    [serverId]: error,
-                },
-            }) as Partial<S>);
+            set((state) => {
+                const errors = setRecordValue(state.sessionOrganizationErrorByServerId, serverId, error);
+                if (errors === state.sessionOrganizationErrorByServerId) return state;
+                return { sessionOrganizationErrorByServerId: errors } as Partial<S>;
+            });
         },
         setSessionPinOptimistic: (serverId, sessionId, pin) => {
             const key = buildSessionOrganizationServerKey(serverId, sessionId);
@@ -850,7 +849,7 @@ export function createSessionOrganizationDomain<S extends SessionOrganizationDom
                     if (!key.startsWith(prefix) || !folderId || !deletedFolders.has(folderId)) continue;
                     updates.push([key, assignmentTargetFolderId] as const);
                 }
-                if (updates.length === 0) return {} as Partial<S>;
+                if (updates.length === 0) return state;
                 const nextAssignments = mergeRecordEntries(state.sessionOrganizationFolderAssignmentsBySessionKey, updates);
                 return {
                     sessionOrganizationFolderAssignmentsBySessionKey: nextAssignments,
@@ -868,7 +867,7 @@ export function createSessionOrganizationDomain<S extends SessionOrganizationDom
                     if (!key.startsWith(prefix) || !tagIds.includes(deletedTagId)) continue;
                     updates.push([key, tagIds.filter((candidate) => candidate !== deletedTagId)] as const);
                 }
-                if (updates.length === 0) return {} as Partial<S>;
+                if (updates.length === 0) return state;
                 return {
                     sessionOrganizationTagAssignmentsBySessionKey: mergeRecordEntries(
                         state.sessionOrganizationTagAssignmentsBySessionKey,
@@ -880,7 +879,7 @@ export function createSessionOrganizationDomain<S extends SessionOrganizationDom
         rollbackSessionOrganizationOptimistic: (recordId) => {
             set((state) => {
                 const record = state.sessionOrganizationOptimisticRecords[recordId];
-                if (!record) return {} as Partial<S>;
+                if (!record) return state;
                 const nextRecords = { ...state.sessionOrganizationOptimisticRecords };
                 delete nextRecords[recordId];
                 return rebaseRemainingOptimisticRecords(state, record, nextRecords);
@@ -888,7 +887,7 @@ export function createSessionOrganizationDomain<S extends SessionOrganizationDom
         },
         commitSessionOrganizationOptimistic: (recordId) => {
             set((state) => {
-                if (!state.sessionOrganizationOptimisticRecords[recordId]) return {} as Partial<S>;
+                if (!state.sessionOrganizationOptimisticRecords[recordId]) return state;
                 const nextRecords = { ...state.sessionOrganizationOptimisticRecords };
                 delete nextRecords[recordId];
                 return { sessionOrganizationOptimisticRecords: nextRecords } as Partial<S>;
