@@ -19,6 +19,22 @@ export type InboxActionOperationEntry = Readonly<{
     reason: InboxActionOperationReason;
 }>;
 
+export type ActionOperationActivitySummary = Readonly<{
+    activeCount: number;
+    hasAttention: boolean;
+}>;
+
+export type InboxActionOperationSummary = Readonly<{
+    count: number;
+    hasAttention: boolean;
+}>;
+
+type ResolveActionOperationLocalPresentation = (
+    operation: ActionOperationSnapshotV1,
+) => Readonly<{ kind: 'setup_needs_attention' }> | null;
+
+const NO_LOCAL_PRESENTATION: ResolveActionOperationLocalPresentation = () => null;
+
 function sameReferences(
     previous: readonly ActionOperationSnapshotV1[],
     next: readonly ActionOperationSnapshotV1[],
@@ -69,15 +85,40 @@ function sameInboxEntries(
     ));
 }
 
+function selectInboxActionOperationReason(
+    state: ActionOperationStoreState,
+    operation: ActionOperationSnapshotV1,
+    resolveLocalPresentation: ResolveActionOperationLocalPresentation,
+): InboxActionOperationReason | null {
+    if (state.dismissedOperationIds.has(operation.operationId)) return null;
+    if (
+        operation.state === 'failed'
+        && !state.terminalSeenAtById.has(operation.operationId)
+    ) {
+        return 'failed';
+    }
+    if (
+        operation.state === 'succeeded'
+        && resolveLocalPresentation(operation)?.kind === 'setup_needs_attention'
+    ) {
+        return 'setup_needs_attention';
+    }
+    if (
+        (operation.state === 'accepted' || operation.state === 'running')
+        && state.unavailableOperationIds.has(operation.operationId)
+    ) {
+        return 'status_unavailable';
+    }
+    return null;
+}
+
 /**
  * Projects only operation states that require an Inbox response. Routine lifecycle
  * activity remains available through the unfiltered Activity selectors.
  */
 export function createInboxActionOperationEntriesSelector(
     accountId: string,
-    resolveLocalPresentation: (
-        operation: ActionOperationSnapshotV1,
-    ) => Readonly<{ kind: 'setup_needs_attention' }> | null = () => null,
+    resolveLocalPresentation: ResolveActionOperationLocalPresentation = NO_LOCAL_PRESENTATION,
 ) {
     let previous: readonly InboxActionOperationEntry[] = [];
     return (state: ActionOperationStoreState): readonly InboxActionOperationEntry[] => {
@@ -85,33 +126,11 @@ export function createInboxActionOperationEntriesSelector(
         for (const operation of state.operationsById.values()) {
             if (
                 operation.scope.accountId !== accountId
-                || state.dismissedOperationIds.has(operation.operationId)
             ) {
                 continue;
             }
-
-            if (
-                operation.state === 'failed'
-                && !state.terminalSeenAtById.has(operation.operationId)
-            ) {
-                next.push({ operation, reason: 'failed' });
-                continue;
-            }
-
-            if (
-                operation.state === 'succeeded'
-                && resolveLocalPresentation(operation)?.kind === 'setup_needs_attention'
-            ) {
-                next.push({ operation, reason: 'setup_needs_attention' });
-                continue;
-            }
-
-            if (
-                (operation.state === 'accepted' || operation.state === 'running')
-                && state.unavailableOperationIds.has(operation.operationId)
-            ) {
-                next.push({ operation, reason: 'status_unavailable' });
-            }
+            const reason = selectInboxActionOperationReason(state, operation, resolveLocalPresentation);
+            if (reason) next.push({ operation, reason });
         }
 
         if (sameInboxEntries(previous, next)) return previous;
@@ -120,15 +139,87 @@ export function createInboxActionOperationEntriesSelector(
     };
 }
 
+/** Projects Inbox operation lifecycle state without allocating entry rows. */
+export function createInboxActionOperationSummarySelector(
+    accountId: string,
+    resolveLocalPresentation: ResolveActionOperationLocalPresentation = NO_LOCAL_PRESENTATION,
+) {
+    let previous: InboxActionOperationSummary = { count: 0, hasAttention: false };
+    return (state: ActionOperationStoreState): InboxActionOperationSummary => {
+        let count = 0;
+        for (const operation of state.operationsById.values()) {
+            if (operation.scope.accountId !== accountId) continue;
+            if (selectInboxActionOperationReason(state, operation, resolveLocalPresentation)) count += 1;
+        }
+        if (previous.count === count) return previous;
+        previous = { count, hasAttention: count > 0 };
+        return previous;
+    };
+}
+
+function actionOperationNeedsActivityAttention(
+    state: ActionOperationStoreState,
+    operation: ActionOperationSnapshotV1,
+    resolveLocalPresentation: ResolveActionOperationLocalPresentation,
+): boolean {
+    if (state.dismissedOperationIds.has(operation.operationId)) return false;
+    if (operation.state === 'accepted' || operation.state === 'running') return true;
+    if (!state.terminalSeenAtById.has(operation.operationId)) return true;
+    return resolveLocalPresentation(operation)?.kind === 'setup_needs_attention';
+}
+
 export function selectActionOperationsNeedAttention(
     state: ActionOperationStoreState,
     accountId: string,
 ): boolean {
     for (const operation of state.operationsById.values()) {
         if (operation.scope.accountId !== accountId) continue;
-        if (state.dismissedOperationIds.has(operation.operationId)) continue;
-        if (operation.state === 'accepted' || operation.state === 'running') return true;
-        if (!state.terminalSeenAtById.has(operation.operationId)) return true;
+        if (actionOperationNeedsActivityAttention(state, operation, NO_LOCAL_PRESENTATION)) return true;
     }
     return false;
+}
+
+/**
+ * Projects the stable, minimal state needed by a closed Activity button. Detail
+ * collections and presentation context remain outside this selector so they can
+ * subscribe only while the popover is mounted.
+ */
+export function createActionOperationActivitySummarySelector(
+    accountId: string,
+    resolveLocalPresentation: ResolveActionOperationLocalPresentation = NO_LOCAL_PRESENTATION,
+) {
+    let previous: ActionOperationActivitySummary = { activeCount: 0, hasAttention: false };
+    return (state: ActionOperationStoreState): ActionOperationActivitySummary => {
+        let activeCount = 0;
+        let hasAttention = false;
+
+        for (const operation of state.operationsById.values()) {
+            if (
+                operation.scope.accountId !== accountId
+                || state.dismissedOperationIds.has(operation.operationId)
+            ) {
+                continue;
+            }
+
+            if (actionOperationNeedsActivityAttention(state, operation, resolveLocalPresentation)) {
+                hasAttention = true;
+            }
+
+            if (operation.state === 'accepted' || operation.state === 'running') {
+                const scopeObservation = selectActionOperationObservation(state, operation.scope);
+                if (
+                    scopeObservation !== 'status_unavailable'
+                    && !state.unavailableOperationIds.has(operation.operationId)
+                ) {
+                    activeCount += 1;
+                }
+            }
+        }
+
+        if (previous.activeCount === activeCount && previous.hasAttention === hasAttention) {
+            return previous;
+        }
+        previous = { activeCount, hasAttention };
+        return previous;
+    };
 }
