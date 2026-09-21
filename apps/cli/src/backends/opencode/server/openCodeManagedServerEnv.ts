@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 
+import { normalizeOpenCodeCliGeneration } from '@happier-dev/agents';
+
 import { isOpenCodeBrokerMarker } from '@/backends/opencode/brokerPlugin/openCodeBrokerPluginEnv';
 
 /**
@@ -109,6 +111,8 @@ export function resolveOpenCodeManagedServerChildEnv(params: Readonly<{
  *   and never collides with connected sessions.
  * - `openCodeBinaryIdentity` (or `OPENCODE_BINARY_IDENTITY_ENV`, else `HAPPIER_OPENCODE_PATH`):
  *   changing the opencode binary yields a new fingerprint.
+ * - `HAPPIER_OPENCODE_CLI_GENERATION`: Stable and V2 are distinct process contracts even when
+ *   both resolve to the released `opencode` executable name.
  *
  * NOTE: the runtime "generation key" (see `openCodeManagedServerIdentity.ts`, which changes on every
  * process start) is intentionally NOT part of this fingerprint — that would defeat server reuse.
@@ -150,6 +154,7 @@ export function resolveOpenCodeManagedServerLaunchFingerprint(params: Readonly<{
     ?? env[OPENCODE_BINARY_IDENTITY_ENV]
     ?? env.HAPPIER_OPENCODE_PATH,
   );
+  const requestedCliGeneration = normalizeOpenCodeCliGeneration(env.HAPPIER_OPENCODE_CLI_GENERATION);
 
   const relevant = {
     HOME: typeof env.HOME === 'string' ? env.HOME : '',
@@ -163,6 +168,7 @@ export function resolveOpenCodeManagedServerLaunchFingerprint(params: Readonly<{
     authIdentityClass,
     directKeyAuthHash,
     openCodeBinaryIdentity,
+    ...(requestedCliGeneration === 'auto' ? {} : { openCodeApiGeneration: requestedCliGeneration }),
     OPENAI_API_KEY: typeof env.OPENAI_API_KEY === 'string' ? env.OPENAI_API_KEY : '',
     ANTHROPIC_API_KEY: typeof env.ANTHROPIC_API_KEY === 'string' ? env.ANTHROPIC_API_KEY : '',
     OPENCODE_SERVER_USERNAME: typeof env.OPENCODE_SERVER_USERNAME === 'string' ? env.OPENCODE_SERVER_USERNAME : '',

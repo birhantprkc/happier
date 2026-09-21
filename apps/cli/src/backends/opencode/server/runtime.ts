@@ -25,6 +25,7 @@ import {
 } from '@/agent/runtime/providerPromptSubmission';
 import { createEventShapeLoggerForLog } from '@/diagnostics/eventShapeForLog';
 import type { DrainPendingOptions, DrainPendingResult } from '@/agent/runtime/sessionInput/types';
+import type { InFlightSteerDeliveryIdentity } from '@/agent/runtime/permission/bindPermissionModeQueue';
 
 import type { OpenCodeGlobalEvent, OpenCodeModelRef, OpenCodePermissionRequest, OpenCodeQuestionRequest, OpenCodeSession } from './types';
 import {
@@ -101,6 +102,7 @@ import {
   readOpenCodeNestedRecord,
   readOpenCodeTimestampMs,
 } from '../transcriptProjection/openCodeProjectionParsing';
+import { buildOpenCodePromptParts } from './promptParts';
 
 function mergeSessionWorkStateIntoMetadata(
   metadata: Metadata,
@@ -1162,13 +1164,21 @@ export function createOpenCodeServerRuntime(params: {
     const c = await ensureClient();
     const controller = new AbortController();
     subscriptionAbort = controller;
+    let acceptedConnectionBoundarySeen = false;
 
     void c.subscribeGlobalEvents({
+      sessionId,
       signal: controller.signal,
       onEvent: (evt, delivery: OpenCodeGlobalEventDelivery) => {
         const eventType = normalizeString(evt.payload.type);
         if (delivery.provenance === 'connection-boundary' && eventType !== 'server.connected') {
           return;
+        }
+        const isInitialConnectionBoundary = delivery.provenance === 'connection-boundary'
+          && eventType === 'server.connected'
+          && !acceptedConnectionBoundarySeen;
+        if (delivery.provenance === 'connection-boundary' && eventType === 'server.connected') {
+          acceptedConnectionBoundarySeen = true;
         }
         const eventSequence = nextProviderEventSequence + 1;
         nextProviderEventSequence = eventSequence;
@@ -1176,7 +1186,7 @@ export function createOpenCodeServerRuntime(params: {
           try {
             return delivery.provenance === 'untrusted-observation'
               ? handleUntrustedObservation(evt)
-              : handleEvent(evt);
+              : handleEvent(evt, { reconcileTranscriptOnConnect: !isInitialConnectionBoundary });
           } catch (error) {
             logger.debug('[OpenCodeServer] Failed handling event (non-fatal)', error);
           }
@@ -3398,6 +3408,19 @@ export function createOpenCodeServerRuntime(params: {
       || type.startsWith('session.next.reasoning.')
       || type.startsWith('session.next.step.')
     ) {
+      const assistantMessageId = normalizeString(rec.assistantMessageID);
+      if (assistantMessageId) noteAssistantMessageIdForActiveTurn(assistantMessageId);
+      const partId = type.startsWith('session.next.text.')
+        ? normalizeString(rec.textID)
+        : type.startsWith('session.next.reasoning.')
+          ? normalizeString(rec.reasoningID)
+          : '';
+      if (partId && assistantMessageId) {
+        partTypeByPartKey.set(
+          `${eventSessionId}:${partId}`,
+          type.startsWith('session.next.reasoning.') ? 'reasoning' : 'text',
+        );
+      }
       markTurnActivity();
       return true;
     }
@@ -3405,7 +3428,10 @@ export function createOpenCodeServerRuntime(params: {
     return false;
   };
 
-  const handleEvent = (evt: OpenCodeGlobalEvent): Promise<void> | void => {
+  const handleEvent = (
+    evt: OpenCodeGlobalEvent,
+    options: Readonly<{ reconcileTranscriptOnConnect?: boolean }> = {},
+  ): Promise<void> | void => {
     const payload = evt.payload;
     const type = normalizeString(payload.type);
     const props = payload.properties;
@@ -3413,9 +3439,12 @@ export function createOpenCodeServerRuntime(params: {
 
     if (type === 'server.connected') {
       markServerConnected();
-      // Origin-agnostic catch-up after (re)connect: mirror any external (e.g. TUI-authored) turns
-      // that landed while disconnected. Idempotent via the dedupe gate + deterministic import ids.
-      scheduleExternalSessionTranscriptProjection();
+      if (options.reconcileTranscriptOnConnect !== false) {
+        // Origin-agnostic catch-up after reconnect: mirror external (e.g. TUI-authored) turns that
+        // landed while disconnected. The initial owned-session attach is already anchored at the
+        // durable tail and resume import has its own owner, so it must not launch a second import.
+        scheduleExternalSessionTranscriptProjection();
+      }
       return refreshLiveKnownOpenCodeStateFromControlPlaneBestEffort();
     }
 
@@ -3950,7 +3979,7 @@ export function createOpenCodeServerRuntime(params: {
   return {
     getSessionId: () => sessionId,
     shouldResumeAfterPermissionModeChange: () => true,
-    supportsInFlightSteer: () => false,
+    supportsInFlightSteer: () => client?.supportsInFlightSteer() === true,
     isTurnInFlight: () => turnInFlight,
     probeTurnLiveness: probeFinalTurnLivenessBeforeDeadlockAbort,
 
@@ -3979,7 +4008,6 @@ export function createOpenCodeServerRuntime(params: {
 
     async startOrLoad(opts: { resumeId?: string | null } = {}): Promise<string> {
       invalidateMcpServersForCurrentDirectory();
-      await attachSubscriptionIfNeeded();
       const c = await ensureClient();
 
       scheduleMcpServersForCurrentDirectoryBestEffort();
@@ -4004,6 +4032,7 @@ export function createOpenCodeServerRuntime(params: {
           scheduleMcpServersForCurrentDirectoryBestEffort();
         }
         await c.sessionUpdate({ sessionId: sessionId!, permission: [...resolveSessionPermissionRuleset()] as unknown[] });
+        await attachSubscriptionIfNeeded();
         publishDynamicSessionOptionsBestEffort();
         publishNativeTodosWorkStateBestEffort();
         const snapshot = params.session.getMetadataSnapshot();
@@ -4071,6 +4100,7 @@ export function createOpenCodeServerRuntime(params: {
         invalidateMcpServersForCurrentDirectory();
         scheduleMcpServersForCurrentDirectoryBestEffort();
       }
+      await attachSubscriptionIfNeeded();
       publishDynamicSessionOptionsBestEffort();
       publishNativeTodosWorkStateBestEffort();
       await drainPendingAfterStartOrLoad();
@@ -4082,6 +4112,41 @@ export function createOpenCodeServerRuntime(params: {
         ? `opencode-resume-local-${randomUUID()}`
         : null;
       await this.sendPromptWithMeta?.({ text: prompt, localId: resumeBackfillLocalId });
+    },
+
+    async steerPrompt(
+      prompt: string,
+      identity?: InFlightSteerDeliveryIdentity & Readonly<{ onProviderPromptAccepted?: () => void }>,
+    ): Promise<void> {
+      const promptSessionId = sessionId;
+      const activeTurn = turnDeferred;
+      if (!promptSessionId || !turnInFlight || !activeTurn) {
+        throw new Error('OpenCode in-flight steer requires an active turn');
+      }
+      const c = await ensureClient();
+      if (!c.supportsInFlightSteer()) {
+        throw new Error('OpenCode server dialect does not support in-flight steer');
+      }
+
+      const localIds = [...new Set([
+        ...(identity?.localId === undefined ? [] : [identity.localId]),
+        ...(identity?.localIds ?? []),
+      ].map(readNonBlankOpaqueIdentifier).filter((value): value is string => value !== null))];
+      const messageId = localIds.length === 1
+        ? (await resolveOrCreateUserMessageId(localIds[0] ?? null)) ?? undefined
+        : undefined;
+
+      if (turnDeferred !== activeTurn || sessionId !== promptSessionId || !turnInFlight) {
+        throw new Error('OpenCode active turn ended before in-flight steer delivery');
+      }
+      if (messageId) observedRemoteTextMessageIds.add(messageId);
+      await c.sessionPromptAsync({
+        sessionId: promptSessionId,
+        ...(messageId ? { messageId } : {}),
+        parts: [{ type: 'text', text: typeof prompt === 'string' ? prompt : '' }],
+        delivery: 'steer',
+      });
+      identity?.onProviderPromptAccepted?.();
     },
 
     async sendPromptWithMeta(paramsWithMeta: ProviderPromptWithMeta): Promise<void> {
@@ -4205,13 +4270,21 @@ export function createOpenCodeServerRuntime(params: {
       }
 
       try {
+        const promptProjection = buildOpenCodePromptParts({
+          cwd: params.directory,
+          text: effectiveText,
+          metadata: paramsWithMeta.meta,
+        });
+        const promptParts = Array.isArray(promptProjection)
+          ? promptProjection
+          : await promptProjection;
         const promptAsyncPromise = c.sessionPromptAsync({
           sessionId: promptSessionId,
           messageId: messageID,
           agent,
           model,
           ...promptOptions,
-          parts: [{ type: 'text', text: effectiveText }],
+          parts: [...promptParts],
         });
         const promptAsyncOutcome = await Promise.race([
           promptAsyncPromise.then(

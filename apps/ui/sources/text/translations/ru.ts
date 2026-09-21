@@ -4117,6 +4117,10 @@ export const ru: TranslationStructure = {
             opencode: {
                 title: "OpenCode",
                 sections: {
+                    cliGeneration: {
+                        title: "Версия OpenCode",
+                        footer: "Автовыбор предпочитает opencode, переключается на opencode2 и определяет API сервера после запуска. Стабильный режим всегда выбирает opencode, но всё равно определяет V1 или V2. V2 предпочитает opencode2, а иначе использует opencode с выбранным V2. Инструменты MCP Happier работают с V2 в режиме ACP; серверный API пока не поддерживает динамическую регистрацию MCP."
+                    },
                     backendMode: {
                         title: "Режим бэкенда",
                         footer: "Серверный режим открывает вопросы и нативный форк. Режим ACP — устаревший резервный вариант."
@@ -4127,6 +4131,15 @@ export const ru: TranslationStructure = {
                     }
                 },
                 fields: {
+                    opencodeCliGeneration: {
+                        title: "Поколение CLI",
+                        subtitle: "Выберите установленную команду OpenCode, которую запускает Happier.",
+                        options: {
+                            auto: { title: "Автоматически (рекомендуется)", subtitle: "Предпочитает opencode и переключается на opencode2." },
+                            stable: { title: "Стабильная", subtitle: "Всегда запускает opencode и определяет API после запуска." },
+                            v2: { title: "V2", subtitle: "Предпочитает opencode2; иначе запускает opencode с выбранным V2." }
+                        }
+                    },
                     opencodeBackendMode: {
                         title: "Режим бэкенда OpenCode",
                         subtitle: "Выберите интеграционный бэкенд.",

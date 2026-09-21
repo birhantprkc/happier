@@ -4280,6 +4280,10 @@ export const pt: TranslationStructure = {
             opencode: {
                 title: "OpenCode",
                 sections: {
+                    cliGeneration: {
+                        title: "Versão do OpenCode",
+                        footer: "Automático prefere opencode, recorre a opencode2 e detecta a API do servidor após a inicialização. Estável sempre seleciona opencode, mas ainda detecta V1 ou V2. V2 prefere opencode2 e, caso contrário, usa opencode com V2 selecionado. As ferramentas MCP do Happier funcionam com V2 no modo ACP; a API de servidor ainda não oferece registro MCP dinâmico."
+                    },
                     backendMode: {
                         title: "Modo de backend",
                         footer: "O modo servidor libera perguntas e fork nativo. O modo ACP e um fallback legado."
@@ -4290,6 +4294,15 @@ export const pt: TranslationStructure = {
                     }
                 },
                 fields: {
+                    opencodeCliGeneration: {
+                        title: "Geração da CLI",
+                        subtitle: "Escolha qual comando OpenCode instalado o Happier inicia.",
+                        options: {
+                            auto: { title: "Automático (recomendado)", subtitle: "Prefere opencode e recorre a opencode2." },
+                            stable: { title: "Estável", subtitle: "Sempre inicia opencode e detecta a API após a inicialização." },
+                            v2: { title: "V2", subtitle: "Prefere opencode2; caso contrário, inicia opencode com V2 selecionado." }
+                        }
+                    },
                     opencodeBackendMode: {
                         title: "Modo de backend do OpenCode",
                         subtitle: "Escolha o backend de integracao.",

@@ -129,6 +129,27 @@ describe('resolveOpenCodeManagedServerChildEnv', () => {
     expect(fingerprintA).not.toBe(fingerprintB);
   });
 
+  it('uses the requested CLI generation as part of managed-server reuse identity', () => {
+    const stable = resolveOpenCodeManagedServerLaunchFingerprint({
+      baseEnv: {
+        HOME: '/Users/example',
+        HAPPIER_OPENCODE_CLI_GENERATION: 'stable',
+      },
+      xdgRootDir: null,
+      isolateConfig: false,
+    });
+    const v2 = resolveOpenCodeManagedServerLaunchFingerprint({
+      baseEnv: {
+        HOME: '/Users/example',
+        HAPPIER_OPENCODE_CLI_GENERATION: 'v2',
+      },
+      xdgRootDir: null,
+      isolateConfig: false,
+    });
+
+    expect(stable).not.toBe(v2);
+  });
+
   it('changes the launch fingerprint when USERPROFILE changes without HOME', () => {
     const fingerprintA = resolveOpenCodeManagedServerLaunchFingerprint({
       baseEnv: {

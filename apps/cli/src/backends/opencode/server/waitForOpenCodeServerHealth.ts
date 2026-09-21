@@ -4,6 +4,7 @@ export async function waitForOpenCodeServerHealth(params: {
   pollIntervalMs: number;
   signal?: AbortSignal;
   headers?: Record<string, string>;
+  apiGeneration?: 'auto' | 'v2';
 }): Promise<void> {
   const deadline = Date.now() + params.timeoutMs;
   while (Date.now() < deadline) {
@@ -35,8 +36,16 @@ export async function waitForOpenCodeServerHealth(params: {
         const body = await response.json().catch(() => null) as unknown;
         return Boolean(body && typeof body === 'object' && !Array.isArray(body) && (body as { healthy?: unknown }).healthy === true);
       };
-      const v2 = await request('/api/health');
-      const healthy = await isHealthy(v2) || await isHealthy(await request('/global/health'));
+      const paths = params.apiGeneration === 'v2'
+          ? ['/api/health']
+          : ['/api/health', '/global/health'];
+      let healthy = false;
+      for (const path of paths) {
+        if (await isHealthy(await request(path))) {
+          healthy = true;
+          break;
+        }
+      }
       if (healthy) return;
     } catch {
       // ignore and retry until deadline

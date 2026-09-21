@@ -51,6 +51,8 @@ export type SharedManagedOpenCodeServerState = Readonly<{
   daemonInstanceId?: string;
   /** Non-secret activation nonce inherited by this exact managed OpenCode child generation. */
   brokerLoadNonce?: string;
+  /** Launch-owned HTTP surface. Missing legacy state retains probe-based detection. */
+  apiGeneration?: 'auto' | 'v2';
   /**
    * Bounded proof that the exact broker plugin generation activated inside this exact managed
    * child. It carries no broker capability or credential authority; those are always reread from
@@ -83,7 +85,7 @@ type ResolveDeps = Readonly<{
   readState: () => Promise<SharedManagedOpenCodeServerState | null>;
   writeState: (state: SharedManagedOpenCodeServerState) => Promise<void>;
   isPidAlive: (pid: number) => boolean;
-  probeHealth: (baseUrl: string) => Promise<boolean>;
+  probeHealth: (baseUrl: string, apiGeneration?: 'auto' | 'v2') => Promise<boolean>;
   getProcessInfo?: (pid: number) => Promise<ManagedServerProcessInfo | null>;
   resolveLaunchSpec?: () => ManagedServerLaunchSpec | null;
   killPid?: (pid: number) => Promise<boolean> | boolean;
@@ -101,8 +103,15 @@ type ResolveDeps = Readonly<{
       pid: number;
       logPath?: string;
       brokerLoadNonce?: string;
+      apiGeneration?: 'auto' | 'v2';
     }>) => void | Promise<void>;
-  }) => Promise<{ baseUrl: string; pid: number; logPath?: string; brokerLoadNonce?: string }>;
+  }) => Promise<{
+    baseUrl: string;
+    pid: number;
+    logPath?: string;
+    brokerLoadNonce?: string;
+    apiGeneration?: 'auto' | 'v2';
+  }>;
   nowMs?: () => number;
 }>;
 
@@ -790,6 +799,9 @@ function normalizeSharedManagedServerState(
     ...(typeof state.brokerLoadNonce === 'string' && state.brokerLoadNonce.trim()
       ? { brokerLoadNonce: state.brokerLoadNonce.trim() }
       : {}),
+    ...(state.apiGeneration === 'auto' || state.apiGeneration === 'v2'
+      ? { apiGeneration: state.apiGeneration }
+      : {}),
     ...(readManagedOpenCodeBrokerActivationProof(state.brokerActivationProof)
       ? { brokerActivationProof: readManagedOpenCodeBrokerActivationProof(state.brokerActivationProof) as ManagedOpenCodeBrokerActivationProofV1 }
       : {}),
@@ -835,7 +847,10 @@ export async function resolveSharedManagedOpenCodeServerBaseUrl(
       const brokerLoadNonceMissing = deps.currentBrokerLoadNonceRequired === true && !state.brokerLoadNonce;
       const healthy = launchFingerprintMismatch || brokerLoadNonceMissing
         ? false
-        : await deps.probeHealth(state.baseUrl).catch(() => false);
+        : await (state.apiGeneration
+            ? deps.probeHealth(state.baseUrl, state.apiGeneration)
+            : deps.probeHealth(state.baseUrl))
+          .catch(() => false);
       if (healthy) {
         if (state.status === 'failed') {
           await deps.writeState({
@@ -845,6 +860,7 @@ export async function resolveSharedManagedOpenCodeServerBaseUrl(
             status: 'ready',
             ...(state.launchEnvFingerprint ? { launchEnvFingerprint: state.launchEnvFingerprint } : {}),
             ...(state.brokerLoadNonce ? { brokerLoadNonce: state.brokerLoadNonce } : {}),
+            ...(state.apiGeneration ? { apiGeneration: state.apiGeneration } : {}),
           });
         }
         return {
@@ -880,6 +896,7 @@ export async function resolveSharedManagedOpenCodeServerBaseUrl(
     let provisionalExpectedCmdlineHash = '';
     let provisionalLogPath: string | undefined;
     let provisionalBrokerLoadNonce: string | undefined;
+    let provisionalApiGeneration: 'auto' | 'v2' | undefined;
 
     const resolveOwnershipProof = async (pid: number): Promise<Readonly<{
       startTimeMs: number;
@@ -920,6 +937,7 @@ export async function resolveSharedManagedOpenCodeServerBaseUrl(
           provisionalExpectedCmdlineHash = ownershipProof.expectedCmdlineHash;
           provisionalLogPath = readNonEmptyString(spawned.logPath) ?? undefined;
           provisionalBrokerLoadNonce = readNonEmptyString(spawned.brokerLoadNonce) ?? undefined;
+          provisionalApiGeneration = spawned.apiGeneration;
           await deps.writeState({
             baseUrl: spawned.baseUrl,
             pid: spawned.pid,
@@ -928,6 +946,7 @@ export async function resolveSharedManagedOpenCodeServerBaseUrl(
             ...(desiredLaunchFingerprint ? { launchEnvFingerprint: desiredLaunchFingerprint } : {}),
             ...(provisionalLogPath ? { logPath: provisionalLogPath } : {}),
             ...(provisionalBrokerLoadNonce ? { brokerLoadNonce: provisionalBrokerLoadNonce } : {}),
+            ...(spawned.apiGeneration ? { apiGeneration: spawned.apiGeneration } : {}),
             ...(daemonInstanceId && activeServerDir
               ? {
                   v: 2 as const,
@@ -963,6 +982,7 @@ export async function resolveSharedManagedOpenCodeServerBaseUrl(
         ...(desiredLaunchFingerprint ? { launchEnvFingerprint: desiredLaunchFingerprint } : {}),
         ...(resolvedLogPath ? { logPath: resolvedLogPath } : {}),
         ...(resolvedBrokerLoadNonce ? { brokerLoadNonce: resolvedBrokerLoadNonce } : {}),
+        ...(started.apiGeneration ? { apiGeneration: started.apiGeneration } : {}),
         ...(daemonInstanceId && activeServerDir
           ? {
               v: 2 as const,
@@ -993,6 +1013,7 @@ export async function resolveSharedManagedOpenCodeServerBaseUrl(
           lastFailureAtMs: nowMs,
           ...(provisionalLogPath ? { logPath: provisionalLogPath } : {}),
           ...(provisionalBrokerLoadNonce ? { brokerLoadNonce: provisionalBrokerLoadNonce } : {}),
+          ...(provisionalApiGeneration ? { apiGeneration: provisionalApiGeneration } : {}),
           ...(daemonInstanceId && activeServerDir
             ? {
                 v: 2 as const,
@@ -1068,6 +1089,9 @@ function readManagedOpenCodeServerStateFromUnknown(parsed: unknown): SharedManag
   const daemonInstanceId = readNonEmptyString(source.daemonInstanceId);
   const logPath = readNonEmptyString(source.logPath);
   const brokerLoadNonce = readNonEmptyString(source.brokerLoadNonce);
+  const apiGeneration = source.apiGeneration === 'auto' || source.apiGeneration === 'v2'
+    ? source.apiGeneration
+    : undefined;
   const brokerActivationProof = readManagedOpenCodeBrokerActivationProof(source.brokerActivationProof);
   const stateVersion = source.v === 2 ? 2 as const : undefined;
   if (!baseUrl) return null;
@@ -1089,6 +1113,7 @@ function readManagedOpenCodeServerStateFromUnknown(parsed: unknown): SharedManag
     ...(daemonInstanceId ? { daemonInstanceId } : {}),
     ...(logPath ? { logPath } : {}),
     ...(brokerLoadNonce ? { brokerLoadNonce } : {}),
+    ...(apiGeneration ? { apiGeneration } : {}),
     ...(brokerActivationProof ? { brokerActivationProof } : {}),
   };
 }
@@ -1288,7 +1313,7 @@ export async function releaseForAuthSwitch(
 }
 
 export async function ensureSharedManagedOpenCodeServerBaseUrl(params: Readonly<{
-  probeHealth: (baseUrl: string) => Promise<boolean>;
+  probeHealth: (baseUrl: string, apiGeneration?: 'auto' | 'v2') => Promise<boolean>;
   requireBrokerLoadNonce?: boolean;
 }>): Promise<string> {
   const statePath = resolveStatePathFromEnv();
@@ -1397,6 +1422,7 @@ export async function ensureSharedManagedOpenCodeServerBaseUrl(params: Readonly<
         pid: started.pid,
         logPath: started.logPath,
         ...(started.brokerLoadNonce ? { brokerLoadNonce: started.brokerLoadNonce } : {}),
+        ...(started.apiGeneration ? { apiGeneration: started.apiGeneration } : {}),
       };
     },
   });

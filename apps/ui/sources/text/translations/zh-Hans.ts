@@ -4046,6 +4046,10 @@ export const zhHans: TranslationStructure = {
             opencode: {
                 title: "OpenCode",
                 sections: {
+                    cliGeneration: {
+                        title: "OpenCode 版本",
+                        footer: "自动模式优先使用 opencode，不可用时改用 opencode2，并在启动后检测服务器 API。稳定版始终选择 opencode，但仍会检测 V1 或 V2。V2 优先使用 opencode2，否则以已选择 V2 的方式使用 opencode。Happier MCP 工具可通过 V2 的 ACP 模式使用；其服务器 API 暂不支持动态 MCP 注册。"
+                    },
                     backendMode: {
                         title: "后端模式",
                         footer: "服务器模式可启用提问和原生分叉。ACP 模式是旧版兜底方案。"
@@ -4056,6 +4060,15 @@ export const zhHans: TranslationStructure = {
                     }
                 },
                 fields: {
+                    opencodeCliGeneration: {
+                        title: "CLI 版本",
+                        subtitle: "选择 Happier 要启动的已安装 OpenCode 命令。",
+                        options: {
+                            auto: { title: "自动（推荐）", subtitle: "优先使用 opencode，不可用时改用 opencode2。" },
+                            stable: { title: "稳定版", subtitle: "始终启动 opencode，并在启动后检测服务器 API。" },
+                            v2: { title: "V2", subtitle: "优先使用 opencode2；否则以已选择 V2 的方式启动 opencode。" }
+                        }
+                    },
                     opencodeBackendMode: {
                         title: "OpenCode 后端模式",
                         subtitle: "选择集成后端。",

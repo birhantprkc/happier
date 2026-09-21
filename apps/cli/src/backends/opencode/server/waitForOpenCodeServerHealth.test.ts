@@ -116,4 +116,27 @@ describe('waitForOpenCodeServerHealth', () => {
     })).resolves.toBeUndefined();
     expect(paths).toContain('/api/health');
   });
+
+  it.each([
+    ['auto', '/api/health'],
+    ['v2', '/api/health'],
+  ] as const)('starts the authoritative %s readiness probe at %s for an owned server', async (apiGeneration, expectedPath) => {
+    const paths: string[] = [];
+    const server = await startHealthServer((req, res) => {
+      paths.push(req.url ?? '');
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(req.url === '/global/health'
+        ? { healthy: true, version: '1.18.25' }
+        : { healthy: true }));
+    });
+    servers.add(server);
+
+    await expect(waitForOpenCodeServerHealth({
+      baseUrl: server.baseUrl,
+      timeoutMs: 1_000,
+      pollIntervalMs: 25,
+      apiGeneration,
+    })).resolves.toBeUndefined();
+    expect(paths[0]).toBe(expectedPath);
+  });
 });

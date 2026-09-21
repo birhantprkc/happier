@@ -150,6 +150,7 @@ function createFakeClient(opts: Readonly<{
     generationKey: 'gen-initial',
   };
   const clientBase = {
+    supportsInFlightSteer: vi.fn(() => true),
     sessionList: vi.fn(async () => ([] as unknown[])),
     sessionCreate: vi.fn<OpenCodeServerRuntimeClient['sessionCreate']>(async () => ({ id: 'ses_1' })),
     sessionGet: vi.fn(async ({ sessionId }: { sessionId: string }) => ({ id: sessionId })),
@@ -197,6 +198,7 @@ function createFakeClient(opts: Readonly<{
     permissionReply: vi.fn(async () => true),
     permissionList: vi.fn(async () => ([] as unknown[])),
     subscribeGlobalEvents: vi.fn(async ({ onEvent: cb }: {
+      sessionId?: string | null;
       signal: AbortSignal;
       onEvent: (evt: OpenCodeGlobalEvent, delivery: OpenCodeGlobalEventDelivery) => void;
     }) => {
@@ -538,6 +540,29 @@ describe('createOpenCodeServerRuntime', () => {
     resetConnectedServiceRuntimeAuthFailureReportDedupeForTests();
   });
 
+  it('advertises and dispatches in-flight prompt steering through the OpenCode prompt owner', async () => {
+    const { client, runtime, promptPromise } = await beginOpenCodePromptForTest();
+    const accepted = vi.fn();
+
+    expect(runtime.supportsInFlightSteer()).toBe(true);
+    await runtime.steerPrompt('adjust course', {
+      localId: 'local-steer',
+      onProviderPromptAccepted: accepted,
+    });
+
+    expect(readOpenCodePromptAsyncCall(client, 1)).toMatchObject({
+      sessionId: 'ses_1',
+      messageId: expect.any(String),
+      parts: [{ type: 'text', text: 'adjust course' }],
+      delivery: 'steer',
+    });
+    expect(accepted).toHaveBeenCalledTimes(1);
+
+    await runtime.cancel();
+    await promptPromise.catch(() => undefined);
+    await runtime.reset();
+  });
+
   it('recognizes provider terminal tool statuses', () => {
     expect([
       'completed',
@@ -582,6 +607,9 @@ describe('createOpenCodeServerRuntime', () => {
     });
 
     await expect(runtime.startOrLoad({})).resolves.toBe('ses_1');
+    expect(client.subscribeGlobalEvents).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'ses_1',
+    }));
   });
 
   it('registers local MCP servers via the OpenCode /mcp API for the session directory', async () => {
@@ -2089,21 +2117,21 @@ describe('createOpenCodeServerRuntime', () => {
       directory: '/tmp',
       payload: {
         type: 'session.next.compaction.started',
-        properties: { sessionID: 'ses_1', id: 'compact_1', reason: 'threshold' },
+        properties: { sessionID: 'ses_1', messageID: 'compact_1', reason: 'auto' },
       },
     });
     await client.__emit({
       directory: '/tmp',
       payload: {
         type: 'session.next.compaction.delta',
-        properties: { sessionID: 'ses_1', id: 'compact_1', summary: 'private summary text' },
+        properties: { sessionID: 'ses_1', messageID: 'compact_1', text: 'private summary text' },
       },
     });
     await client.__emit({
       directory: '/tmp',
       payload: {
         type: 'session.next.compaction.ended',
-        properties: { sessionID: 'ses_1', id: 'compact_1', reason: 'threshold' },
+        properties: { sessionID: 'ses_1', messageID: 'compact_1', reason: 'auto', text: '', recent: '' },
       },
     });
 
@@ -2117,7 +2145,7 @@ describe('createOpenCodeServerRuntime', () => {
         phase: 'started',
         provider: 'opencode',
         source: 'provider-event',
-        trigger: 'threshold',
+        trigger: 'auto',
         lifecycleId: 'opencode:context-compaction:ses_1:compact_1',
         providerEventId: 'compact_1',
         providerSessionId: 'ses_1',
@@ -2127,7 +2155,7 @@ describe('createOpenCodeServerRuntime', () => {
         phase: 'completed',
         provider: 'opencode',
         source: 'provider-event',
-        trigger: 'threshold',
+        trigger: 'auto',
         lifecycleId: 'opencode:context-compaction:ses_1:compact_1',
         providerEventId: 'compact_1',
         providerSessionId: 'ses_1',

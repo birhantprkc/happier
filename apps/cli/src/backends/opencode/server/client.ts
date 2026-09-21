@@ -103,6 +103,7 @@ async function fetchJson<T>(params: {
   headers: Record<string, string>;
   body?: unknown;
   timeoutMs?: number | null;
+  signal?: AbortSignal;
 }): Promise<T> {
   const timeoutMs = typeof params.timeoutMs === 'number' && Number.isFinite(params.timeoutMs) ? params.timeoutMs : null;
   const ctrl = timeoutMs ? new AbortController() : null;
@@ -124,7 +125,9 @@ async function fetchJson<T>(params: {
         ...(params.body !== undefined ? { 'content-type': 'application/json' } : {}),
       },
       body: params.body !== undefined ? JSON.stringify(params.body) : undefined,
-      ...(ctrl ? { signal: ctrl.signal } : {}),
+      ...(ctrl || params.signal
+        ? { signal: ctrl && params.signal ? AbortSignal.any([ctrl.signal, params.signal]) : (ctrl?.signal ?? params.signal) }
+        : {}),
     });
   } catch (error) {
     if (timedOut && timeoutMs) {
@@ -190,10 +193,9 @@ function isOpenCodeSseReadIdleTimeoutError(error: unknown): boolean {
 
 export type OpenCodeGlobalEventDelivery = Readonly<{
   /**
-   * OpenCode's directory-scoped `/event` route installs its instance-bus subscription after its
-   * route-local `server.connected` frame. Frames after that boundary are therefore accepted live;
-   * frames before it are ignored. `untrusted-observation` remains available to compatibility
-   * callers, but this client does not produce it from the instance stream.
+   * OpenCode's directory-scoped `/event` route establishes its own connection boundary. For V2
+   * sessions owned by this runtime, Happier establishes the equivalent boundary only after the
+   * replay-capable session stream opens. Frames after either boundary are accepted live.
    */
   provenance: 'connection-boundary' | 'untrusted-observation' | 'accepted-live';
   connectionGeneration: number;
@@ -230,6 +232,7 @@ function readOpenCodeMcpStatus(response: unknown, serverName: string): OpenCodeM
 }
 
 export type OpenCodeServerRuntimeClient = Readonly<{
+  supportsInFlightSteer: () => boolean;
   /** Returns true when changing directory restarted the directory-scoped event stream. */
   setDirectoryOverride: (directory: string) => boolean;
   sessionList: () => Promise<unknown[]>;
@@ -255,6 +258,7 @@ export type OpenCodeServerRuntimeClient = Readonly<{
     model?: OpenCodeModelRef;
     variant?: string;
     config?: Record<string, unknown>;
+    delivery?: 'steer' | 'queue';
   }) => Promise<void>;
   sessionSummarize: (opts: {
     sessionId: string;
@@ -269,6 +273,7 @@ export type OpenCodeServerRuntimeClient = Readonly<{
   questionReject: (opts: { requestId: string }) => Promise<boolean>;
   permissionReply: (opts: { requestId: string; reply: PermissionReply }) => Promise<boolean>;
   subscribeGlobalEvents: (opts: {
+    sessionId?: string | null;
     signal: AbortSignal;
     onEvent: (evt: OpenCodeGlobalEvent, delivery: OpenCodeGlobalEventDelivery) => void;
   }) => Promise<void>;
@@ -342,6 +347,14 @@ function normalizeOpenCodeV2Message(raw: unknown, sessionId: string): unknown {
   const type = typeof message.type === 'string' ? message.type : '';
   const role = type === 'user' || type === 'assistant' ? type : type;
   const info: Record<string, unknown> = { ...message, role, sessionID: sessionId };
+  const model = message.model && typeof message.model === 'object' && !Array.isArray(message.model)
+    ? message.model as Record<string, unknown>
+    : null;
+  if (typeof model?.id === 'string' && typeof model.providerID === 'string') {
+    const normalizedModel: Record<string, unknown> = { ...model, modelID: model.id };
+    delete normalizedModel.id;
+    info.model = normalizedModel;
+  }
   delete info.type;
   delete info.text;
   delete info.content;
@@ -374,14 +387,35 @@ function normalizeOpenCodeV2PermissionRequest(raw: unknown): unknown {
       ? record.metadata
       : {},
     always: Array.isArray(record.save) ? record.save : [],
-    ...(record.tool && typeof record.tool === 'object' && !Array.isArray(record.tool) ? { tool: record.tool } : {}),
+    ...(record.source && typeof record.source === 'object' && !Array.isArray(record.source)
+      ? { tool: record.source }
+      : record.tool && typeof record.tool === 'object' && !Array.isArray(record.tool)
+        ? { tool: record.tool }
+        : {}),
   };
   return normalized;
 }
 
 function normalizeOpenCodeV2Event(type: string, rawData: unknown): Readonly<{ type: string; properties: unknown }> {
-  if (type === 'permission.asked') {
-    return { type, properties: normalizeOpenCodeV2PermissionRequest(rawData) };
+  if (type === 'permission.v2.asked') {
+    return { type: 'permission.asked', properties: normalizeOpenCodeV2PermissionRequest(rawData) };
+  }
+  if (type === 'question.v2.asked') {
+    return { type: 'question.asked', properties: rawData };
+  }
+  if (
+    (type === 'session.next.text.delta' || type === 'session.next.reasoning.delta')
+    && rawData && typeof rawData === 'object' && !Array.isArray(rawData)
+  ) {
+    const data = rawData as Record<string, unknown>;
+    return {
+      type: 'message.part.delta',
+      properties: {
+        ...data,
+        messageID: data.assistantMessageID,
+        partID: type === 'session.next.text.delta' ? data.textID : data.reasoningID,
+      },
+    };
   }
   if (type === 'session.next.execution.settled' && rawData && typeof rawData === 'object' && !Array.isArray(rawData)) {
     const data = rawData as Record<string, unknown>;
@@ -467,10 +501,16 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
     return normalized;
   };
 
-  const probeHealth = async (candidateBaseUrl: string): Promise<boolean> => {
+  const probeHealth = async (
+    candidateBaseUrl: string,
+    apiGeneration: 'auto' | 'v2' = 'auto',
+  ): Promise<boolean> => {
     try {
       const probeTimeoutMs = httpTimeoutMs ? Math.min(2_000, httpTimeoutMs) : 900;
-      for (const path of ['/api/health', '/global/health']) {
+      const paths = apiGeneration === 'v2'
+          ? ['/api/health']
+          : ['/api/health', '/global/health'];
+      for (const path of paths) {
         const ctrl = new AbortController();
         const timer = setTimeout(() => ctrl.abort(), probeTimeoutMs);
         timer.unref?.();
@@ -498,13 +538,21 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
       }),
   );
   let apiGeneration: (OpenCodeApiGeneration & { key: string }) | null = null;
+  let lastObservedExternalApiGeneration: OpenCodeApiGeneration['kind'] | null = null;
   const permissionSessionByRequestId = new Map<string, string>();
   const questionSessionByRequestId = new Map<string, string>();
   const todosBySessionId = new Map<string, unknown[]>();
 
+  const clearGenerationSpecificRequestState = (): void => {
+    permissionSessionByRequestId.clear();
+    questionSessionByRequestId.clear();
+    todosBySessionId.clear();
+  };
+
   // Managed-server generation identity. The runtime uses this to detect mid-turn server replacement
   // (Lane E). It is tracked only in managed mode; explicit URL / override modes never emit changes.
   let managedServerIdentity: OpenCodeManagedServerIdentity | null = null;
+  let managedServerApiGeneration: 'auto' | 'v2' | null = null;
 
   const captureManagedServerIdentityFromState = (
     state: SharedManagedOpenCodeServerState | null,
@@ -515,6 +563,7 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
       return;
     }
     const nextIdentity = resolveOpenCodeManagedServerIdentity(state);
+    managedServerApiGeneration = nextIdentity.apiGeneration ?? null;
     if (isSameOpenCodeManagedServerGeneration(managedServerIdentity, nextIdentity)) {
       // Same process generation: refresh the normalized fields without surfacing a change.
       managedServerIdentity = nextIdentity;
@@ -523,9 +572,7 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
     const previous = managedServerIdentity;
     managedServerIdentity = nextIdentity;
     apiGeneration = null;
-    permissionSessionByRequestId.clear();
-    questionSessionByRequestId.clear();
-    todosBySessionId.clear();
+    clearGenerationSpecificRequestState();
     // The initial baseline must not surface as a "change"; only genuine replacements do.
     if (reason === 'initial') return;
     try {
@@ -620,6 +667,16 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
   const ensureApiGeneration = async (): Promise<OpenCodeApiGeneration> => {
     const key = `${baseUrl}:${managedServerIdentity?.generationKey ?? ''}`;
     if (apiGeneration?.key === key) return apiGeneration;
+    const rememberDetectedGeneration = (detected: OpenCodeApiGeneration): OpenCodeApiGeneration & { key: string } => {
+      if (!usingManagedServer) {
+        if (lastObservedExternalApiGeneration !== null && lastObservedExternalApiGeneration !== detected.kind) {
+          clearGenerationSpecificRequestState();
+        }
+        lastObservedExternalApiGeneration = detected.kind;
+      }
+      apiGeneration = { key, ...detected };
+      return apiGeneration;
+    };
     const probe = async (path: string): Promise<unknown> => {
       try {
         return await fetchJson<unknown>({
@@ -630,6 +687,20 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
         return null;
       }
     };
+    if (managedServerApiGeneration === 'v2') {
+      const legacy = await probe('/global/health');
+      const legacyRecord = legacy && typeof legacy === 'object' && !Array.isArray(legacy)
+        ? legacy as Record<string, unknown>
+        : null;
+      const legacyMcp = legacyRecord?.healthy === true && typeof legacyRecord.version === 'string'
+        ? await probe('/mcp')
+        : null;
+      return rememberDetectedGeneration({
+        kind: 'v2',
+        legacyApiCompatible: legacyRecord?.healthy === true && typeof legacyRecord.version === 'string',
+        legacyMcpCompatible: Boolean(legacyMcp && typeof legacyMcp === 'object' && !Array.isArray(legacyMcp)),
+      });
+    }
     const v2 = await probe('/api/health');
     if (v2 && typeof v2 === 'object' && !Array.isArray(v2) && (v2 as Record<string, unknown>).healthy === true) {
       const legacy = await probe('/global/health');
@@ -637,21 +708,25 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
       const legacyMcp = legacyRecord?.healthy === true && typeof legacyRecord.version === 'string'
         ? await probe('/mcp')
         : null;
-      apiGeneration = {
-        key,
+      return rememberDetectedGeneration({
         kind: 'v2',
         legacyApiCompatible: legacyRecord?.healthy === true && typeof legacyRecord.version === 'string',
         legacyMcpCompatible: Boolean(legacyMcp && typeof legacyMcp === 'object' && !Array.isArray(legacyMcp)),
-      };
-      return apiGeneration;
+      });
     }
     const legacy = await probe('/global/health');
     const legacyRecord = legacy && typeof legacy === 'object' && !Array.isArray(legacy) ? legacy as Record<string, unknown> : null;
     if (legacyRecord?.healthy === true && typeof legacyRecord.version === 'string') {
-      apiGeneration = { key, kind: 'v1', legacyApiCompatible: true, legacyMcpCompatible: true };
-      return apiGeneration;
+      return rememberDetectedGeneration({ kind: 'v1', legacyApiCompatible: true, legacyMcpCompatible: true });
     }
     throw new Error('OpenCode server generation detection failed: neither authenticated V2 nor V1 health contract is available');
+  };
+
+  const refreshTransportForSseReconnect = async (): Promise<void> => {
+    await refreshBaseUrlIfManagedBestEffort({ allowEnsure: false, reason: 'sse_reconnect_state_refresh' });
+    if (!usingManagedServer) {
+      apiGeneration = null;
+    }
   };
 
   const fetchJsonWithManagedServerRetry = async <T>(
@@ -689,10 +764,51 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
   }
 
   let subscription: Awaited<ReturnType<typeof subscribeSseJson<OpenCodeGlobalEvent>>> | null = null;
+  let liveSubscription: Awaited<ReturnType<typeof subscribeSseJson<unknown>>> | null = null;
   let subscriptionLoop: Promise<void> | null = null;
   let subscriptionLoopAbort: AbortController | null = null;
   let connectionGeneration = 0;
   let disposed = false;
+
+  const readDurableSequence = (rawEvent: unknown, sessionId: string): number | null => {
+    if (!rawEvent || typeof rawEvent !== 'object' || Array.isArray(rawEvent)) return null;
+    const durableRaw = (rawEvent as Record<string, unknown>).durable;
+    if (!durableRaw || typeof durableRaw !== 'object' || Array.isArray(durableRaw)) return null;
+    const durable = durableRaw as Record<string, unknown>;
+    const sequence = durable.seq;
+    if (durable.aggregateID !== sessionId) return null;
+    return typeof sequence === 'number' && Number.isSafeInteger(sequence) && sequence >= 0 ? sequence : null;
+  };
+
+  const readV2SessionTail = async (sessionId: string, signal: AbortSignal): Promise<number | null> => {
+    const path = `/api/session/${encodeURIComponent(sessionId)}/history`;
+    let cursor: number | null = null;
+    for (;;) {
+      const raw = await fetchJson<unknown>({
+        url: buildUrl(baseUrl, path, cursor === null ? undefined : { after: String(cursor) }),
+        method: 'GET',
+        headers,
+        timeoutMs: httpTimeoutMs,
+        signal,
+      });
+      const page = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : null;
+      const events = Array.isArray(page?.data) ? page.data : null;
+      if (!events || typeof page?.hasMore !== 'boolean') {
+        throw new Error('OpenCode V2 session history returned an invalid page');
+      }
+      let advanced = false;
+      for (const event of events) {
+        const sequence = readDurableSequence(event, sessionId);
+        if (sequence === null || (cursor !== null && sequence <= cursor)) {
+          throw new Error('OpenCode V2 session history returned an invalid durable sequence');
+        }
+        cursor = sequence;
+        advanced = true;
+      }
+      if (!page.hasMore) return cursor;
+      if (!advanced) throw new Error('OpenCode V2 session history did not advance its cursor');
+    }
+  };
   const rememberRequestSessions = (items: unknown[], target: Map<string, string>): void => {
     for (const item of items) {
       if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
@@ -706,19 +822,46 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
   const fetchSessionMessagesListRaw = async (sessionId: string): Promise<unknown> => (
     await fetchJsonWithManagedServerRetry({ operation: 'session_messages_list', method: 'GET' }, async (currentBaseUrl) => {
       const api = await ensureApiGeneration();
-      const raw = await fetchJson<unknown>({
-        url: buildUrl(currentBaseUrl, `${api.kind === 'v2' ? '/api' : ''}/session/${encodeURIComponent(sessionId)}/message`, api.kind === 'v2' ? undefined : { directory: resolveDirectory() }),
-        method: 'GET',
-        headers,
-        timeoutMs: httpTimeoutMs,
-      });
-      if (api.kind !== 'v2') return raw;
-      const data = readWrappedOpenCodeV2Data(raw);
-      return Array.isArray(data) ? data.map((message) => normalizeOpenCodeV2Message(message, sessionId)) : data;
+      if (api.kind !== 'v2') {
+        return await fetchJson<unknown>({
+          url: buildUrl(currentBaseUrl, `/session/${encodeURIComponent(sessionId)}/message`, { directory: resolveDirectory() }),
+          method: 'GET',
+          headers,
+          timeoutMs: httpTimeoutMs,
+        });
+      }
+
+      const messages: unknown[] = [];
+      const seenCursors = new Set<string>();
+      let cursor: string | undefined;
+      for (;;) {
+        const raw = await fetchJson<unknown>({
+          url: buildUrl(currentBaseUrl, `/api/session/${encodeURIComponent(sessionId)}/message`, cursor ? { cursor } : { order: 'asc' }),
+          method: 'GET',
+          headers,
+          timeoutMs: httpTimeoutMs,
+        });
+        const data = readWrappedOpenCodeV2Data(raw);
+        if (!Array.isArray(data)) return data;
+        messages.push(...data.map((message) => normalizeOpenCodeV2Message(message, sessionId)));
+
+        const envelope = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : null;
+        const cursorEnvelope = envelope?.cursor && typeof envelope.cursor === 'object' && !Array.isArray(envelope.cursor)
+          ? envelope.cursor as Record<string, unknown>
+          : null;
+        const nextCursor = typeof cursorEnvelope?.next === 'string' ? cursorEnvelope.next : '';
+        if (!nextCursor) return messages;
+        if (seenCursors.has(nextCursor)) {
+          throw new Error('OpenCode V2 session message pagination returned a repeated cursor');
+        }
+        seenCursors.add(nextCursor);
+        cursor = nextCursor;
+      }
     })
   );
 
   const client: OpenCodeServerRuntimeClient = {
+    supportsInFlightSteer: () => apiGeneration?.kind === 'v2',
     setDirectoryOverride: (directory) => {
       const previousDirectory = resolveDirectory();
       directoryOverride = typeof directory === 'string' ? directory : '';
@@ -885,16 +1028,45 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
     },
     providersList: async () => {
       const api = await ensureApiGeneration();
-      const raw = await fetchJson<unknown>({
-        url: buildUrl(baseUrl, api.kind === 'v2' ? '/api/provider' : '/provider', api.kind === 'v2' ? { 'location[directory]': resolveDirectory() } : undefined),
-        method: 'GET',
-        headers,
-        timeoutMs: httpTimeoutMs,
-      });
-      const providers = api.kind === 'v2' ? readWrappedOpenCodeV2Data(raw) : raw;
-      return api.kind === 'v2'
-        ? (Array.isArray(providers) ? providers as Array<{ id: string; env?: readonly string[]; models?: Record<string, unknown> }> : [])
-        : readOpenCodeProviderList(providers);
+      if (api.kind !== 'v2') {
+        const raw = await fetchJson<unknown>({
+          url: buildUrl(baseUrl, '/provider'), method: 'GET', headers, timeoutMs: httpTimeoutMs,
+        });
+        return readOpenCodeProviderList(raw);
+      }
+
+      const locationQuery = { 'location[directory]': resolveDirectory() };
+      const [providersRaw, modelsRaw] = await Promise.all([
+        fetchJson<unknown>({
+          url: buildUrl(baseUrl, '/api/provider', locationQuery), method: 'GET', headers, timeoutMs: httpTimeoutMs,
+        }),
+        fetchJson<unknown>({
+          url: buildUrl(baseUrl, '/api/model', locationQuery), method: 'GET', headers, timeoutMs: httpTimeoutMs,
+        }),
+      ]);
+      const providers = readWrappedOpenCodeV2Data(providersRaw);
+      const models = readWrappedOpenCodeV2Data(modelsRaw);
+      if (!Array.isArray(providers) || !Array.isArray(models)) return [];
+
+      const modelsByProvider = new Map<string, Record<string, unknown>>();
+      for (const model of models) {
+        if (!model || typeof model !== 'object' || Array.isArray(model)) continue;
+        const record = model as Record<string, unknown>;
+        const providerID = typeof record.providerID === 'string' ? record.providerID.trim() : '';
+        const id = typeof record.id === 'string' ? record.id.trim() : '';
+        if (!providerID || !id) continue;
+        const providerModels = modelsByProvider.get(providerID) ?? {};
+        providerModels[id] = record;
+        modelsByProvider.set(providerID, providerModels);
+      }
+
+      return providers.flatMap((provider) => {
+        if (!provider || typeof provider !== 'object' || Array.isArray(provider)) return [];
+        const record = provider as Record<string, unknown>;
+        const id = typeof record.id === 'string' ? record.id.trim() : '';
+        if (!id) return [];
+        return [{ ...record, id, models: modelsByProvider.get(id) ?? {} }];
+      }) as Array<{ id: string; env?: readonly string[]; models?: Record<string, unknown> }>;
     },
     mcpAdd: async ({ name, config }) => {
       const serverName = typeof name === 'string' ? name.trim() : '';
@@ -917,12 +1089,15 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
       });
       return readOpenCodeMcpStatus(response, serverName);
     },
-    sessionPromptAsync: async ({ sessionId, messageId, parts, agent, model, variant, config }) => {
+    sessionPromptAsync: async ({ sessionId, messageId, parts, agent, model, variant, config, delivery }) => {
       const api = await ensureApiGeneration();
       const normalizedVariant = typeof variant === 'string' ? variant.trim() : '';
       if (api.kind === 'v2') {
-        if (normalizedVariant || config) {
-          throw new Error('OpenCode V2 prompt does not support legacy variant or config fields');
+        if (config) {
+          throw new Error('OpenCode V2 prompt does not support legacy config fields');
+        }
+        if (normalizedVariant && !model) {
+          throw new Error('OpenCode V2 prompt variant requires an explicit model');
         }
         if (agent) {
           await fetchJson<void>({
@@ -933,9 +1108,17 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
         if (model) {
           await fetchJson<void>({
             url: buildUrl(baseUrl, `/api/session/${encodeURIComponent(sessionId)}/model`),
-            method: 'POST', headers, body: { model }, timeoutMs: httpTimeoutMs,
+            method: 'POST', headers, body: {
+              model: {
+                id: model.modelID,
+                providerID: model.providerID,
+                ...(normalizedVariant ? { variant: normalizedVariant } : {}),
+              },
+            }, timeoutMs: httpTimeoutMs,
           });
         }
+      } else if (delivery) {
+        throw new Error('OpenCode V1 prompt delivery does not support steer or queue modes');
       }
       // prompt_async is effectful. Once its POST is attempted, transport loss is ambiguous and
       // must surface to the canonical Pending owner; replaying it can duplicate provider work.
@@ -946,6 +1129,7 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
         body: api.kind === 'v2' ? {
           ...(messageId ? { id: messageId } : {}),
           prompt: buildOpenCodeV2Prompt(parts),
+          ...(delivery ? { delivery } : {}),
         } : {
           ...(messageId ? { messageID: messageId } : {}),
           ...(agent ? { agent } : {}),
@@ -959,15 +1143,16 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
     },
     sessionSummarize: async ({ sessionId, model, auto }) => {
       const api = await ensureApiGeneration();
+      if (api.kind === 'v2') {
+        throw new Error('OpenCode V2 manual compaction is unavailable');
+      }
       // Summarization is effectful. A transport failure after the POST is ambiguous, so replaying
       // it could duplicate provider work just like replaying prompt_async.
       await fetchJson<void>({
-        url: buildUrl(baseUrl, api.kind === 'v2'
-          ? `/api/session/${encodeURIComponent(sessionId)}/compact`
-          : `/session/${encodeURIComponent(sessionId)}/summarize`, api.kind === 'v2' ? undefined : { directory: resolveDirectory() }),
+        url: buildUrl(baseUrl, `/session/${encodeURIComponent(sessionId)}/summarize`, { directory: resolveDirectory() }),
         method: 'POST',
         headers,
-        body: api.kind === 'v2' ? {} : {
+        body: {
           providerID: model.providerID,
           modelID: model.modelID,
           ...(typeof auto === 'boolean' ? { auto } : {}),
@@ -1076,7 +1261,7 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
       rememberRequestSessions(data, questionSessionByRequestId);
       return data;
     },
-    subscribeGlobalEvents: async ({ signal, onEvent }) => {
+    subscribeGlobalEvents: async ({ sessionId: rawSessionId, signal, onEvent }) => {
       if (disposed) return;
       if (subscriptionLoop) return;
 
@@ -1085,6 +1270,12 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
         subscriptionLoopAbort = localAbort;
 
         let attempt = 0;
+        const ownedSessionId = typeof rawSessionId === 'string' && rawSessionId.trim().length > 0
+          ? rawSessionId
+          : null;
+        let durableCursor: number | null = null;
+        let durableCursorInitialized = false;
+        let subscribedApiGeneration: OpenCodeApiGeneration['kind'] | null = null;
         while (!disposed && !signal.aborted && !localAbort.signal.aborted) {
           const currentConnectionGeneration = connectionGeneration + 1;
           connectionGeneration = currentConnectionGeneration;
@@ -1102,18 +1293,53 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
 
           try {
             const api = await ensureApiGeneration();
+            if (subscribedApiGeneration !== null && subscribedApiGeneration !== api.kind) {
+              durableCursor = null;
+              durableCursorInitialized = false;
+            }
+            subscribedApiGeneration = api.kind;
             const streamDirectory = resolveDirectory();
-            const url = buildUrl(baseUrl, api.kind === 'v2' ? '/api/event' : '/event', api.kind === 'v2' ? undefined : { directory: streamDirectory });
+            const useDurableSessionStream = api.kind === 'v2' && ownedSessionId !== null;
+            if (useDurableSessionStream && !durableCursorInitialized) {
+              durableCursor = await readV2SessionTail(ownedSessionId, combinedAbort.signal);
+              durableCursorInitialized = true;
+            }
+            const url = useDurableSessionStream
+              ? buildUrl(
+                  baseUrl,
+                  `/api/session/${encodeURIComponent(ownedSessionId)}/event`,
+                  durableCursor === null ? undefined : { after: String(durableCursor) },
+                )
+              : buildUrl(baseUrl, api.kind === 'v2' ? '/api/event' : '/event', api.kind === 'v2' ? undefined : { directory: streamDirectory });
             const nextHeaders: Record<string, string> = { ...headers };
             subscription = await subscribeSseJson<unknown>({
               url,
               headers: nextHeaders,
               signal: combinedAbort.signal,
               readIdleTimeoutMs,
+              ...(useDurableSessionStream
+                ? {
+                    onOpen: () => {
+                      providerConnectionBoundarySeen = true;
+                      onEvent({
+                        directory: streamDirectory,
+                        payload: { type: 'server.connected', properties: {} },
+                      }, {
+                        provenance: 'connection-boundary',
+                        connectionGeneration: currentConnectionGeneration,
+                      });
+                    },
+                  }
+                : {}),
               onMessage: (msg) => {
                 if (currentConnectionGeneration !== connectionGeneration) return;
                 if (!msg || typeof msg !== 'object' || Array.isArray(msg)) return;
                 const rawEvent = msg as Record<string, unknown>;
+                if (useDurableSessionStream) {
+                  const sequence = readDurableSequence(rawEvent, ownedSessionId);
+                  if (sequence === null || (durableCursor !== null && sequence <= durableCursor)) return;
+                  durableCursor = sequence;
+                }
                 const wireEventType = typeof rawEvent.type === 'string' ? rawEvent.type : '';
                 if (!wireEventType) return;
                 const normalizedEvent = api.kind === 'v2'
@@ -1153,14 +1379,68 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
                   });
                   return;
                 }
-                if (!providerConnectionBoundarySeen) return;
+                if (!providerConnectionBoundarySeen && !useDurableSessionStream) return;
                 onEvent(event, {
                   provenance: 'accepted-live',
                   connectionGeneration: currentConnectionGeneration,
                 });
               },
             });
-            await subscription.done;
+            if (useDurableSessionStream) {
+              let liveConnectionBoundarySeen = false;
+              liveSubscription = await subscribeSseJson<unknown>({
+                url: buildUrl(baseUrl, '/api/event'),
+                headers: nextHeaders,
+                signal: combinedAbort.signal,
+                readIdleTimeoutMs,
+                onMessage: (msg) => {
+                  if (currentConnectionGeneration !== connectionGeneration) return;
+                  if (!msg || typeof msg !== 'object' || Array.isArray(msg)) return;
+                  const rawEvent = msg as Record<string, unknown>;
+                  if (rawEvent.durable !== undefined) return;
+                  const wireEventType = typeof rawEvent.type === 'string' ? rawEvent.type : '';
+                  if (!wireEventType) return;
+                  if (wireEventType === 'server.connected') {
+                    liveConnectionBoundarySeen = true;
+                    return;
+                  }
+                  if (!liveConnectionBoundarySeen) return;
+                  const normalizedEvent = normalizeOpenCodeV2Event(wireEventType, rawEvent.data);
+                  const eventType = normalizedEvent.type;
+                  const properties = normalizedEvent.properties;
+                  if (eventType === 'permission.asked' || eventType === 'question.asked') {
+                    rememberRequestSessions(
+                      [properties],
+                      eventType === 'permission.asked' ? permissionSessionByRequestId : questionSessionByRequestId,
+                    );
+                  }
+                  if (eventType === 'todo.updated' && properties && typeof properties === 'object' && !Array.isArray(properties)) {
+                    const todoEvent = properties as Record<string, unknown>;
+                    if (typeof todoEvent.sessionID === 'string' && Array.isArray(todoEvent.todos)) {
+                      todosBySessionId.set(todoEvent.sessionID, todoEvent.todos);
+                    }
+                  }
+                  const eventLocation = rawEvent.location && typeof rawEvent.location === 'object' && !Array.isArray(rawEvent.location)
+                    ? rawEvent.location as Record<string, unknown>
+                    : null;
+                  onEvent({
+                    directory: typeof eventLocation?.directory === 'string'
+                      ? eventLocation.directory
+                      : streamDirectory,
+                    payload: { type: eventType, properties },
+                  }, {
+                    provenance: 'untrusted-observation',
+                    connectionGeneration: currentConnectionGeneration,
+                  });
+                },
+              });
+              await Promise.race([subscription.done, liveSubscription.done]);
+            } else {
+              await subscription.done;
+            }
+            if (!disposed && !signal.aborted && !localAbort.signal.aborted) {
+              await refreshTransportForSseReconnect();
+            }
             attempt = 0;
           } catch (error) {
             if (disposed || signal.aborted || localAbort.signal.aborted) break;
@@ -1170,7 +1450,7 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
                 : '[OpenCodeServer] SSE stream ended; reconnecting (best-effort)',
               error,
             );
-            await refreshBaseUrlIfManagedBestEffort({ allowEnsure: false, reason: 'sse_reconnect_state_refresh' });
+            await refreshTransportForSseReconnect();
             const delayMs = resolveSseReconnectDelayMs(attempt, env);
             attempt += 1;
             await sleepUntilOrAbort(delayMs, combinedAbort.signal);
@@ -1182,7 +1462,15 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
                 // ignore
               }
             }
+            if (liveSubscription) {
+              try {
+                liveSubscription.close();
+              } catch {
+                // ignore
+              }
+            }
             subscription = null;
+            liveSubscription = null;
             signal.removeEventListener('abort', onAbort);
             localAbort.signal.removeEventListener('abort', onAbort);
           }
@@ -1207,6 +1495,15 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
           // ignore
         }
         subscription = null;
+      }
+      if (liveSubscription) {
+        try {
+          liveSubscription.close();
+          await liveSubscription.done.catch(() => {});
+        } catch {
+          // ignore
+        }
+        liveSubscription = null;
       }
       if (subscriptionLoop) {
         try {

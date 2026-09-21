@@ -741,9 +741,9 @@ describe('resolveSharedManagedOpenCodeServerBaseUrl', () => {
       writeState: vi.fn(async () => {}),
       isPidAlive: vi.fn(() => false),
       probeHealth: vi.fn(async () => false),
-      startServer: vi.fn(async (params?: { onSpawned?: (started: { baseUrl: string; pid: number; logPath?: string }) => void | Promise<void> }) => {
-        await params?.onSpawned?.({ baseUrl: 'http://127.0.0.1:9999', pid: 222, logPath });
-        return { baseUrl: 'http://127.0.0.1:9999', pid: 222, logPath };
+      startServer: vi.fn(async (params?: { onSpawned?: (started: { baseUrl: string; pid: number; logPath?: string; apiGeneration?: 'v2' }) => void | Promise<void> }) => {
+        await params?.onSpawned?.({ baseUrl: 'http://127.0.0.1:9999', pid: 222, logPath, apiGeneration: 'v2' });
+        return { baseUrl: 'http://127.0.0.1:9999', pid: 222, logPath, apiGeneration: 'v2' as const };
       }),
       nowMs: () => 5,
     };
@@ -752,8 +752,8 @@ describe('resolveSharedManagedOpenCodeServerBaseUrl', () => {
 
     expect(out).toEqual({ baseUrl: 'http://127.0.0.1:9999', didStart: true });
     expect(deps.writeState.mock.calls).toEqual([
-      [{ baseUrl: 'http://127.0.0.1:9999', pid: 222, startedAtMs: 5, status: 'starting', logPath }],
-      [{ baseUrl: 'http://127.0.0.1:9999', pid: 222, startedAtMs: 5, status: 'ready', logPath }],
+      [{ baseUrl: 'http://127.0.0.1:9999', pid: 222, startedAtMs: 5, status: 'starting', logPath, apiGeneration: 'v2' }],
+      [{ baseUrl: 'http://127.0.0.1:9999', pid: 222, startedAtMs: 5, status: 'ready', logPath, apiGeneration: 'v2' }],
     ]);
   });
 
@@ -1108,6 +1108,7 @@ describe('resolveSharedManagedOpenCodeServerBaseUrl', () => {
         startedAtMs: 1,
         status: 'failed' as const,
         lastFailureAtMs: 2,
+        apiGeneration: 'v2' as const,
       })),
       writeState: vi.fn(async () => {}),
       isPidAlive: vi.fn(() => true),
@@ -1128,6 +1129,7 @@ describe('resolveSharedManagedOpenCodeServerBaseUrl', () => {
       pid: 111,
       startedAtMs: 1,
       status: 'ready',
+      apiGeneration: 'v2',
     });
   });
 

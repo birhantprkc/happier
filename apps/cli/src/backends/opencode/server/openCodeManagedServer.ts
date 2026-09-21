@@ -6,7 +6,7 @@ import { basename } from 'node:path';
 import { resolveWindowsCommandInvocation } from '@happier-dev/cli-common/process';
 
 import { logger } from '@/ui/logger';
-import { requireProviderCliLaunchSpec } from '@/runtime/managedTools/requireProviderCliLaunchSpec';
+import { resolveOpenCodeCliLaunchSpec } from '@/backends/opencode/utils/resolveOpenCodeCliCommand';
 
 import { resolveOpenCodeServerAuthHeadersFromEnv } from './openCodeServerAuth';
 import {
@@ -48,11 +48,6 @@ async function resolveEphemeralPort(hostname: string): Promise<number> {
   });
 }
 
-function resolveOpenCodeCommand(): Readonly<{ command: string; args: readonly string[] }> {
-  const launch = requireProviderCliLaunchSpec('opencode');
-  return { command: launch.command, args: launch.args };
-}
-
 export function buildOpenCodeV2BrokerConfigContent(
   providers: readonly (typeof OPEN_CODE_BROKER_PROVIDERS)[number][],
 ): string {
@@ -69,7 +64,7 @@ export function buildOpenCodeV2BrokerConfigContent(
  */
 async function ensureConnectedOpenCodeBrokerAssetsBeforeSpawn(
   env: NodeJS.ProcessEnv,
-  apiGeneration: 'v1' | 'v2',
+  apiGeneration: 'auto' | 'v2',
 ): Promise<Readonly<{ brokerLoadNonce: string | null; openCodeConfigContent?: string }>> {
   if (typeof env[OPENCODE_CONNECTED_SERVICE_SELECTION_IDENTITY_ENV] !== 'string') {
     return { brokerLoadNonce: null };
@@ -81,10 +76,21 @@ async function ensureConnectedOpenCodeBrokerAssetsBeforeSpawn(
     brokerLoadNonce = randomUUID();
     env[OPEN_CODE_BROKER_LOAD_NONCE_ENV] = brokerLoadNonce;
   }
-  await ensureOpenCodeBrokerPluginAssets({ providers, apiGeneration });
+  if (apiGeneration === 'auto') {
+    // `opencode` names both the retained V1 line and released V2. Before the
+    // health probe can distinguish their wire contracts, prepare each
+    // generation's existing discovery path from the same source bytes. V1
+    // consumes the auto-discovery leaf; V2 consumes the explicit config leaf.
+    await Promise.all([
+      ensureOpenCodeBrokerPluginAssets({ providers, apiGeneration: 'v1' }),
+      ensureOpenCodeBrokerPluginAssets({ providers, apiGeneration: 'v2' }),
+    ]);
+  } else {
+    await ensureOpenCodeBrokerPluginAssets({ providers, apiGeneration: 'v2' });
+  }
   return {
     brokerLoadNonce,
-    ...(apiGeneration === 'v2' && providers.length > 0 ? {
+    ...(providers.length > 0 ? {
       openCodeConfigContent: buildOpenCodeV2BrokerConfigContent(providers),
     } : {}),
   };
@@ -105,6 +111,7 @@ export async function startManagedOpenCodeServer(params: Readonly<{
     pid: number;
     logPath: string;
     brokerLoadNonce?: string;
+    apiGeneration: 'auto' | 'v2';
   }>) => void | Promise<void>;
 }> = {}): Promise<{
   baseUrl: string;
@@ -112,6 +119,7 @@ export async function startManagedOpenCodeServer(params: Readonly<{
   close: () => Promise<void>;
   logPath: string;
   brokerLoadNonce?: string;
+  apiGeneration: 'auto' | 'v2';
 }> {
   const hostname = typeof params.hostname === 'string' && params.hostname.trim().length > 0 ? params.hostname.trim() : '127.0.0.1';
   const port = typeof params.port === 'number' && Number.isFinite(params.port) && params.port > 0
@@ -121,7 +129,7 @@ export async function startManagedOpenCodeServer(params: Readonly<{
     ? Math.floor(params.timeoutMs)
     : resolveOpenCodeManagedServerStartTimeoutMsFromEnv(process.env);
 
-  const launch = resolveOpenCodeCommand();
+  const launch = resolveOpenCodeCliLaunchSpec();
   const cmd = launch.command;
   const args = [...launch.args, `serve`, `--hostname=${hostname}`, `--port=${port}`];
   const healthHeaders = resolveOpenCodeServerAuthHeadersFromEnv();
@@ -134,10 +142,9 @@ export async function startManagedOpenCodeServer(params: Readonly<{
   // Connected sessions (selection identity present) are config-isolated: ensure the Happier-owned
   // empty config home exists and write the broker plugin file(s) before spawn. Native sessions have
   // no selection identity ⇒ this is a no-op ⇒ native HOME/XDG/config/plugins remain untouched.
-  const resolvedBinaryName = basename(cmd).replace(/\.(?:cmd|exe)$/iu, '').toLowerCase();
   const brokerAssets = await ensureConnectedOpenCodeBrokerAssetsBeforeSpawn(
     process.env,
-    resolvedBinaryName === 'opencode2' ? 'v2' : 'v1',
+    launch.apiGeneration,
   );
   const brokerLoadNonce = brokerAssets.brokerLoadNonce;
 
@@ -255,7 +262,13 @@ ${readStartupOutput()}`,
       reject(error);
     });
 
-    void waitForOpenCodeServerHealth({ baseUrl, timeoutMs, pollIntervalMs: 200, headers: healthHeaders })
+    void waitForOpenCodeServerHealth({
+      baseUrl,
+      timeoutMs,
+      pollIntervalMs: 200,
+      headers: healthHeaders,
+      apiGeneration: launch.apiGeneration,
+    })
       .then(() => {
         clearTimeout(timer);
         resolve();
@@ -290,6 +303,7 @@ ${readStartupOutput()}`));
       pid: trackedPid,
       logPath,
       ...(brokerLoadNonce ? { brokerLoadNonce } : {}),
+      apiGeneration: launch.apiGeneration,
     });
   } catch (error) {
     await close();
@@ -309,5 +323,6 @@ ${readStartupOutput()}`));
     close,
     logPath,
     ...(brokerLoadNonce ? { brokerLoadNonce } : {}),
+    apiGeneration: launch.apiGeneration,
   };
 }

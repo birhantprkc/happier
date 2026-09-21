@@ -61,6 +61,7 @@ describe('createOpenCodeServerRuntimeClient providersList', () => {
       messageBuffer: new MessageBuffer(),
     });
 
+    expect(client.supportsInFlightSteer()).toBe(false);
     await expect(client.providersList()).resolves.toEqual([
       expect.objectContaining({ id: 'anthropic' }),
     ]);

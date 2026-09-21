@@ -3801,6 +3801,10 @@ const zhHantOverrides: DeepPartial<TranslationStructure> = {
             opencode: {
                 title: "OpenCode",
                 sections: {
+                    cliGeneration: {
+                        title: "OpenCode 版本",
+                        footer: "自動模式優先使用 opencode，無法使用時改用 opencode2，並在啟動後偵測伺服器 API。穩定版一律選擇 opencode，但仍會偵測 V1 或 V2。V2 優先使用 opencode2，否則以已選擇 V2 的方式使用 opencode。Happier MCP 工具可透過 V2 的 ACP 模式使用；其伺服器 API 暫不支援動態 MCP 註冊。"
+                    },
                     backendMode: {
                         title: "後端模式",
                         footer: "伺服器模式可解鎖提問與原生分叉。ACP 模式是舊版後備方案。"
@@ -3811,6 +3815,15 @@ const zhHantOverrides: DeepPartial<TranslationStructure> = {
                     }
                 },
                 fields: {
+                    opencodeCliGeneration: {
+                        title: "CLI 版本",
+                        subtitle: "選擇 Happier 要啟動的已安裝 OpenCode 指令。",
+                        options: {
+                            auto: { title: "自動（建議）", subtitle: "優先使用 opencode，無法使用時改用 opencode2。" },
+                            stable: { title: "穩定版", subtitle: "一律啟動 opencode，並在啟動後偵測伺服器 API。" },
+                            v2: { title: "V2", subtitle: "優先使用 opencode2；否則以已選擇 V2 的方式啟動 opencode。" }
+                        }
+                    },
                     opencodeBackendMode: {
                         title: "OpenCode 後端模式",
                         subtitle: "選擇整合後端。",

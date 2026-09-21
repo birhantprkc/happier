@@ -9,7 +9,7 @@ const resolveWindowsCommandInvocationMock = vi.fn((
   command,
   args: [...args],
 }));
-const requireProviderCliLaunchSpecMock = vi.fn(() => ({ command: 'opencode', args: [] }));
+const resolveOpenCodeCliLaunchSpecMock = vi.fn(() => ({ command: 'opencode', args: [], apiGeneration: 'auto' as const }));
 const resolveOpenCodeServerAuthHeadersFromEnvMock = vi.fn(() => ({}));
 const resolveOpenCodeManagedServerChildEnvMock = vi.fn(() => ({ PATH: process.env.PATH ?? '' }));
 const resolveOpenCodeManagedServerTrackedPidMock = vi.fn(async ({ spawnPid }: { spawnPid: number }) => spawnPid);
@@ -38,8 +38,8 @@ vi.mock('@happier-dev/cli-common/process', () => ({
   resolveWindowsCommandInvocation: resolveWindowsCommandInvocationMock,
 }));
 
-vi.mock('@/runtime/managedTools/requireProviderCliLaunchSpec', () => ({
-  requireProviderCliLaunchSpec: requireProviderCliLaunchSpecMock,
+vi.mock('@/backends/opencode/utils/resolveOpenCodeCliCommand', () => ({
+  resolveOpenCodeCliLaunchSpec: resolveOpenCodeCliLaunchSpecMock,
 }));
 
 vi.mock('./openCodeServerAuth', () => ({
@@ -109,7 +109,7 @@ describe('startManagedOpenCodeServer close fallback', () => {
       command,
       args: [...args],
     }));
-    requireProviderCliLaunchSpecMock.mockClear();
+    resolveOpenCodeCliLaunchSpecMock.mockClear();
     resolveOpenCodeServerAuthHeadersFromEnvMock.mockClear();
     resolveOpenCodeManagedServerChildEnvMock.mockClear();
     resolveOpenCodeManagedServerTrackedPidMock.mockReset();
@@ -145,9 +145,10 @@ describe('startManagedOpenCodeServer close fallback', () => {
     waitForOpenCodeServerHealthMock.mockImplementation(async () => {
       callOrder.push('health');
     });
-    requireProviderCliLaunchSpecMock.mockReturnValue({
+    resolveOpenCodeCliLaunchSpecMock.mockReturnValue({
       command: 'C:\\Users\\natan\\AppData\\Roaming\\npm\\opencode.CMD',
       args: [],
+      apiGeneration: 'auto',
     });
     resolveWindowsCommandInvocationMock.mockReturnValue({
       command: 'C:\\Windows\\System32\\cmd.exe',
@@ -177,7 +178,12 @@ describe('startManagedOpenCodeServer close fallback', () => {
     );
     expect(started.pid).toBe(48123);
     expect(started.logPath).toBe(MOCK_LOG_PATH);
-    expect(onSpawned).toHaveBeenCalledWith({ baseUrl: 'http://127.0.0.1:43111', pid: 48123, logPath: MOCK_LOG_PATH });
+    expect(onSpawned).toHaveBeenCalledWith({
+      baseUrl: 'http://127.0.0.1:43111',
+      pid: 48123,
+      logPath: MOCK_LOG_PATH,
+      apiGeneration: 'auto',
+    });
     expect(callOrder).toEqual(['health', 'resolveTrackedPid', 'onSpawned']);
 
     await started.close();
