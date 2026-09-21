@@ -5832,7 +5832,10 @@ class Sync {
           directSessionLink: ReturnType<typeof readDirectSessionLink> extends infer T ? Exclude<T, null> : never,
           options?: Readonly<{ replaceExisting?: boolean }>,
       ): Promise<void> {
-          const shouldContinue = this.createServerScopeGuard();
+          const isServerScopeCurrent = this.createServerScopeGuard();
+          const acceptedWindow = this.directSessionTailStateBySessionId.get(sessionId);
+          const shouldContinue = () => isServerScopeCurrent()
+              && this.directSessionTailStateBySessionId.get(sessionId) === acceptedWindow;
           const page = await machineDirectSessionTranscriptPage({
               machineId: directSessionLink.machineId,
               providerId: directSessionLink.providerId,
@@ -5925,6 +5928,7 @@ class Sync {
               }
               const shouldContinue = this.createServerScopeGuard();
               const cursor = this.getDirectSessionTailCursor(sessionId) ?? 'tail';
+              const acceptedWindow = this.directSessionTailStateBySessionId.get(sessionId);
               const tail = await machineDirectSessionTranscriptReadAfter({
                   machineId: directSessionLink.machineId,
                   providerId: directSessionLink.providerId,
@@ -5932,7 +5936,11 @@ class Sync {
                   source: directSessionLink.source,
                   cursor,
               }, { serverId: this.getDirectSessionServerScope(sessionId) });
-              if (!shouldContinue()) return 0;
+              // A push can replace the accepted window or advance its cursor while
+              // this read is held. Neither response may overwrite that newer state.
+              if (!shouldContinue()
+                  || this.directSessionTailStateBySessionId.get(sessionId) !== acceptedWindow
+                  || (this.getDirectSessionTailCursor(sessionId) ?? 'tail') !== cursor) return 0;
 
               if (!tail.ok) {
                   throw new Error(tail.error);

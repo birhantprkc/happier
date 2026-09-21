@@ -1436,19 +1436,26 @@ describe('sync.fetchMessages server-scoped known-session checks', () => {
         expect(sync.hasDeferredNewerMessages(sessionId)).toBe(false);
     });
 
-    it.each(['ordinary tail growth', 'source replacement'] as const)('admits a held older direct page only while its accepted window survives %s', async (change) => {
-        const sessionId = `direct_held_older_${change}`;
+    it.each([
+        { direction: 'older', change: 'ordinary tail growth' },
+        { direction: 'older', change: 'source replacement' },
+        { direction: 'forward', change: 'ordinary tail growth' },
+        { direction: 'forward', change: 'source replacement' },
+        { direction: 'replacement', change: 'source replacement' },
+    ] as const)('admits a held $direction direct page only while its accepted window and cursor survive $change', async ({ direction, change }) => {
+        const sessionId = `direct_held_${direction}_${change}`;
         storage.getState().applySessions([createDirectSession(sessionId)]);
         const row = (text: string) => ({ id: text, createdAtMs: 1,
             raw: { role: 'user' as const, content: { type: 'text' as const, text } } });
         // Reuse both cursor strings after replacement: byte/index positions
         // alone cannot establish that this is still the same accepted window.
         const page = (text: string) => ({ ok: true as const, items: [row(text)],
-            nextCursor: 'same-older', tailCursor: 'same-tail', hasMore: true });
+            nextCursor: 'same-older', tailCursor: 'same-tail', hasMore: true, truncated: false });
         machineDirectSessionTranscriptPageMock.mockResolvedValueOnce(page('initial'));
         const { sync } = await import('./sync');
         const internals = sync as unknown as {
             fetchMessages: (id: string) => Promise<void>;
+            getDirectSessionTailCursor: (id: string) => string | null;
             handleDirectSessionTranscriptEphemeralUpdate: (update: {
                 sessionId: string; items: ReturnType<typeof row>[]; fromCursor: string; nextCursor: string;
                 truncated: boolean; truncationReason?: 'source_discontinuity';
@@ -1456,24 +1463,37 @@ describe('sync.fetchMessages server-scoped known-session checks', () => {
         };
         await internals.fetchMessages(sessionId);
         const held = createDeferred<ReturnType<typeof page>>();
-        machineDirectSessionTranscriptPageMock.mockImplementationOnce(() => held.promise)
-            .mockResolvedValue(page('replacement'));
-        const older = sync.loadOlderMessages(sessionId);
-        await vi.waitFor(() => expect(machineDirectSessionTranscriptPageMock).toHaveBeenCalledTimes(2));
+        machineDirectSessionTranscriptPageMock.mockResolvedValue(page('replacement'));
+        const readMock = direction === 'forward' ? machineDirectSessionTranscriptReadAfterMock : machineDirectSessionTranscriptPageMock;
+        readMock.mockImplementationOnce(() => held.promise);
+        const pending = direction === 'older'
+            ? sync.loadOlderMessages(sessionId)
+            : direction === 'forward'
+                ? sync.loadNewerMessages(sessionId)
+                : internals.handleDirectSessionTranscriptEphemeralUpdate({
+                    sessionId, items: [], fromCursor: 'same-tail', nextCursor: 'grown-tail',
+                    truncated: true, truncationReason: 'source_discontinuity',
+                });
+        await vi.waitFor(() => expect(readMock).toHaveBeenCalledTimes(direction === 'forward' ? 1 : 2));
         await internals.handleDirectSessionTranscriptEphemeralUpdate({
             sessionId, items: change === 'source replacement' ? [] : [row('tail-growth')],
             fromCursor: 'same-tail', nextCursor: 'grown-tail', truncated: change === 'source replacement',
             ...(change === 'source replacement' ? { truncationReason: 'source_discontinuity' as const } : {}),
         });
         const accepted = storage.getState().sessionMessages[sessionId];
-        held.resolve(page('held-older'));
-        await expect(older).resolves.toMatchObject({ loaded: change === 'source replacement' ? 0 : 1 });
-        if (change === 'source replacement') {
+        held.resolve(page('held-page'));
+        const mustDropHeldPage = change === 'source replacement' || direction === 'forward';
+        if (direction === 'replacement') await pending;
+        else await expect(pending).resolves.toMatchObject({ loaded: mustDropHeldPage ? 0 : 1 });
+        if (mustDropHeldPage) {
             expect(storage.getState().sessionMessages[sessionId]).toBe(accepted);
-            expect(Object.values(accepted?.messagesById ?? {}).map((message) => message.realID)).toEqual(['replacement']);
+            expect(Object.values(accepted?.messagesById ?? {}).map((message) => message.realID))
+                .toEqual(change === 'source replacement' ? ['replacement'] : ['initial', 'tail-growth']);
+            expect(internals.getDirectSessionTailCursor(sessionId))
+                .toBe(change === 'source replacement' ? 'same-tail' : 'grown-tail');
         } else {
             expect(Object.values(storage.getState().sessionMessages[sessionId]?.messagesById ?? {}).map((message) => message.realID))
-                .toEqual(expect.arrayContaining(['initial', 'tail-growth', 'held-older']));
+                .toEqual(expect.arrayContaining(['initial', 'tail-growth', 'held-page']));
         }
     });
 
@@ -1565,7 +1585,7 @@ describe('sync.fetchMessages server-scoped known-session checks', () => {
         expect(orderedTexts).toEqual(['hello direct', 'followed direct']);
     });
 
-    it.each([true, false])('continues live direct-session read-after pages from the adjacent cursor with legacy truncated=%s', async (truncated) => {
+    it.each([true, false])('replaces known capped live direct backlog on the next probe with legacy truncated=%s', async (truncated) => {
         const sessionId = `direct_session_read_after_page_limit_${truncated}`;
         storage.getState().applySessions([createDirectSession(sessionId)]);
         machineDirectSessionTranscriptPageMock.mockResolvedValueOnce({
@@ -1574,6 +1594,12 @@ describe('sync.fetchMessages server-scoped known-session checks', () => {
             nextCursor: null,
             tailCursor: 'tail-cursor-1',
             hasMore: false,
+        }).mockResolvedValueOnce({
+            ok: true,
+            items: [{ id: 'direct-msg-latest', createdAtMs: 10_000, raw: { role: 'user', content: { type: 'text', text: 'latest direct' } } }],
+            nextCursor: 'latest-older',
+            tailCursor: 'latest-tail',
+            hasMore: true,
         });
         machineDirectSessionTranscriptReadAfterMock
             .mockResolvedValueOnce({
@@ -1600,16 +1626,18 @@ describe('sync.fetchMessages server-scoped known-session checks', () => {
 
         expect(machineDirectSessionTranscriptPageMock).toHaveBeenCalledTimes(1);
         expect(sync.hasDeferredNewerMessages(sessionId)).toBe(true);
-        await expect(sync.loadNewerMessages(sessionId)).resolves.toMatchObject({ loaded: 1, hasMore: false });
+        await sync.refreshSessionMessages(sessionId);
+        expect(machineDirectSessionTranscriptPageMock).toHaveBeenCalledTimes(2);
+        expect(sync.hasDeferredNewerMessages(sessionId)).toBe(false);
         expect(machineDirectSessionTranscriptReadAfterMock.mock.calls.map(([request]) => request.cursor))
-            .toEqual(['tail-cursor-1', 'tail-cursor-2']);
+            .toEqual(['tail-cursor-1']);
         const messages = storage.getState().sessionMessages[sessionId];
         const orderedTexts = (messages?.messageIdsOldestFirst ?? [])
             .map((id) => messages?.messagesById[id])
             .filter((message): message is NonNullable<typeof message> => Boolean(message))
             .filter((message) => message.kind === 'user-text')
             .map((message) => message.text);
-        expect(orderedTexts).toEqual(['initial direct', 'capped direct', 'adjacent direct']);
+        expect(orderedTexts).toEqual(['latest direct']);
     });
 
     it('applies pushed direct-session transcript deltas and advances the tail cursor for fallback paging', async () => {
@@ -1853,7 +1881,7 @@ describe('sync.fetchMessages server-scoped known-session checks', () => {
         ]);
     });
 
-    it.each([true, false])('applies capped direct-session pushed deltas and continues from their adjacent cursor with legacy truncated=%s', async (truncated) => {
+    it.each([true, false])('replaces known capped live direct backlog after a push with legacy truncated=%s', async (truncated) => {
         const sessionId = `direct_session_truncated_delta_${truncated}`;
         storage.getState().applySessions([createDirectSession(sessionId)]);
         machineDirectSessionTranscriptPageMock.mockResolvedValueOnce({
@@ -1905,6 +1933,13 @@ describe('sync.fetchMessages server-scoped known-session checks', () => {
             .map((message) => message.text);
         expect(pushedTexts).toEqual(['hello direct', 'partial direct']);
 
+        machineDirectSessionTranscriptPageMock.mockResolvedValueOnce({
+            ok: true,
+            items: [{ id: 'direct-msg-latest', createdAtMs: 10_000, raw: { role: 'user', content: { type: 'text', text: 'latest direct' } } }],
+            nextCursor: 'latest-older',
+            tailCursor: 'latest-tail',
+            hasMore: true,
+        });
         machineDirectSessionTranscriptReadAfterMock.mockResolvedValueOnce({
             ok: true,
             items: [{
@@ -1915,10 +1950,10 @@ describe('sync.fetchMessages server-scoped known-session checks', () => {
             nextCursor: 'tail-cursor-3',
             truncated: false,
         });
-        await expect(sync.loadNewerMessages(sessionId)).resolves.toMatchObject({ loaded: 1, hasMore: false });
-        expect(machineDirectSessionTranscriptReadAfterMock).toHaveBeenCalledWith(expect.objectContaining({
-            cursor: 'tail-cursor-2',
-        }), expect.anything());
+        await sync.refreshSessionMessages(sessionId);
+        expect(machineDirectSessionTranscriptPageMock).toHaveBeenCalledTimes(2);
+        expect(machineDirectSessionTranscriptReadAfterMock).not.toHaveBeenCalled();
+        expect(sync.hasDeferredNewerMessages(sessionId)).toBe(false);
 
         const finalMessages = storage.getState().sessionMessages[sessionId];
         const orderedTexts = (finalMessages?.messageIdsOldestFirst ?? [])
@@ -1926,7 +1961,7 @@ describe('sync.fetchMessages server-scoped known-session checks', () => {
             .filter((message): message is NonNullable<typeof message> => Boolean(message))
             .filter((message) => message.kind === 'user-text')
             .map((message) => message.text);
-        expect(orderedTexts).toEqual(['hello direct', 'partial direct', 'adjacent direct']);
+        expect(orderedTexts).toEqual(['latest direct']);
     });
 
     it('activates the account settings scope and reloads scoped pending settings for active credentials', async () => {
