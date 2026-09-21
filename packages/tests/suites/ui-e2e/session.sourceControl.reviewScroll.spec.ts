@@ -345,7 +345,7 @@ test.describe('ui e2e: SCM review position + tab state', () => {
       await page.getByTestId('session-open-source-control').click();
     }
     await expect(rightPaneLocator(page)).toHaveCount(1, { timeout: 60_000 });
-    await page.getByTestId('session-rightpanel-close').click();
+    await page.getByTestId('session-action-rail:git').click();
     await expect(rightPaneLocator(page)).toHaveCount(0, { timeout: 60_000 });
 
     await expect(page.getByTestId(`session-list-item-${sessionId}`)).toHaveCount(1, { timeout: 90_000 });

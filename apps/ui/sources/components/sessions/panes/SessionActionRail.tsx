@@ -13,6 +13,9 @@ import { t } from '@/text';
 import { SESSION_DETAILS_SCM_REVIEW_TAB_KEY } from './details/sessionDetailsTabBuilders';
 import { getSessionRightPanelTabs } from './sessionRightPanelTabs';
 import { selectSessionRightTab, toggleSessionReview } from './sessionPaneActions';
+import { SessionGitActionRailBadge, SessionGitActionRailTooltip } from './SessionGitActionRailBadge';
+import { useSessionGitActionRailBadge } from './SessionGitActionRailBadge';
+import { formatGitActionRailAccessibilityLabel } from '@/components/ui/navigation/tabBadge/gitActionRailAccessibility';
 import { useSessionRunningAgentCount } from './useSessionRunningAgentCount';
 
 const styles = StyleSheet.create((theme) => ({
@@ -21,9 +24,6 @@ const styles = StyleSheet.create((theme) => ({
         flexGrow: 0,
         flexShrink: 0,
         minHeight: 0,
-        backgroundColor: theme.colors.surface.inset,
-        borderLeftWidth: StyleSheet.hairlineWidth,
-        borderLeftColor: theme.colors.border.default,
     },
     activeMarker: {
         position: 'absolute',
@@ -51,6 +51,7 @@ export const SessionActionRail = React.memo((props: Readonly<{
     const rightPaneHiddenByDetails = usePaneActionRailRightPaneHiddenByDetails();
     const terminal = useSessionTerminalAction(props);
     const runningAgentCount = useSessionRunningAgentCount(props.sessionId);
+    const gitBadge = useSessionGitActionRailBadge(props.sessionId);
     const tabs = getSessionRightPanelTabs(false, runningAgentCount);
     const reviewActive = Boolean(pane.scopeState?.details.isOpen && pane.scopeState.details.activeTabKey === SESSION_DETAILS_SCM_REVIEW_TAB_KEY);
 
@@ -66,17 +67,22 @@ export const SessionActionRail = React.memo((props: Readonly<{
             key={action.id}
             testID={`session-action-rail:${action.id}`}
             tooltipPlacement="left"
-            accessibilityLabel={action.label}
+            tooltipContent={action.id === 'git' ? <SessionGitActionRailTooltip sessionId={props.sessionId} /> : undefined}
+            accessibilityLabel={action.id === 'git' ? formatGitActionRailAccessibilityLabel(gitBadge, {
+                actionLabel: action.label,
+                changedFilesLabel: t('settingsAppearance.tabBarBadges.gitChangedFiles'),
+                diffLinesLabel: t('settingsAppearance.tabBarBadges.gitDiffLines'),
+            }) : action.label}
             accessibilityState={{ selected: action.active }}
-            active={action.active}
             onPress={action.onPress}
             style={styles.action}
         >
             <View>
                 {action.active ? <View style={styles.activeMarker} /> : null}
                 <Icon name={action.icon} size={18} color={action.active ? theme.colors.text.primary : theme.colors.text.secondary} />
+                {action.id === 'git' ? <SessionGitActionRailBadge badge={gitBadge} /> : null}
                 {(action.badgeCount ?? 0) > 0 ? (
-                    <TabBadge variant="count" value={action.badgeCount ?? 0} tone="neutral" testID={`session-action-rail:${action.id}:badge`} />
+                    <TabBadge size="compact" variant="count" value={action.badgeCount ?? 0} tone="neutral" testID={`session-action-rail:${action.id}:badge`} />
                 ) : null}
             </View>
         </IconAction>
@@ -95,7 +101,7 @@ export const SessionActionRail = React.memo((props: Readonly<{
                         badgeCount: tab.badgeCount,
                     })}
                     {tab.id === 'git' ? renderAction({
-                        id: 'review', label: t('files.toolbar.review'), icon: 'git-diff',
+                        id: 'review', label: t('files.toolbar.review'), icon: 'file-diff',
                         active: reviewActive, onPress: () => toggleSessionReview(pane),
                     }) : null}
                 </React.Fragment>

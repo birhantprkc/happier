@@ -80,7 +80,6 @@ const ActionOperationActivityButtonChrome = React.memo(function ActionOperationA
                 accessibilityRole="button"
                 accessibilityLabel={t('inbox.updates')}
                 accessibilityState={{ expanded: open }}
-                hitSlop={8}
                 onPress={(event) => {
                     if (!open && Platform.OS === 'web') {
                         const target = event?.currentTarget as unknown as {

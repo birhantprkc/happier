@@ -14,7 +14,6 @@ import {
   gotoDomContentLoadedWithPathFallback,
   normalizeLoopbackBaseUrl,
 } from '../../src/testkit/uiE2e/pageNavigation';
-import { clickScopedButtonByTestIdOrRole } from '../../src/testkit/uiE2e/clickScopedButtonByTestIdOrRole';
 import { spawnSessionFromDaemon } from '../../src/testkit/uiE2e/spawnSessionFromDaemon';
 import { toTestIdSafeValue } from '../../src/testkit/uiE2e/testIdSafeValue';
 import { waitForInitialAppUi } from '../../src/testkit/uiE2e/waitForInitialAppUi';
@@ -98,13 +97,11 @@ async function openFileInDetailsPane(params: Readonly<{
   await expect(rightPaneLocator(page)).toHaveCount(1, { timeout: 60_000 });
 
   const rightPane = rightPaneLocator(page);
-  await clickScopedButtonByTestIdOrRole({
-    scope: rightPane,
-    testId: 'session-rightpanel-tab:files',
-    roleName: 'Files',
-    timeoutMs: 180_000,
-  });
-  await expect(rightPane.getByTestId('session-rightpanel-surface-files')).toHaveCount(1, { timeout: 120_000 });
+  const filesSurface = rightPane.getByTestId('session-rightpanel-surface-files');
+  if (!(await filesSurface.isVisible())) {
+    await page.getByTestId('session-action-rail:files').click();
+  }
+  await expect(filesSurface).toBeVisible({ timeout: 120_000 });
 
   const row = rightPane.getByTestId(`repository-tree-row-${toTestIdSafeValue(filePath)}`);
   await expect(row).toHaveCount(1, { timeout: 180_000 });

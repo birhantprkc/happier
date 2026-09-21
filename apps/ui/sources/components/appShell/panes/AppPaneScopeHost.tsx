@@ -9,6 +9,7 @@ import { useAppPaneContext } from './AppPaneProvider';
 import { PANE_SIZING_DEFAULTS, resolveDockedPaneSizing, resolveScaledPaneHeightPx, resolveScaledPaneHeightPxUncapped, resolveScaledPaneWidthPx, resolveScaledPaneWidthPxUncapped } from './layout/paneSizing';
 import { resolveMultiPaneDeviceType } from './layout/resolveMultiPaneDeviceType';
 import { applyPaneFocusModeLayoutOverride } from './layout/applyPaneFocusModeLayoutOverride';
+import { useAppPaneActionRailVisible } from './hooks/useAppPaneActionRailVisible';
 import { PaneActionRailContext, PANE_ACTION_RAIL_WIDTH } from './PaneActionRailContext';
 
 export type AppPaneScopeHostProps = Readonly<{
@@ -60,7 +61,7 @@ export const AppPaneScopeHost = React.memo((props: AppPaneScopeHostProps) => {
         && (rightOpen || detailsOpen);
 
     const driver = React.useMemo(() => getDriver(props.scopeId), [driverRegistryVersion, getDriver, props.scopeId]);
-    const showActionRail = multiPaneEnabled && deviceType !== 'phone' && Boolean(driver?.renderActionRail);
+    const showActionRail = useAppPaneActionRailVisible(props.scopeId);
     const containerWidthPx = Math.max(0, hostWidthPx - (showActionRail ? PANE_ACTION_RAIL_WIDTH : 0));
 
     // `MultiPaneHost` uses pane node presence as the logical "open" signal. Keep the

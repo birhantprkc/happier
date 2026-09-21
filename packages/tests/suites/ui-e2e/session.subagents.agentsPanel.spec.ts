@@ -126,13 +126,9 @@ test.describe('ui e2e: session subagents agents panel', () => {
     await gotoDomContentLoadedWithRetries(page, `${uiBaseUrl}/session/${sessionId}`, 120_000);
     await expect(page.getByTestId('session-composer-input')).toHaveCount(1, { timeout: 180_000 });
 
-    const rightSidebarToggle = page.getByTestId('session-header-right-sidebar-button');
-    await expect(rightSidebarToggle).toHaveCount(1, { timeout: 60_000 });
-    await rightSidebarToggle.click();
-
-    const agentsTab = page.getByTestId('session-rightpanel-tab:agents');
-    await expect(agentsTab).toHaveCount(1, { timeout: 60_000 });
-    await agentsTab.click();
+    const agentsAction = page.getByTestId('session-action-rail:agents');
+    await expect(agentsAction).toHaveCount(1, { timeout: 60_000 });
+    await agentsAction.click();
     await waitForAgentsRightPanel({ page });
     await expect(page.getByTestId('session-subagent-launch-execution-run:plan')).toHaveCount(1, { timeout: 60_000 });
 

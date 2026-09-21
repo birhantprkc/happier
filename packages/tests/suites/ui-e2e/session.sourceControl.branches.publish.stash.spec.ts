@@ -10,7 +10,6 @@ import { startCliAuthLoginForTerminalConnect, type StartedCliTerminalConnect } f
 import { fakeClaudeFixturePath } from '../../src/testkit/fakeClaude';
 import { gotoDomContentLoadedWithRetries, normalizeLoopbackBaseUrl } from '../../src/testkit/uiE2e/pageNavigation';
 import { acknowledgeTerminalConnectSuccessIfPresent } from '../../src/testkit/uiE2e/acknowledgeTerminalConnectSuccessIfPresent';
-import { clickScopedButtonByTestIdOrRole } from '../../src/testkit/uiE2e/clickScopedButtonByTestIdOrRole';
 import { createGitRepoForBranchPublishAndStashFixture, execGit } from '../../src/testkit/uiE2e/gitRepoFixtures';
 import { spawnSessionFromDaemon } from '../../src/testkit/uiE2e/spawnSessionFromDaemon';
 import { toTestIdSafeValue } from '../../src/testkit/uiE2e/testIdSafeValue';
@@ -174,13 +173,7 @@ test.describe('ui e2e: SCM branch publish + switch-with-changes + stash restore'
       await expect(rightPaneLocator(page)).toHaveCount(1, { timeout: 60_000 });
       let rightPane = rightPaneLocator(page);
 
-      // Ensure right pane is on Source control.
-      await clickScopedButtonByTestIdOrRole({
-        scope: rightPane,
-        testId: 'session-rightpanel-tab:git',
-        roleName: 'Source control',
-        timeoutMs: 180_000,
-      });
+      await expect(rightPane.getByTestId('session-rightpanel-surface-git')).toBeVisible({ timeout: 180_000 });
 
       // Create + checkout a new branch via the branch dropdown search/create affordance.
       await expect(rightPane.getByTestId('scm-branch-menu-trigger')).toHaveCount(1, { timeout: 120_000 });
