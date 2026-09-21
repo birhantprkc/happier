@@ -551,6 +551,10 @@ describe('startTestDaemon', () => {
 
       const staleProc = spawnDetachedTestProcess(process.execPath, [resolve(staleScriptDir, 'index.mjs'), 'daemon', 'start-sync'], {
         stdio: 'ignore',
+        env: {
+          ...process.env,
+          HAPPIER_HOME_DIR: homeDir,
+        },
       });
       stalePid = staleProc.pid ?? null;
       expect(typeof stalePid).toBe('number');
@@ -679,6 +683,10 @@ describe('startTestDaemon', () => {
         'start-sync',
       ], {
         stdio: 'ignore',
+        env: {
+          ...process.env,
+          HAPPIER_HOME_DIR: homeDir,
+        },
       });
       originalPid = original.pid ?? null;
       expect(typeof originalPid).toBe('number');
