@@ -143,7 +143,7 @@ Either way, the session shows up everywhere at once: keep typing in the terminal
 
 **Parallel sessions, on every machine you own.** Start as many sessions as you like and pick the machine, folder, agent and model for each one. Add a new machine over SSH from the app or the CLI. [Starting a session](https://docs.happier.dev/sessions/new-session-shortcuts) · [Machines and the daemon](https://docs.happier.dev/apps/daemon)
 
-**One repo, several agents, no collisions.** Start each session in its own Git worktree: a real checkout, its own branch, the same repository. Happier creates it from any local or remote branch, suggests a name, and offers to reuse an existing one instead of duplicating it. Or start in the folder you are already in; it is a choice per session, not a mode you switch on. [New session options](https://docs.happier.dev/sessions/new-session-shortcuts)
+**Git worktrees, when you want them.** Start each session in its own Git worktree: a real checkout, its own branch, the same repository. Happier creates it from any local or remote branch, suggests a name, and offers to reuse an existing one instead of duplicating it. Or start in the folder you are already in; it is a choice per session, not a mode you switch on: all your sessions, none of them, or just this one. [New session options](https://docs.happier.dev/sessions/new-session-shortcuts)
 
 **Prefer the terminal? Keep it.** Run Claude Code, Codex or OpenCode in their own terminal UIs: Happier mirrors those sessions to every device, so you can follow along, send messages and approve from anywhere, then switch between the terminal and the app whenever you like. [Claude unified terminal](https://docs.happier.dev/sessions/claude-unified-terminal)
 
@@ -257,7 +257,7 @@ More in the [security docs](https://docs.happier.dev/security).
 | iOS | [App Store](https://apps.apple.com/app/happier-claude-codex-opencode/id6758554297) |
 | Android | [Google Play](https://happier.dev/playstore) · [APK](https://happier.dev/apk) |
 | macOS · Windows · Linux (desktop app) | [happier.dev/download](https://happier.dev/download) · [all desktop builds](https://github.com/happier-dev/happier/releases/tag/ui-desktop-stable) |
-| Web | [app.happier.dev](https://app.happier.dev) |
+| Web | [cloud.happier.dev](https://cloud.happier.dev) |
 | CLI (macOS, Linux) | `curl -fsSL https://happier.dev/install \| bash` |
 | CLI (Windows) | `iwr https://happier.dev/install.ps1 -useb \| iex` |
 
@@ -269,8 +269,7 @@ Everything above installs the **stable** channel. Two faster channels ship
 ahead of it, and they install side by side (`happier`, `hprev`, `hdev`), so
 trying one never breaks your stable setup:
 
-- **preview**: what the hosted cloud (app.happier.dev) runs; new features land
-  here first.
+- **preview**: new features land here first, ahead of stable.
 - **dev**: nightly builds of the latest changes. Can contain partial commits
   and can break at any moment.
 
@@ -301,7 +300,7 @@ Then run **`hprev`** or **`hdev`** instead of `happier`. If you want `happier`
 to map to your dev lane, add `alias happier='hdev'` to your `.bashrc`/`.zshrc`.
 
 On `dev` you must run everything from the dev releases (CLI, app, daemon and
-server): the hosted cloud runs `preview`, so `dev` features may not work
+server): the hosted cloud (cloud.happier.dev) runs `stable`, so `preview` and `dev` features may not work
 against it, and `dev` has no hosted web app (self-host the dev server to use
 the dev web UI).
 
