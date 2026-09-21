@@ -58,10 +58,10 @@ describe('createCatalogDefinedAcpBackend (Devin)', () => {
   });
 
   it.each([
-    ['read-only', 'ask'],
-    ['safe-yolo', 'smart'],
-    ['yolo', 'bypass'],
-    ['plan', 'plan'],
+    ['read-only', 'normal'],
+    ['safe-yolo', 'accept-edits'],
+    ['yolo', 'dangerous'],
+    ['plan', null],
   ] as const)('applies explicit Happier mode %s as Devin ACP mode %s before returning', async (permissionMode, devinMode) => {
     const backend = createBackend();
     createAcpBackend.mockReturnValue(backend);
@@ -73,7 +73,11 @@ describe('createCatalogDefinedAcpBackend (Devin)', () => {
 
     await created.startSession();
 
-    expect(backend.setSessionMode).toHaveBeenCalledWith('started', devinMode);
+    if (devinMode === null) {
+      expect(backend.setSessionMode).not.toHaveBeenCalled();
+    } else {
+      expect(backend.setSessionMode).toHaveBeenCalledWith('started', devinMode);
+    }
   });
 
   it('reapplies the explicit Devin mode after loading a vendor session', async () => {
@@ -87,6 +91,6 @@ describe('createCatalogDefinedAcpBackend (Devin)', () => {
 
     await created.loadSession?.('resumed' as SessionId);
 
-    expect(backend.setSessionMode).toHaveBeenCalledWith('resumed', 'ask');
+    expect(backend.setSessionMode).toHaveBeenCalledWith('resumed', 'normal');
   });
 });

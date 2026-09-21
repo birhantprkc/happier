@@ -598,6 +598,7 @@ describe('runStandardAcpProvider', () => {
 
   it('skips native MCP resolution for shell-bridge providers', async () => {
     const harness = createHarness();
+    harness.config.flavor = 'pi';
 
     let capturedMcpServers: any = null;
     harness.config.createRuntime = (params: any) => {
@@ -632,6 +633,7 @@ describe('runStandardAcpProvider', () => {
 
   it('uses the Happier session id, not the vendor runtime session id, for shell-bridge prompt instructions', async () => {
     const harness = createHarness();
+    harness.config.flavor = 'pi';
 
     harness.runtime.getSessionId = vi.fn(() => 'vendor-session-123');
 

@@ -1129,6 +1129,7 @@ describe('createCliActionExecutor', () => {
       },
     } as const;
     const executor = createPlainExecutor({
+      getCurrentSessionBackendTarget: () => ({ kind: 'builtInAgent', agentId: 'claude' }),
       rawSession: {
         machineId: 'machine-1',
         path: '/repo/current',
