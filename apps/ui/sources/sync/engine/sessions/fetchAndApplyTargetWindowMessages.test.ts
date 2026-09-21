@@ -161,6 +161,43 @@ describe('fetchAndApplyTargetWindowMessages', () => {
         });
     });
 
+    it('does not activate a target window when the session disappears before the newer-side page', async () => {
+        const target = buildEncryptedApiMessage({ id: 'target', seq: 1 });
+        const request = vi.fn(async () => new Response(JSON.stringify({
+            messages: [target], hasMore: false, nextBeforeSeq: null,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+        let knownChecks = 0;
+        let windowState = createInactiveSessionMessagesWindowState();
+        const setWindowState = vi.fn((next: SessionMessagesWindowState) => {
+            windowState = next;
+        });
+
+        const result = await fetchAndApplyTargetWindowMessages({
+            sessionId: 's1',
+            windowId: 'window-1',
+            target: { kind: 'seq', seq: 1 },
+            direction: 'initial',
+            limit: 1,
+            scope: 'main',
+            getSessionEncryption: () => ({
+                decryptMessages: async (messages) => messages.map((message) => buildTextContent(message)),
+            }),
+            isSessionKnown: () => ++knownChecks === 1,
+            request,
+            sessionReceivedMessages: new Map<string, Map<string, number>>(),
+            applyMessages: vi.fn(),
+            getWindowState: () => windowState,
+            setWindowState,
+            now: () => 12_345,
+            log: { log: () => {} },
+        });
+
+        expect(result.status).toBe('skipped_missing_session');
+        expect(request).toHaveBeenCalledTimes(1);
+        expect(setWindowState).not.toHaveBeenCalled();
+        expect(windowState.isWindowMode).toBe(false);
+    });
+
     it('loads the initial before-side target page through the shared pipeline and updates only target-window state', async () => {
         const target = buildEncryptedApiMessage({ id: 'target', seq: 100 });
         const older = buildEncryptedApiMessage({ id: 'older', seq: 99 });
