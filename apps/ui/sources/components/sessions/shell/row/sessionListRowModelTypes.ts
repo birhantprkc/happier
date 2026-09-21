@@ -86,7 +86,6 @@ export type SessionListRowModel = Readonly<{
     serverName?: string;
     treeRowId: string;
     testID: string;
-    dataIndex: number;
     session: Session | SessionListRenderableSession;
     status: SessionStatus;
     statusSignature: string;

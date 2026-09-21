@@ -229,7 +229,6 @@ function createSessionRowModel(overrides: Partial<SessionListRowModel> = {}): Se
         serverName: 'Server A',
         treeRowId: `session:${serverId ?? 'local'}:${sessionId}`,
         testID: `session-list-item-${sessionId}`,
-        dataIndex: 0,
         session,
         status: {
             state: 'thinking',

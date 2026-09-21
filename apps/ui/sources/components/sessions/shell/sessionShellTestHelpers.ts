@@ -101,7 +101,6 @@ export function createSessionItemTestRowModel(
         serverName: input.serverName,
         treeRowId: `session:${serverId ?? 'local'}:${sessionId}`,
         testID: `session-list-item-${sessionId}`,
-        dataIndex: 0,
         session,
         status,
         statusSignature: `${status.state}|${status.isConnected ? 1 : 0}|${status.statusText}`,

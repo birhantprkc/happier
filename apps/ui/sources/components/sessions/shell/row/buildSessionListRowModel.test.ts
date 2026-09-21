@@ -171,7 +171,6 @@ describe('buildSessionListRowModel', () => {
         const model = buildSessionListRowModel({
             item: createSessionItem(createRenderable('reminded-session')),
             state: {},
-            dataIndex: 0,
             isFirst: true,
             isLast: true,
             isSingle: true,
@@ -199,7 +198,6 @@ describe('buildSessionListRowModel', () => {
                     preview: 'Fix the flaky release test',
                 },
             },
-            dataIndex: 4,
             isFirst: false,
             isLast: true,
             isSingle: false,
@@ -207,7 +205,6 @@ describe('buildSessionListRowModel', () => {
         });
 
         expect(model.draft).toEqual({ preview: 'Fix the flaky release test' });
-        expect(model.dataIndex).toBe(4);
         expect(model.groupKey).toBe('group-a');
         expect(model.adjacency).toEqual({ isFirst: false, isLast: true, isSingle: false });
     });
@@ -217,7 +214,6 @@ describe('buildSessionListRowModel', () => {
         const modelA = buildSessionListRowModel({
             item: createSessionItem(session, { serverId: 'server-a' }),
             state: {},
-            dataIndex: 2,
             isFirst: true,
             isLast: true,
             isSingle: true,
@@ -226,7 +222,6 @@ describe('buildSessionListRowModel', () => {
         const modelB = buildSessionListRowModel({
             item: createSessionItem(session, { serverId: 'server-b' }),
             state: {},
-            dataIndex: 3,
             isFirst: true,
             isLast: true,
             isSingle: true,
@@ -269,7 +264,6 @@ describe('buildSessionListRowModel', () => {
         const model = buildSessionListRowModel({
             item: createSessionItem(rowSession),
             state: { renderable: storeRenderable },
-            dataIndex: 0,
             isFirst: true,
             isLast: true,
             isSingle: true,
@@ -293,7 +287,6 @@ describe('buildSessionListRowModel', () => {
         const model = buildSessionListRowModel({
             item: createSessionItem(rowSession),
             state: { renderable: storeRenderable },
-            dataIndex: 0,
             isFirst: true,
             isLast: true,
             isSingle: true,
@@ -318,7 +311,6 @@ describe('buildSessionListRowModel', () => {
         const model = buildSessionListRowModel({
             item: createSessionItem(rowSession),
             state: { renderable: storeRenderable },
-            dataIndex: 0,
             isFirst: true,
             isLast: true,
             isSingle: true,
@@ -342,7 +334,6 @@ describe('buildSessionListRowModel', () => {
                 messages: createMessages([createMessage('m1', NOW_MS - 120_000)]),
                 pending: createPending([NOW_MS - 60_000]),
             },
-            dataIndex: 0,
             isFirst: true,
             isLast: true,
             isSingle: true,
@@ -363,7 +354,6 @@ describe('buildSessionListRowModel', () => {
                 latestTurnStatusObservedAt: NOW_MS - 10,
             }), { groupKind: 'date' }),
             state: {},
-            dataIndex: 0,
             isFirst: true,
             isLast: true,
             isSingle: true,
@@ -385,7 +375,6 @@ describe('buildSessionListRowModel', () => {
                 latestTurnStatusObservedAt: NOW_MS - SESSION_RUNTIME_STATUS_STALE_SIGNAL_MS - 1_000,
             }), { groupKind: 'working', workingPlacementReason: 'working-retained' }),
             state: {},
-            dataIndex: 0,
             isFirst: true,
             isLast: true,
             isSingle: true,
@@ -413,7 +402,6 @@ describe('buildSessionListRowModel', () => {
                 latestTurnStatusObservedAt: NOW_MS - 10,
             }), { groupKind: 'working', workingPlacementReason: 'working' }),
             state: {},
-            dataIndex: 0,
             isFirst: true,
             isLast: true,
             isSingle: true,
@@ -442,7 +430,6 @@ describe('buildSessionListRowModel', () => {
                 } as any,
             }), { groupKind: 'working', workingPlacementReason: 'working-retained' }),
             state: {},
-            dataIndex: 0,
             isFirst: true,
             isLast: true,
             isSingle: true,
@@ -460,7 +447,6 @@ describe('buildSessionListRowModel', () => {
                 attentionPromotionReason: 'standing',
             }),
             state: {},
-            dataIndex: 0,
             isFirst: true,
             isLast: true,
             isSingle: true,
@@ -484,7 +470,6 @@ describe('buildSessionListRowModel', () => {
                 attentionPromotionReason: 'unread',
             }),
             state: {},
-            dataIndex: 0,
             isFirst: true,
             isLast: true,
             isSingle: true,
@@ -513,7 +498,6 @@ describe('buildSessionListRowModel', () => {
                 runtimeActivityRevision: 1,
             }), { groupKind: 'date' }),
             state: {},
-            dataIndex: 0,
             isFirst: true,
             isLast: true,
             isSingle: true,
@@ -549,7 +533,6 @@ describe('buildSessionListRowModel', () => {
                 runtimeActivityRevision: 1,
             }), { groupKind: 'date' }),
             state: {},
-            dataIndex: 0,
             isFirst: true,
             isLast: true,
             isSingle: true,
@@ -574,7 +557,6 @@ describe('buildSessionListRowModel', () => {
                 runtimeActivityRevision: 9,
             }), { groupKind: 'date' }),
             state: {},
-            dataIndex: 0,
             isFirst: true,
             isLast: true,
             isSingle: true,
@@ -605,7 +587,6 @@ describe('buildSessionListRowModel', () => {
                 runtimeActivityRevision: 4,
             }), { groupKind: 'date' }),
             state: {},
-            dataIndex: 0,
             isFirst: true,
             isLast: true,
             isSingle: true,
@@ -626,7 +607,6 @@ describe('buildSessionListRowModel', () => {
                 runtimeActivityRevision: 4,
             }), { groupKind: 'date' }),
             state: {},
-            dataIndex: 0,
             isFirst: true,
             isLast: true,
             isSingle: true,
@@ -651,7 +631,6 @@ describe('buildSessionListRowModel', () => {
                 runtimeActivityRevision: 1,
             }), { groupKind: 'date' }),
             state: {},
-            dataIndex: 0,
             isFirst: true,
             isLast: true,
             isSingle: true,
@@ -679,7 +658,6 @@ describe('buildSessionListRowModel', () => {
                 runtimeActivityRevision: 1,
             }), { groupKind: 'date' }),
             state: {},
-            dataIndex: 0,
             isFirst: true,
             isLast: true,
             isSingle: true,
@@ -703,7 +681,6 @@ describe('buildSessionListRowModel', () => {
                 meaningfulActivityAt: NOW_MS - SESSION_RUNTIME_STATUS_STALE_SIGNAL_MS - 30_000,
             }), { groupKind: 'date' }),
             state: {},
-            dataIndex: 0,
             isFirst: true,
             isLast: true,
             isSingle: true,
@@ -727,7 +704,6 @@ describe('buildSessionListRowModel', () => {
                 meaningfulActivityAt: NOW_MS - SESSION_RUNTIME_STATUS_STALE_SIGNAL_MS - 30_000,
             }), { groupKind: 'date' }),
             state: {},
-            dataIndex: 0,
             isFirst: true,
             isLast: true,
             isSingle: true,
@@ -748,7 +724,6 @@ describe('buildSessionListRowModel', () => {
                 meaningfulActivityAt: NOW_MS - 10,
             }), { groupKind: 'date' }),
             state: {},
-            dataIndex: 0,
             isFirst: true,
             isLast: true,
             isSingle: true,
@@ -770,7 +745,6 @@ describe('buildSessionListRowModel', () => {
                 latestTurnStatusObservedAt: NOW_MS - 100,
             }), { groupKind: 'date' }),
             state: {},
-            dataIndex: 0,
             isFirst: true,
             isLast: true,
             isSingle: true,
@@ -785,7 +759,6 @@ describe('buildSessionListRowModel', () => {
         const model = buildSessionListRowModel({
             item: createSessionItem(createRenderable('s1')),
             state: {},
-            dataIndex: 0,
             isFirst: true,
             isLast: true,
             isSingle: true,
@@ -817,7 +790,6 @@ describe('buildSessionListRowModel', () => {
         const modelA = buildSessionListRowModel({
             item: createSessionItem(session, { serverId: 'server-a' }),
             state: {},
-            dataIndex: 0,
             isFirst: true,
             isLast: true,
             isSingle: true,
@@ -826,7 +798,6 @@ describe('buildSessionListRowModel', () => {
         const modelB = buildSessionListRowModel({
             item: createSessionItem(session, { serverId: 'server-b' }),
             state: {},
-            dataIndex: 1,
             isFirst: true,
             isLast: true,
             isSingle: true,
@@ -854,7 +825,6 @@ describe('buildSessionListRowModel', () => {
                 selected: true,
             } as Partial<Extract<SessionListViewItem, { type: 'session' }> & { selected: true }>),
             state: { pending: createPending([NOW_MS - 50_000, NOW_MS - 40_000]) },
-            dataIndex: 5,
             isFirst: false,
             isLast: true,
             isSingle: false,
@@ -884,7 +854,6 @@ describe('buildSessionListRowModel', () => {
         const model = buildSessionListRowModel({
             item: createSessionItem(session),
             state: {},
-            dataIndex: 0,
             isFirst: true,
             isLast: true,
             isSingle: true,
@@ -903,7 +872,6 @@ describe('buildSessionListRowModel', () => {
         const model = buildSessionListRowModel({
             item: createSessionItem(session),
             state: { pending: createBlockedPending(NOW_MS - 50_000) },
-            dataIndex: 0,
             isFirst: true,
             isLast: true,
             isSingle: true,
@@ -922,7 +890,6 @@ describe('buildSessionListRowModel', () => {
         const blockedModel = buildSessionListRowModel({
             item: createSessionItem(blockedAggregateSession),
             state: { pending: createPending([NOW_MS - 50_000]) },
-            dataIndex: 0,
             isFirst: true,
             isLast: true,
             isSingle: true,
@@ -939,7 +906,6 @@ describe('buildSessionListRowModel', () => {
         const unblockedModel = buildSessionListRowModel({
             item: createSessionItem(unblockedAggregateSession),
             state: { pending: createBlockedPending(NOW_MS - 50_000) },
-            dataIndex: 0,
             isFirst: true,
             isLast: true,
             isSingle: true,
@@ -970,7 +936,6 @@ describe('buildSessionListRowModel', () => {
         function buildWithSetting(enabled: boolean, counts: Partial<AgentActivityCounts>) {
             return buildSessionListRowModel({
                 item: createSessionItem(renderableWithCounts(counts)),
-                dataIndex: 0,
                 isFirst: true,
                 isLast: true,
                 isSingle: true,
@@ -1004,7 +969,6 @@ describe('buildSessionListRowModel', () => {
         it('says nothing for a session with no published activity', () => {
             expect(buildSessionListRowModel({
                 item: createSessionItem(createRenderable('s-quiet')),
-                dataIndex: 0,
                 isFirst: true,
                 isLast: true,
                 isSingle: true,

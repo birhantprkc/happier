@@ -243,7 +243,6 @@ describe('SessionItem context menu press suppression', () => {
                 variant="default"
                 compact={false}
                 forkActionContext={{
-                    settings: {},
                     replayEnabled: true,
                     executionRunsEnabled: false,
                 }}

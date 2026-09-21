@@ -45,7 +45,6 @@ import type {
 export type BuildSessionListRowModelInput = Readonly<{
     item: SessionListRowSessionItem;
     state?: Partial<SessionListRowStateSnapshot>;
-    dataIndex: number;
     isFirst: boolean;
     isLast: boolean;
     isSingle: boolean;
@@ -396,7 +395,6 @@ export function buildSessionListRowModel(input: BuildSessionListRowModelInput): 
         serverName: item.serverName,
         treeRowId: serverId ? treeRowId.session(serverId, sessionId) : `session:${sessionId}`,
         testID: `session-list-item-${sessionId}`,
-        dataIndex: input.dataIndex,
         session: resolvedSession,
         status,
         statusSignature: buildStatusSignature(status, nextRuntimeFreshnessAtMs),
