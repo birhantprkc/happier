@@ -353,6 +353,10 @@ export const DirectTranscriptPageRequestSchema = z
   .passthrough();
 export type DirectTranscriptPageRequest = z.infer<typeof DirectTranscriptPageRequestSchema>;
 
+// Keep `truncated` for released readers; only a page limit permits adjacent continuation.
+export const DirectTranscriptTruncationReasonSchema = z.enum(['page_limit', 'source_discontinuity']);
+export type DirectTranscriptTruncationReason = z.infer<typeof DirectTranscriptTruncationReasonSchema>;
+
 export const DirectTranscriptPageResponseSchema = z.union([
   z
     .object({
@@ -362,8 +366,18 @@ export const DirectTranscriptPageResponseSchema = z.union([
       tailCursor: z.string().min(1).nullish(),
       hasMore: z.boolean(),
       truncated: z.boolean().optional(),
+      truncationReason: DirectTranscriptTruncationReasonSchema.optional(),
     })
-    .passthrough(),
+    .passthrough()
+    .superRefine((value, ctx) => {
+      if (value.truncationReason === 'page_limit' && typeof value.nextCursor !== 'string') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'page-limit transcript continuation requires a next cursor',
+          path: ['nextCursor'],
+        });
+      }
+    }),
   z
     .object({
       ok: z.literal(false),
@@ -387,6 +401,14 @@ export const DirectTranscriptReadAfterRequestSchema = z
   .passthrough();
 export type DirectTranscriptReadAfterRequest = z.infer<typeof DirectTranscriptReadAfterRequestSchema>;
 
+export function resolveDirectTranscriptContinuation(params: Readonly<{
+  truncated?: boolean;
+  truncationReason?: DirectTranscriptTruncationReason;
+}>): 'complete' | DirectTranscriptTruncationReason {
+  // Explicit facts are authoritative; providers retain their released boolean semantics.
+  return params.truncationReason ?? (params.truncated === true ? 'source_discontinuity' : 'complete');
+}
+
 export const DirectTranscriptReadAfterResponseSchema = z.union([
   z
     .object({
@@ -394,8 +416,18 @@ export const DirectTranscriptReadAfterResponseSchema = z.union([
       items: z.array(DirectTranscriptRawMessageV1Schema),
       nextCursor: z.string().min(1).nullish(),
       truncated: z.boolean(),
+      truncationReason: DirectTranscriptTruncationReasonSchema.optional(),
     })
-    .passthrough(),
+    .passthrough()
+    .superRefine((value, ctx) => {
+      if (value.truncationReason === 'page_limit' && typeof value.nextCursor !== 'string') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'page-limit transcript continuation requires a next cursor',
+          path: ['nextCursor'],
+        });
+      }
+    }),
   z
     .object({
       ok: z.literal(false),

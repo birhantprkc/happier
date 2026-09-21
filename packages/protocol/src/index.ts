@@ -2533,6 +2533,7 @@ export {
   DirectTranscriptReadAfterRequestSchema,
   DirectTranscriptReadAfterResponseSchema,
   DirectTranscriptTruncationReasonSchema,
+  resolveDirectTranscriptContinuation,
   DirectSessionTakeoverRequestSchema,
   DirectSessionTakeoverResponseSchema,
   DirectSessionTakeoverPersistRequestSchema,

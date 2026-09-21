@@ -17,18 +17,11 @@ export type ProviderCliLaunchSpec = Readonly<{
   args: readonly string[];
 }>;
 
-export function resolveProviderCliLaunchSpec(
-  agentId: AgentId,
+export function buildProviderCliLaunchSpec(
+  resolved: ProviderCliCommandResolution,
   opts: Readonly<{ processEnv?: NodeJS.ProcessEnv }> = {},
 ): ProviderCliLaunchSpec | null {
   const processEnv = opts.processEnv ?? process.env;
-  const resolved = resolveProviderCliCommand(agentId, {
-    processEnv,
-    isBunRuntime: isBun(),
-    currentExecPath: process.execPath,
-  });
-  if (!resolved) return null;
-
   if (!providerCliPathRequiresJavaScriptRuntime(resolved.command)) {
     return {
       source: resolved.source,
@@ -51,6 +44,20 @@ export function resolveProviderCliLaunchSpec(
     command: runtimeCommand,
     args: [resolved.command],
   };
+}
+
+export function resolveProviderCliLaunchSpec(
+  agentId: AgentId,
+  opts: Readonly<{ processEnv?: NodeJS.ProcessEnv }> = {},
+): ProviderCliLaunchSpec | null {
+  const processEnv = opts.processEnv ?? process.env;
+  const resolved = resolveProviderCliCommand(agentId, {
+    processEnv,
+    isBunRuntime: isBun(),
+    currentExecPath: process.execPath,
+  });
+  if (!resolved) return null;
+  return buildProviderCliLaunchSpec(resolved, { processEnv });
 }
 
 export function requireProviderCliLaunchSpec(

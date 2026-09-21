@@ -551,6 +551,7 @@ export function registerMachineDirectSessionsRpcHandlers(params: Readonly<{
         tailCursor: res.tailCursor,
         hasMore: res.hasMore,
         truncated: res.truncated,
+        ...(res.truncationReason ? { truncationReason: res.truncationReason } : {}),
       } satisfies DirectTranscriptPageResponse;
     } catch (error) {
       return errFromProviderFailure(error) satisfies DirectTranscriptPageResponse;
