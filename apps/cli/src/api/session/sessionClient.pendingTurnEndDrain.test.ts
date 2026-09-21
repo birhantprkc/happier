@@ -2219,6 +2219,8 @@ describe('ApiSessionClient pending-queue turn-end drain', () => {
   });
 
   it('retries only the exact accepted settlement at typed 503 delay without changing socket health', async () => {
+    const infoFileSpy = vi.spyOn(logger, 'infoFile').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
     const deliveryState = { mode: 'provider' as const, unresolved: true };
     const client = await createClient({
       latestTurnStatus: 'completed',
@@ -2299,6 +2301,8 @@ describe('ApiSessionClient pending-queue turn-end drain', () => {
     expect(userSocketStub?.connect).not.toHaveBeenCalled();
     expect(userSocketStub?.disconnect).not.toHaveBeenCalled();
     expect(userSocketStub?.close).not.toHaveBeenCalled();
+    expect(infoFileSpy).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(1_249);
     expect(resolveAcceptedPendingDeliveryMock).toHaveBeenCalledTimes(1);
@@ -2320,6 +2324,8 @@ describe('ApiSessionClient pending-queue turn-end drain', () => {
     expect(sessionSocketStub?.connect).not.toHaveBeenCalled();
     expect(sessionSocketStub?.disconnect).not.toHaveBeenCalled();
     expect(sessionSocketStub?.close).not.toHaveBeenCalled();
+    expect(infoFileSpy).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
 
   });
 
@@ -2456,9 +2462,11 @@ describe('ApiSessionClient pending-queue turn-end drain', () => {
     expect(materializeNextMock).toHaveBeenCalledTimes(1);
   });
 
-  it('parks a generic accepted-settlement 500 with correlated diagnostics and no socket teardown', async () => {
+  it('parks a generic accepted-settlement 500 with default file diagnostics and no terminal output or socket teardown', async () => {
     const { logger } = await import('@/ui/logger');
     const debugSpy = vi.spyOn(logger, 'debug').mockImplementation(() => {});
+    const infoFileSpy = vi.spyOn(logger, 'infoFile').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
     const client = await createClient({
       latestTurnStatus: 'completed',
       pendingCount: 1,
@@ -2504,6 +2512,21 @@ describe('ApiSessionClient pending-queue turn-end drain', () => {
         }),
       }),
     );
+    expect(infoFileSpy).toHaveBeenCalledOnce();
+    expect(infoFileSpy).toHaveBeenCalledWith(
+      '[pendingQueue] accepted provider delivery remains unresolved',
+      expect.objectContaining({
+        sessionId: 's1',
+        localId: 'generic-500-local',
+        attempt: 1,
+        error: expect.objectContaining({
+          code: 'pending_queue_accepted_settlement_failed',
+          settlementError: 'internal',
+          correlationId: 'req-post-callback-500',
+        }),
+      }),
+    );
+    expect(warnSpy).not.toHaveBeenCalled();
     expect(materializeNextMock).toHaveBeenCalledTimes(1);
     expect(catchUpMock).not.toHaveBeenCalled();
     expect(fetchSnapshotMock).not.toHaveBeenCalled();
@@ -2514,6 +2537,46 @@ describe('ApiSessionClient pending-queue turn-end drain', () => {
     expect(sessionSocketStub?.connect).not.toHaveBeenCalled();
     expect(sessionSocketStub?.disconnect).not.toHaveBeenCalled();
     expect(sessionSocketStub?.close).not.toHaveBeenCalled();
+  });
+
+  it('records an unexpected accepted-settlement resolution crash in the default file log without terminal output', async () => {
+    const infoFileSpy = vi.spyOn(logger, 'infoFile').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    const client = await createClient({
+      latestTurnStatus: 'completed',
+      pendingCount: 1,
+      pendingVersion: 1,
+      metadata: { deliveredUserMessageSeqV1: 0 },
+    });
+    await waitForCurrentPendingInputContract(client);
+    materializeNextMock.mockResolvedValueOnce(createProviderDeliveryMaterializeResult('crashed-settlement-local'));
+    resolveAcceptedPendingDeliveryMock.mockRejectedValueOnce({
+      toString() {
+        throw new Error('settlement diagnostic serialization failed');
+      },
+    });
+
+    await expect(client.materializeNextPendingMessageSafely({ reconcileWhenEmpty: 'force' })).resolves.toMatchObject({
+      type: 'materialized',
+      localId: 'crashed-settlement-local',
+    });
+
+    confirmProviderInputAccepted(client, 'crashed-settlement-local');
+    await waitUntil(() => infoFileSpy.mock.calls.length > 0);
+
+    expect(infoFileSpy).toHaveBeenCalledOnce();
+    expect(infoFileSpy).toHaveBeenCalledWith(
+      '[pendingQueue] accepted provider delivery resolution crashed',
+      expect.objectContaining({
+        sessionId: 's1',
+        localId: 'crashed-settlement-local',
+        error: expect.objectContaining({
+          message: 'settlement diagnostic serialization failed',
+        }),
+      }),
+    );
+    expect(warnSpy).not.toHaveBeenCalled();
+    expect((client as any).canonicalPendingDeliveryByLocalId.has('crashed-settlement-local')).toBe(true);
   });
 
   it('delivers provider-claimed pending rows directly without a committed transcript seq', async () => {
@@ -3529,6 +3592,8 @@ describe('ApiSessionClient pending-queue turn-end drain', () => {
   });
 
   it('retains canonical ownership and progress when accepted delivery is a server no-op', async () => {
+    const infoFileSpy = vi.spyOn(logger, 'infoFile').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
     const deliveryState = { mode: 'provider' as const, unresolved: true };
     const client = await createClient({
       latestTurnStatus: 'completed',
@@ -3586,6 +3651,16 @@ describe('ApiSessionClient pending-queue turn-end drain', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect((client as any).canonicalPendingDeliveryByLocalId.has('provider-noop')).toBe(true);
+    expect(infoFileSpy).toHaveBeenCalledOnce();
+    expect(infoFileSpy).toHaveBeenCalledWith(
+      '[pendingQueue] accepted provider delivery remains unresolved',
+      expect.objectContaining({
+        sessionId: 's1',
+        localId: 'provider-noop',
+        reason: 'settlement_noop_without_exact_commit',
+      }),
+    );
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 
   it('does not grant a delivery-status snapshot retry authority after a settlement no-op', async () => {
@@ -3904,6 +3979,8 @@ describe('ApiSessionClient pending-queue turn-end drain', () => {
   });
 
   it('retires an accepted-delivery claim after not-found plus exact authoritative absence without manufacturing acceptance', async () => {
+    const infoFileSpy = vi.spyOn(logger, 'infoFile').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
     const deliveryState = { mode: 'provider' as const, unresolved: true };
     const client = await createClient({
       latestTurnStatus: 'completed',
@@ -3988,6 +4065,20 @@ describe('ApiSessionClient pending-queue turn-end drain', () => {
     expect(resolveAcceptedPendingDeliveryMock).toHaveBeenCalledTimes(1);
     expect(materializeNextMock).toHaveBeenCalledTimes(2);
     expect((client as any).canonicalPendingDeliveryByLocalId.has('stale-accepted-provider-m1')).toBe(false);
+    expect(infoFileSpy).toHaveBeenCalledOnce();
+    expect(infoFileSpy).toHaveBeenCalledWith(
+      '[pendingQueue] accepted provider delivery remains unresolved',
+      expect.objectContaining({
+        sessionId: 's1',
+        localId: 'stale-accepted-provider-m1',
+        reason: 'settlement_not_found_without_exact_commit',
+        error: expect.objectContaining({
+          code: 'pending_queue_accepted_settlement_failed',
+          settlementError: 'not-found',
+        }),
+      }),
+    );
+    expect(warnSpy).not.toHaveBeenCalled();
     expect(hasProviderInputAcceptance(client, 'stale-accepted-provider-m1')).toBe(false);
   });
 

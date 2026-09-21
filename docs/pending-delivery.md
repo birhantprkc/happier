@@ -1,5 +1,33 @@
 # Pending delivery architecture
 
+## UI settlement convergence (development)
+
+Provider acceptance carries the exact Pending `localId` to `SessionClient`, which
+requests server settlement. The server transaction commits or updates the
+transcript message and removes that Pending row before publishing the message
+event and the separate Pending count/version event.
+
+The UI's canonical pending snapshot owns exact server-row reconciliation.
+Receiving a committed user message whose `localId` matches a displayed
+`server_pending` row requests that snapshot, even when the transcript reducer
+already contains the identical message. Transcript equality does not establish
+Pending freshness. The committed twin alone cannot authorize row removal: a
+snapshot may legitimately retain it. Local-outbox reconciliation and repeated
+message side effects keep their existing owners; this recovery adds no polling.
+
+To distinguish settlement from display failures, inspect the canonical Pending
+read for the exact session and `localId`. A retained server row points to
+acceptance or settlement; an absent server row with a stale mounted Pending row
+points to client convergence. Host contention can delay either path and is not
+itself evidence of a projection defect.
+
+When an accepted row remains unresolved after its bounded settlement attempt,
+the session runner records a file-only info diagnostic with the session and
+`localId`. This includes terminal transport failures, server no-ops or
+not-found responses without exact committed proof, and unexpected resolution
+crashes. The diagnostic is present at the default session file log level and
+does not write to the provider's interactive terminal.
+
 ## Live runner wake-up recovery (development)
 
 The session client owns pending-input wake subscriptions. A transient socket

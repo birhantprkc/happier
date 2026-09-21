@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act } from 'react-test-renderer';
+import { renderHook, standardCleanup } from '@/dev/testkit';
 import { scopedSessionLocalStateKey } from '@/sync/domains/state/sessionLocalStateKeys';
 import type { ManagedEndpointSupervisor } from '@happier-dev/connection-supervisor';
 import { createSocketIoAckTimeoutError } from '@/sync/runtime/socketIoAckTimeout';
@@ -74,6 +76,7 @@ vi.mock('@/voice/context/voiceHooks', () => ({
 
 import { Encryption } from '@/sync/encryption/encryption';
 import { storage } from './domains/state/storage';
+import { useSessionPendingMessages } from './domains/state/storage';
 import type { Session } from './domains/state/storageTypes';
 import { apiSocket } from '@/sync/api/session/apiSocket';
 import { HappyError } from '@/utils/errors/errors';
@@ -355,6 +358,7 @@ describe('sync.sendMessage optimistic thinking', () => {
     });
 
     afterEach(() => {
+        standardCleanup();
         vi.restoreAllMocks();
     });
 
@@ -948,6 +952,60 @@ describe('sync.sendMessage optimistic thinking', () => {
             );
             expect(storage.getState().sessionPending[sessionId]?.messages).toEqual([]);
         });
+    });
+
+    it('reconciles a mounted server-delivering row when the settlement repeats an unchanged committed twin', async () => {
+        const sessionId = 's_server_pending_repeated_commit_without_receipt';
+        const localId = 'repeated-delivered-local-id';
+        const committed = {
+            id: 'already-committed-message-id',
+            seq: 1,
+            localId,
+            createdAt: 1_200,
+            isSidechain: false,
+            role: 'user',
+            content: { type: 'text', text: 'already delivered' },
+        } as const;
+        storage.getState().applySessions([{
+            ...createSession({ sessionId }),
+            encryptionMode: 'plain',
+        }]);
+        storage.getState().applyMessages(sessionId, [committed]);
+        storage.getState().upsertPendingMessage(sessionId, {
+            id: localId,
+            localId,
+            createdAt: 1_000,
+            updatedAt: 1_100,
+            source: 'server_pending',
+            deliveryStatus: 'accepted',
+            pendingDeliveryStatus: 'server_delivering',
+            text: 'already delivered',
+            rawRecord: {
+                role: 'user',
+                content: { type: 'text', text: 'already delivered' },
+                meta: {},
+            },
+        });
+        const mounted = await renderHook(() => useSessionPendingMessages(sessionId));
+        expect(mounted.getCurrent().messages.map((message) => message.localId)).toEqual([localId]);
+
+        const requestSpy = vi.spyOn(apiSocket, 'request').mockResolvedValue(
+            Response.json({ pending: [] }),
+        );
+        const { sync } = await import('./sync');
+
+        await act(async () => {
+            (sync as any).applyMessages(sessionId, [committed]);
+            await vi.waitFor(() => {
+                expect(requestSpy).toHaveBeenCalledWith(
+                    `/v2/sessions/${sessionId}/pending?includeDiscarded=1`,
+                    { method: 'GET' },
+                );
+            });
+        });
+
+        expect(mounted.getCurrent().messages).toEqual([]);
+        await mounted.unmount();
     });
 
     it('replays identical scoped enqueue identities independently through the real Sync scheduler', async () => {

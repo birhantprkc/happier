@@ -7808,23 +7808,26 @@ class Sync {
         options?: { notifyVoice?: boolean; notifyActivity?: boolean }
     ) => {
         const result = storage.getState().applyMessages(sessionId, messages);
-        const serverPendingLocalIds = new Set(
-            (storage.getState().sessionPending[sessionId]?.messages ?? [])
-                .filter((message) => message.source === 'server_pending')
-                .map((message) => message.localId)
-                .filter((localId): localId is string => typeof localId === 'string' && localId.length > 0),
-        );
-        const receivedCommittedTwinOfServerPending = result.changed.length > 0
-            && messages.some((message) => (
-                message.role === 'user'
+        let receivedCommittedUserLocalIds: Set<string> | null = null;
+        for (const message of messages) {
+            if (message.role === 'user' && typeof message.localId === 'string' && message.localId.length > 0) {
+                (receivedCommittedUserLocalIds ??= new Set<string>()).add(message.localId);
+            }
+        }
+        const committedUserLocalIds = receivedCommittedUserLocalIds;
+        const receivedCommittedTwinOfServerPending = committedUserLocalIds !== null
+            && (storage.getState().sessionPending[sessionId]?.messages ?? []).some((message) => (
+                message.source === 'server_pending'
                 && typeof message.localId === 'string'
-                && serverPendingLocalIds.has(message.localId)
+                && committedUserLocalIds.has(message.localId)
             ));
         if (receivedCommittedTwinOfServerPending) {
             // Settlement publishes the committed message and the pending-state receipt separately.
             // If the receipt is lost, the committed twin cannot itself prove whether the durable row
             // was removed or intentionally retained. Ask the canonical pending snapshot owner rather
-            // than leaving the last server-delivering projection visible until a page refresh.
+            // than leaving the last server-delivering projection visible until a page refresh. The
+            // receipt can repeat a committed message already in this transcript, so store equality
+            // is not evidence that the pending projection is current.
             fireAndForget(this.fetchPendingMessages(sessionId), {
                 tag: 'Sync.applyMessages.fetchPendingMessages',
                 logToConsole: false,

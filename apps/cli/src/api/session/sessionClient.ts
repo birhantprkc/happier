@@ -1586,11 +1586,20 @@ export class ApiSessionClient extends EventEmitter {
     ): Promise<boolean> {
         if (!isTerminalPendingDeliveryNotFound(operation, error)) return false;
 
-        logger.debug('[pendingQueue] retained terminally absent canonical pending delivery without exact committed proof', {
+        const diagnostic = {
             sessionId: this.sessionId,
             localId,
             operation,
-        });
+        };
+        if (operation === 'accepted') {
+            logger.infoFile('[pendingQueue] accepted provider delivery remains unresolved', {
+                ...diagnostic,
+                reason: 'settlement_not_found_without_exact_commit',
+                error: serializeAcceptedPendingSettlementErrorForLog(error),
+            });
+        } else {
+            logger.debug('[pendingQueue] retained terminally absent canonical pending delivery without exact committed proof', diagnostic);
+        }
         if (operation === 'accepted' && this.canonicalPendingDeliveryByLocalId.has(localId)) {
             this.acceptedProviderInputLocalIds.add(localId);
         }
@@ -1657,6 +1666,14 @@ export class ApiSessionClient extends EventEmitter {
                 if (result.didResolve !== true && !hasExactCommittedReplay) {
                     // A live no-op cannot prove that this exact accepted row committed. Keep its
                     // claim visible for reconciliation; unrelated wakes must not become retry authority.
+                    logger.infoFile('[pendingQueue] accepted provider delivery remains unresolved', {
+                        sessionId: this.sessionId,
+                        localId,
+                        reason: 'settlement_noop_without_exact_commit',
+                        pendingCount: result.pendingQueueState?.pendingCount ?? null,
+                        pendingBlockedCount: result.pendingQueueState?.pendingBlockedCount ?? null,
+                        pendingVersion: result.pendingQueueState?.pendingVersion ?? null,
+                    });
                     return;
                 }
                 // This mutation targets one exact localId. A successful server settlement is the
@@ -1668,10 +1685,11 @@ export class ApiSessionClient extends EventEmitter {
                 this.recordCommittedUserMessageSeq(localId, resolvedSeq);
                 return;
             } catch (error) {
+                const serializedError = serializeAcceptedPendingSettlementErrorForLog(error);
                 logger.debug('[pendingQueue] accepted provider delivery resolution failed', {
                     sessionId: this.sessionId,
                     localId,
-                    error: serializeAcceptedPendingSettlementErrorForLog(error),
+                    error: serializedError,
                 });
                 if (!this.isAcceptedCanonicalPendingDeliveryOperationCurrent(authority)) return;
                 if (await this.retireStaleCanonicalPendingDeliveryAfterTerminalMiss(localId, 'accepted', error)) return;
@@ -1685,7 +1703,16 @@ export class ApiSessionClient extends EventEmitter {
                         && 'retryable' in error
                         && (error as { retryable?: unknown }).retryable === true,
                     );
-                    if ((!retryDirective && !isResponseLoss) || attempt > 0) return;
+                    if ((!retryDirective && !isResponseLoss) || attempt > 0) {
+                        logger.infoFile('[pendingQueue] accepted provider delivery remains unresolved', {
+                            sessionId: this.sessionId,
+                            localId,
+                            reason: 'settlement_error',
+                            attempt: attempt + 1,
+                            error: serializedError,
+                        });
+                        return;
+                    }
                     const retryAfterMs = retryDirective
                         ? Math.min(60_000, Math.max(250, retryDirective.retryAfterMs))
                         : 1_000;
@@ -1700,10 +1727,14 @@ export class ApiSessionClient extends EventEmitter {
         }
     }
 
-    private trackAcceptedCanonicalPendingDeliveryResolution(resolution: Promise<void>): void {
+    private trackAcceptedCanonicalPendingDeliveryResolution(
+        localId: string,
+        resolution: Promise<void>,
+    ): void {
         const tracked = resolution.catch((error) => {
-            logger.debug('[pendingQueue] accepted provider delivery resolution crashed', {
+            logger.infoFile('[pendingQueue] accepted provider delivery resolution crashed', {
                 sessionId: this.sessionId,
+                localId,
                 error: serializeAxiosErrorForLog(error),
             });
         });
@@ -1732,6 +1763,7 @@ export class ApiSessionClient extends EventEmitter {
             for (const localId of this.canonicalPendingDeliveryByLocalId.keys()) {
                 if (this.providerInputTerminalOutcomeByLocalId.get(localId) !== 'accepted') continue;
                 this.trackAcceptedCanonicalPendingDeliveryResolution(
+                    localId,
                     this.resolveAcceptedCanonicalPendingDelivery(localId, authority),
                 );
             }
@@ -5413,6 +5445,7 @@ export class ApiSessionClient extends EventEmitter {
             const authority = this.captureAcceptedCanonicalPendingDeliveryOperationAuthority(producerGeneration);
             if (!authority) return;
             this.trackAcceptedCanonicalPendingDeliveryResolution(
+                localId,
                 this.resolveAcceptedCanonicalPendingDelivery(localId, authority),
             );
             return;
