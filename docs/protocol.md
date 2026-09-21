@@ -220,6 +220,8 @@ The development direct-session RPC response retains each agent's existing `trunc
 
 Ordinary forward paging extends the accepted transcript without replacing a detached reader's anchor. A source discontinuity requires a successful latest read before replacement, and the direct cursor owner retains that recovery requirement until replacement succeeds. Network failure or a reader leaving the live tail during the request preserves the accepted transcript. This is separate from CLI session-message replay, whose continuation cursor must be compared with the cursor sent for that page, not the maximum row just applied.
 
+An older-page response is admitted only while the accepted transcript window that requested it still exists. Ordinary tail growth preserves that window identity; source reset or replacement retires it, so a held response cannot reinsert rows from the replaced source even when cursor strings are reused.
+
 Claude's file cursor records the consumed JSONL boundary, not an arbitrary file size: a partially written terminal record remains readable when the writer completes it. The existing bounded file pager supplies that boundary for snapshots, tail initialization, and source-reset recovery. If the existing read budget cannot establish the boundary, the read fails rather than publishing an unsafe cursor. A page budget and an incomplete terminal line are distinct outcomes.
 
 ## Implementation references
