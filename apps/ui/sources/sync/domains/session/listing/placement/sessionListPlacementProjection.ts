@@ -164,6 +164,7 @@ export function resolveSessionListPlacementTimestampForReason(
         case 'permission_required':
             return normalizePlacementTimestamp(
                 session.pendingRequestObservedAt,
+                session.meaningfulActivityAt,
                 session.updatedAt,
                 session.createdAt,
             );
