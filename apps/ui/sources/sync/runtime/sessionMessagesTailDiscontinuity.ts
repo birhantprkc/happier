@@ -18,6 +18,10 @@
  * Stacked resets (another large gap while a hole is still open) keep the DEEPEST prefix:
  * the walk restarts from the newest island and must bridge all the way down. Intermediate
  * islands are re-covered by the walk via the seq-merge dedupe.
+ *
+ * Opaque sources use the same record lifecycle with their existing older-page cursor.
+ * Raw source IDs certify overlap; materialized IDs only locate the connected display
+ * suffix, since several source rows can be absorbed into one rendered message.
  */
 export type SequenceSessionMessagesTailDiscontinuity = Readonly<{
     kind: 'seq';
