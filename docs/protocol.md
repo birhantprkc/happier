@@ -138,11 +138,12 @@ Field names below match on-wire payloads.
 
 - `session-alive`
   - `{ sid, time, thinking? }`
-  - Emits `ephemeral` activity to user-scoped connections.
+  - In the current development server, the released event refreshes the exact machine-bound publisher's reachability. The server uses its receipt time, retains observations while coalescing writes, and does not derive runtime activity from the legacy `thinking` flag. See [presence ownership](backend-architecture.md#presence-and-activity).
+  - Committed reachability is published through `publishSessionPublisherLifecycleUpdate` as session updates to interested participants.
 
 - `session-end`
   - `{ sid, time }`
-  - Marks session inactive and emits `ephemeral` activity.
+  - Closes the authorized publisher and publishes its inactive state through the same lifecycle-update owner.
 
 - `usage-report`
   - `{ key, sessionId?, tokens, cost }`
