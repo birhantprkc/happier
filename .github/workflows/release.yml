@@ -1099,7 +1099,7 @@ jobs:
     needs: [resolve_resume, plan, promote_preview, promote_main, deploy_plan, prepare_release_candidate, verify_release_candidates]
     permissions:
       contents: write
-      actions: read
+      actions: write
     uses: ./.github/workflows/promote-ui.yml
     secrets: inherit
     with:

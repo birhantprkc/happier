@@ -360,6 +360,13 @@ is an explicit no-op. A failed reconciliation remains visible and can be retried
 with the same recovery action; it must not trigger another native build or cause
 already verified product candidates to be rebuilt.
 
+A successful dispatch proves only that reconciliation was requested, not that
+Apple processed or distributed the build. Attachment errors remain failures in
+the follow-up run: a relationship 404 is reconciled against the current build
+and app groups, and an absent group is not silently treated as success. Recover
+an uploaded local IPA with its build number and app version; an EAS submission
+id is not an EAS build id.
+
 If a rolling upload is interrupted after the immutable Release was published,
 rerun the owning publisher with the same `channel` and its version as
 `retry_version`. Leave `source_ref=auto`: recovery derives the exact authorized
