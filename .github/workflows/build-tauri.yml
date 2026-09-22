@@ -287,7 +287,7 @@ jobs:
 
   build:
     name: Build desktop candidate (${{ matrix.platform_key }})
-    if: ${{ needs.resolve_source.outputs.retry_version == '' && needs.resolve_source.outputs.build_needed == 'true' }}
+    if: ${{ !cancelled() && needs.resolve_source.result == 'success' && needs.resolve_source.outputs.retry_version == '' && needs.resolve_source.outputs.build_needed == 'true' }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 180
     needs: [resolve_source]
@@ -711,6 +711,7 @@ jobs:
 
   prepare_assets:
     name: Prepare latest.json + publish assets
+    if: ${{ !cancelled() && needs.resolve_source.result == 'success' && needs.finalize.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: [resolve_source, finalize]
@@ -768,7 +769,7 @@ jobs:
           retention-days: 7
 
   publish_preview:
-    if: ${{ inputs.publish_release == true && inputs.environment == 'preview' }}
+    if: ${{ !cancelled() && needs.resolve_source.result == 'success' && needs.prepare_assets.result == 'success' && inputs.publish_release == true && inputs.environment == 'preview' }}
     needs: [prepare_assets, resolve_source]
     uses: ./.github/workflows/publish-ui-release.yml
     secrets: inherit
@@ -786,7 +787,7 @@ jobs:
       clobber: true
 
   publish_dev:
-    if: ${{ inputs.publish_release == true && inputs.environment == 'dev' }}
+    if: ${{ !cancelled() && needs.resolve_source.result == 'success' && needs.prepare_assets.result == 'success' && inputs.publish_release == true && inputs.environment == 'dev' }}
     needs: [prepare_assets, resolve_source]
     uses: ./.github/workflows/publish-ui-release.yml
     secrets: inherit
@@ -804,7 +805,7 @@ jobs:
       clobber: true
 
   publish_stable_release:
-    if: ${{ inputs.publish_release == true && inputs.environment == 'production' && needs.resolve_source.outputs.retry_version == '' }}
+    if: ${{ !cancelled() && needs.resolve_source.result == 'success' && needs.prepare_assets.result == 'success' && inputs.publish_release == true && inputs.environment == 'production' && needs.resolve_source.outputs.retry_version == '' }}
     needs: [prepare_assets, resolve_source]
     uses: ./.github/workflows/publish-ui-release.yml
     secrets: inherit
@@ -823,7 +824,7 @@ jobs:
 
   promote_stable_feed:
     name: Promote immutable desktop release to stable feed
-    if: ${{ always() && inputs.publish_release == true && inputs.environment == 'production' && (needs.publish_stable_release.result == 'success' || needs.resolve_source.outputs.retry_version != '') }}
+    if: ${{ !cancelled() && needs.resolve_source.result == 'success' && inputs.publish_release == true && inputs.environment == 'production' && (needs.publish_stable_release.result == 'success' || needs.resolve_source.outputs.retry_version != '') }}
     needs: [resolve_source, publish_stable_release]
     runs-on: ubuntu-latest
     timeout-minutes: 45

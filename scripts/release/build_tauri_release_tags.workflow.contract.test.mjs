@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import YAML from 'yaml';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '..', '..');
@@ -19,6 +20,28 @@ async function loadCanonicalUiInstallScope() {
   const easJson = JSON.parse(await loadFile('apps/ui/eas.json'));
   return String(easJson?.build?.base?.env?.HAPPIER_INSTALL_SCOPE ?? '');
 }
+
+test('desktop publication survives intentionally skipped resume/build ancestors but requires successful inputs', async () => {
+  const { jobs } = YAML.parse(await loadWorkflow('build-tauri.yml'));
+  // GitHub applies implicit success() across the dependency chain, including skipped
+  // optional resume/build jobs. Each downstream gate must override that default
+  // without allowing failed finalization or asset preparation to publish.
+  for (const [jobId, requiredSuccess] of [
+    ['build', ['resolve_source']],
+    ['finalize', ['resolve_source']],
+    ['prepare_assets', ['resolve_source', 'finalize']],
+    ['publish_preview', ['resolve_source', 'prepare_assets']],
+    ['publish_dev', ['resolve_source', 'prepare_assets']],
+    ['publish_stable_release', ['resolve_source', 'prepare_assets']],
+    ['promote_stable_feed', ['resolve_source']],
+  ]) {
+    const condition = String(jobs[jobId].if ?? '');
+    assert.match(condition, /!cancelled\(\)/, `${jobId} must tolerate skipped ancestors without running after cancellation`);
+    for (const prerequisite of requiredSuccess) {
+      assert.ok(condition.includes(`needs.${prerequisite}.result == 'success'`), `${jobId} requires ${prerequisite}`);
+    }
+  }
+});
 
 test('build-tauri publishes desktop releases under ui-desktop-* tags', async () => {
   const raw = await loadWorkflow('build-tauri.yml');
@@ -129,7 +152,9 @@ test('build-tauri can reproject an exact immutable production version without ru
   assert.match(raw, /retry_version:/);
   assert.match(raw, /RETRY_VERSION:\s*\$\{\{\s*inputs\.retry_version\s*\}\}/);
   assert.match(raw, /needs\.resolve_source\.outputs\.retry_version/);
-  assert.match(raw, /Build desktop candidate[\s\S]{0,220}if:\s*\$\{\{\s*needs\.resolve_source\.outputs\.retry_version\s*==\s*''\s*&&\s*needs\.resolve_source\.outputs\.build_needed == 'true'\s*\}\}/);
+  const { jobs } = YAML.parse(raw);
+  assert.ok(jobs.build.if.includes("needs.resolve_source.outputs.retry_version == ''"));
+  assert.ok(jobs.build.if.includes("needs.resolve_source.outputs.build_needed == 'true'"));
   assert.match(raw, /SOURCE_TAG:\s*ui-desktop-v\$\{\{\s*needs\.resolve_source\.outputs\.retry_version/);
   assert.match(raw, /SOURCE_VERSION:\s*\$\{\{\s*needs\.resolve_source\.outputs\.retry_version/);
   assert.doesNotMatch(raw, /retry_version must match apps\/ui\/package\.json version/);
