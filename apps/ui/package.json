@@ -85,9 +85,9 @@
     "tauri:mcp:server": "npx -y @hypothesi/tauri-mcp-server",
     "tauri:mcp:cli": "npx -y -p @hypothesi/tauri-mcp-cli tauri-mcp",
     "tauri:mcp:session:start": "npx -y -p @hypothesi/tauri-mcp-cli tauri-mcp driver-session start --port 9223",
-    "tauri:build:dev": "tauri build --config src-tauri/tauri.publicdev.conf.json",
-    "tauri:build:preview": "tauri build --config src-tauri/tauri.preview.conf.json",
-    "tauri:build:production": "tauri build"
+    "tauri:build:dev": "node ./scripts/runTauriCli.mjs build --config src-tauri/tauri.publicdev.conf.json",
+    "tauri:build:preview": "node ./scripts/runTauriCli.mjs build --config src-tauri/tauri.preview.conf.json",
+    "tauri:build:production": "node ./scripts/runTauriCli.mjs build"
   },
   "jest": {
     "preset": "jest-expo"

@@ -329,6 +329,22 @@ artifact is corrupt. Authorization failures and other permanent errors stop
 immediately. Byte, checksum, and signature verification remain outside retries,
 and a read retry never repeats a publication mutation.
 
+### Desktop macOS build tooling
+
+Repository desktop builds use the shared UI tooling adapter
+`apps/ui/scripts/tauriActoolEnvironment.mjs`: the release pipeline's build/bundle
+commands, `hstack build --tauri`, and UI `tauri:build:*` scripts all consume it.
+It temporarily wraps the resolved Xcode `actool` executable to reopen stdin on
+`/dev/null`, preserving arguments, environment, exit status, and layered icons.
+The native Node Tauri CLI otherwise closes inherited stdin at exec, which can
+leave Apple's persistent `ibtoold` helper failing on later invocations too.
+The adapter warns when active and removes its private executable directory when
+the command settles; it does not restart shared Apple helpers or set private
+Apple process-registry options. Raw third-party `tauri` invocations are unchanged.
+Remove the adapter and its callers once the pinned CLI includes
+[the upstream captured-command stdin fix](https://github.com/tauri-apps/tauri/pull/15991),
+then verify a real layered-icon bundle with a fresh macOS build worker.
+
 ### Best-effort TestFlight distribution
 
 The native iOS build/submission and App Store processing/group attachment are
