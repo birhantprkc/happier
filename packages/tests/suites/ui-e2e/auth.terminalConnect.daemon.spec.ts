@@ -387,7 +387,7 @@ test.describe('ui e2e: auth + terminal connect', () => {
       // Reconnecting the daemon restores machine presence, not the stopped agent
       // process. The follow-up must remain visible and queued until that session
       // is explicitly resumed, rather than disappearing or being treated as sent.
-      await expect(page.getByText(followup, { exact: true })).toBeVisible({ timeout: 60_000 });
+      await expect(page.locator('[data-testid^="pendingMessages.message:"]', { hasText: followup })).toBeVisible({ timeout: 60_000 });
       await expect(page.getByRole('button', { name: 'Pending messages · Queued' })).toBeVisible({ timeout: 60_000 });
     } catch (error) {
       thrown = error;

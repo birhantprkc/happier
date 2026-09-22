@@ -46,6 +46,35 @@ function firstVisibleDetailsByTestId(page: Page, testId: string): Locator {
   return visibleDetailsByTestId(page, testId).first();
 }
 
+async function positionRichEditorSelection(editor: Locator, word: string, mode: 'text' | 'after'): Promise<void> {
+  await editor.focus();
+  await editor.evaluate((element, target) => {
+    const document = element.ownerDocument;
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const start = node.textContent?.indexOf(target.word) ?? -1;
+      if (start < 0) continue;
+      const end = start + target.word.length;
+      const range = document.createRange();
+      range.setStart(node, target.mode === 'text' ? start : end);
+      if (target.mode === 'text') range.setEnd(node, end);
+      else range.collapse(true);
+      const selection = document.defaultView?.getSelection();
+      if (!selection) throw new Error('Rich editor has no browser selection');
+      selection.removeAllRanges();
+      selection.addRange(range);
+      if (target.mode === 'text' && selection.toString() !== target.word) {
+        throw new Error(`Rich editor did not select ${target.word}`);
+      }
+      if (target.mode === 'after' && (selection.anchorNode !== node || selection.anchorOffset !== end)) {
+        throw new Error(`Rich editor did not position after ${target.word}`);
+      }
+      return;
+    }
+    throw new Error(`Rich editor is missing ${target.word}`);
+  }, { word, mode });
+}
+
 async function ensureSwitchEnabled(toggle: Locator): Promise<void> {
   await expect(toggle).toHaveCount(1, { timeout: 60_000 });
   if ((await toggle.getAttribute('aria-checked')) !== 'true') {
@@ -381,47 +410,31 @@ test.describe('ui e2e: markdown rich editor (feat.files.markdownRichEditor)', ()
       //    the browser selection to the exact text node under test.
       const boldWord = 'BoldByE2E';
       await page.keyboard.type(boldWord);
-      await proseMirror.evaluate((editor, word) => {
-        const document = editor.ownerDocument;
-        const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
-        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-          const start = node.textContent?.indexOf(word) ?? -1;
-          if (start < 0) continue;
-          const range = document.createRange();
-          range.setStart(node, start);
-          range.setEnd(node, start + word.length);
-          const selection = document.defaultView?.getSelection();
-          if (!selection) throw new Error('Rich editor has no browser selection');
-          selection.removeAllRanges();
-          selection.addRange(range);
-          return;
-        }
-        throw new Error(`Rich editor is missing ${word}`);
-      }, boldWord);
-      await expect.poll(async () => page.evaluate(() => window.getSelection()?.toString())).toBe(boldWord);
+      await positionRichEditorSelection(proseMirror, boldWord, 'text');
       await firstVisibleDetailsByTestId(page, 'file-details-rich-editor-toolbar:bold').click({ force: true });
       await expect(proseMirror.locator('strong', { hasText: boldWord })).toHaveCount(1);
       await expect(proseMirror.locator('p').first().locator('strong')).toHaveCount(0);
 
       // 2) List: start a new line, type an item, toggle a bullet list via the
-      //    toolbar chip. Move the caret to the end of the bold paragraph before
-      //    typing; toggling Bold again while its text is selected would remove
-      //    the formatting this scenario is meant to verify.
-      await proseMirror.press('End');
-      await proseMirror.press('Enter');
+      //    toolbar chip. Collapse the exact bold-word selection before typing;
+      //    an End key on a focused contenteditable can leave that word selected.
+      await positionRichEditorSelection(proseMirror, boldWord, 'after');
+      await page.keyboard.press('Enter');
+      await expect(proseMirror.locator('strong', { hasText: boldWord })).toHaveCount(1);
       const listItem = 'ListItemByE2E';
       await page.keyboard.type(listItem);
       await firstVisibleDetailsByTestId(page, 'file-details-rich-editor-toolbar:bulletList').click({
         force: true,
       });
       await expect(proseMirror.locator('li')).toContainText(listItem);
+      await expect(proseMirror.locator('strong', { hasText: boldWord })).toHaveCount(1);
 
       // 3) Heading: start a new line, type text, apply H1 via the toolbar chip.
       //    Serializes as a leading `# `; the heading text may still carry the
       //    active bold mark, which is orthogonal to the block-format contract.
-      await proseMirror.press('End');
-      await proseMirror.press('Enter');
-      await proseMirror.press('Enter');
+      await positionRichEditorSelection(proseMirror, listItem, 'after');
+      await page.keyboard.press('Enter');
+      await page.keyboard.press('Enter');
       const headingText = 'HeadingByE2E';
       await page.keyboard.type(headingText);
       await firstVisibleDetailsByTestId(page, 'file-details-rich-editor-toolbar:heading1').click({
