@@ -1711,7 +1711,6 @@ describe('sync socket offline tracking', () => {
       },
     }), true);
     saveProfile({ ...profileDefaults, id: 'test-account' });
-    storage.getState().applyMessagesLoaded('s1');
     markSessionVisible('s1');
     (sync as any).credentials = { token: 'hdr.eyJzdWIiOiJ0ZXN0In0.sig', secret: 'secret' };
     (sync as any).serverID = 'test';
@@ -1724,12 +1723,28 @@ describe('sync socket offline tracking', () => {
     (sync as any).isForeground = true;
     (sync as any).lastSocketDisconnectedAtMs = Date.now() - 1000;
 
+    // A loaded direct transcript includes its accepted source and cursor. Seed it
+    // through the real reader so resume exercises incremental catch-up, not an initial snapshot.
+    machineDirectSessionTranscriptPageMock.mockResolvedValueOnce({
+      ok: true,
+      items: [{
+        id: 'direct-msg-initial',
+        createdAtMs: 0,
+        raw: { role: 'user', content: { type: 'text', text: 'already loaded direct' } },
+      }],
+      nextCursor: null,
+      tailCursor: 'tail-0',
+      hasMore: false,
+    });
+    await sync.refreshSessionMessages('s1');
+    expect(storage.getState().sessionMessages.s1?.isLoaded).toBe(true);
+
     await (sync as any).resumeSync('socket-reconnect');
 
     expect(machineDirectSessionTranscriptReadAfterMock).toHaveBeenCalledWith(expect.objectContaining({
       machineId: 'm1',
       remoteSessionId: 'remote-1',
-      cursor: 'tail',
+      cursor: 'tail-0',
     }), expect.anything());
     const sessionMessages = storage.getState().sessionMessages.s1;
     const texts = (sessionMessages?.messageIdsOldestFirst ?? [])
@@ -1737,7 +1752,7 @@ describe('sync socket offline tracking', () => {
       .filter((message): message is NonNullable<typeof message> => Boolean(message))
       .filter((message) => message.kind === 'user-text')
       .map((message) => message.text);
-    expect(texts).toEqual(['caught up direct']);
+    expect(texts).toEqual(['already loaded direct', 'caught up direct']);
     const directReadServerId = String(machineDirectSessionTranscriptReadAfterMock.mock.calls[0]?.[1]?.serverId ?? '').trim();
     expect(loadDirectSessionTailCursor('s1', { serverScope: directReadServerId, accountId: 'test' })).toBe('tail-1');
   }, 60_000);
