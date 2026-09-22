@@ -44,11 +44,13 @@ test('nightly status preserves an independently verified sibling after grouped f
     CLI_CANDIDATE_RESULT: 'success',
     CLI_CANDIDATE_VERSION: '1.2.3-dev.4',
     CLI_RESUME_VERIFIED: 'true',
+    DESKTOP_ORIGIN_RUN_ID: '37',
   });
 
   const cli = status.surfaces.find((surface) => surface.id === 'cli-immutable-candidate');
   assert.equal(cli?.state, 'complete');
   assert.equal(cli?.identity?.verified, true);
+  assert.equal(status.surfaces.find((surface) => surface.id === 'ui_desktop')?.identity?.candidateOriginRunId, 37);
   assert.equal(status.terminal, 'failed');
 });
 

@@ -53,6 +53,32 @@ test('Tauri source metadata rejects malicious versions before publishing workflo
     assert.notEqual(result.status, 0, 'malicious package version must fail source admission');
     assert.match(result.stderr, /canonical semantic version/, 'failure should identify the rejected version contract');
     assert.equal(fs.existsSync(join(fixtureRoot, 'tauri-version-injection')), false);
+
+    fs.writeFileSync(join(fixtureRoot, 'apps', 'ui', 'package.json'), JSON.stringify({ version: '1.2.3' }));
+    const resumed = spawnSync('bash', ['-c', renderedRun], {
+      cwd: fixtureRoot,
+      env: { ...process.env, PATH: `${join(fixtureRoot, 'bin')}:${process.env.PATH ?? ''}`,
+        SOURCE_REF: 'a'.repeat(40), RELEASE_ENVIRONMENT: 'dev', RELEASE_MESSAGE: 'Recovery',
+        RETRY_VERSION: '', RESUME_RUN_ID: '35700904820', RELEASE_RUN_NUMBER: '337',
+        GITHUB_RUN_NUMBER: '999', GITHUB_OUTPUT: join(fixtureRoot, 'github-output') },
+      encoding: 'utf8',
+    });
+    assert.equal(resumed.status, 0, resumed.stderr);
+    assert.match(fs.readFileSync(join(fixtureRoot, 'github-output'), 'utf8'), /^build_version=1\.2\.3-dev\.337$/m);
+    for (const [environment, retryVersion, expectedVersion] of [['dev', '', '1.2.3-dev.999'], ['production', '1.2.2', '1.2.3']]) {
+      const output = join(fixtureRoot, `${environment}-output`);
+      const fresh = spawnSync('bash', ['-c', renderedRun], {
+        cwd: fixtureRoot,
+        env: { ...process.env, PATH: `${join(fixtureRoot, 'bin')}:${process.env.PATH ?? ''}`,
+          SOURCE_REF: 'a'.repeat(40), RELEASE_ENVIRONMENT: environment, RELEASE_MESSAGE: 'Release',
+          RETRY_VERSION: retryVersion, RESUME_RUN_ID: '', RELEASE_RUN_NUMBER: '999',
+          GITHUB_RUN_NUMBER: '999', GITHUB_OUTPUT: output },
+        encoding: 'utf8',
+      });
+      assert.equal(fresh.status, 0, fresh.stderr);
+      assert.ok(fs.readFileSync(output, 'utf8').includes(`build_version=${expectedVersion}\n`));
+      assert.ok(fs.readFileSync(output, 'utf8').includes(`retry_version=${retryVersion}\n`));
+    }
   } finally {
     fs.rmSync(fixtureRoot, { recursive: true, force: true });
   }
@@ -435,6 +461,34 @@ test('candidate code is isolated from Tauri and Apple private signing authority'
   assert.equal(finalize?.permissions?.contents, 'read');
   assert.equal(finalize?.environment, 'release-shared');
   assert.deepEqual(finalize?.needs, ['resolve_source', 'build']);
+  assert.match(finalize.if, /!cancelled\(\)/);
+  assert.match(finalize.if, /needs\.resolve_source\.result == 'success'/);
+  assert.match(finalize.if, /needs\.build\.result == 'skipped'/);
+  assert.match(build.if, /needs\.resolve_source\.outputs\.build_needed == 'true'/);
+  assert.equal(build.strategy.matrix, '${{ fromJSON(needs.resolve_source.outputs.build_matrix) }}');
+  assert.equal(finalize.strategy.matrix, '${{ fromJSON(needs.resolve_source.outputs.finalize_matrix) }}');
+  // These job conditions use the shared JavaScript/Actions boolean-expression subset.
+  const admits = (job, needs, cancelled = false) => Function('needs', 'cancelled', `return ${job.if.slice(3, -2)}`)(needs, () => cancelled);
+  for (const [buildNeeded, buildResult] of [['true', 'success'], ['false', 'skipped']]) {
+    const needs = { resolve_source: { result: 'success', outputs: { build_needed: buildNeeded, retry_version: '' } }, build: { result: buildResult } };
+    assert.equal(admits(build, needs), buildNeeded === 'true');
+    assert.equal(admits(finalize, needs), true, 'all-reused builds must still reach finalization');
+    assert.equal(admits(finalize, needs, true), false);
+    assert.equal(admits(finalize, { ...needs, build: { result: 'failure' } }), false);
+    assert.equal(admits(finalize, { ...needs, resolve_source: { result: 'failure', outputs: {} } }), false);
+    assert.equal(admits(finalize, { ...needs, resolve_source: { result: 'success', outputs: { retry_version: '1.2.2' } } }), false);
+  }
+  const resume = parsed.jobs.resolve_resume;
+  assert.equal(resume.uses, './.github/workflows/resolve-release-resume.yml');
+  assert.equal(resume.with.expected_workflow, '.github/workflows/nightly-dev.yml');
+  assert.equal(resume.with.expected_source_sha, '${{ inputs.source_ref }}');
+  assert.equal(resume.with.expected_channel, '${{ inputs.environment }}');
+  const download = finalize.steps.find((step) => step.name === 'Download and verify admitted desktop candidate');
+  assert.equal(download.if, "${{ matrix.artifact_id != '' }}");
+  assert.equal(download.env.ARTIFACT_ID, '${{ matrix.artifact_id }}');
+  assert.equal(download.env.ARTIFACT_DIGEST, '${{ matrix.artifact_digest }}');
+  assert.match(download.run, /resolve-release-resume\.mjs[\s\S]*--mode download/);
+  assert.ok(finalize.steps.indexOf(download) < finalize.steps.findIndex((step) => step.name === 'Validate and materialize desktop candidate'));
   const trustedCheckout = finalize.steps.find((step) => step?.name === 'Checkout trusted workflow control bytes');
   assert.equal(trustedCheckout?.with?.repository, '${{ job.workflow_repository }}');
   assert.equal(trustedCheckout?.with?.ref, '${{ job.workflow_sha }}');

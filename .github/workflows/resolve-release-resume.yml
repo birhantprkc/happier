@@ -26,6 +26,10 @@ on:
         default: happier-release-status
         type: string
     outputs:
+      desktop_run_number:
+        value: ${{ jobs.resolve.outputs.desktop_run_number }}
+      desktop_artifacts:
+        value: ${{ jobs.resolve.outputs.desktop_artifacts }}
       source_sha:
         value: ${{ jobs.resolve.outputs.source_sha }}
       cli_version:
@@ -102,6 +106,8 @@ jobs:
       contents: read
       actions: read
     outputs:
+      desktop_run_number: ${{ steps.resume.outputs.desktop_run_number || steps.empty.outputs.desktop_run_number }}
+      desktop_artifacts: ${{ steps.resume.outputs.desktop_artifacts || steps.empty.outputs.desktop_artifacts }}
       source_sha: ${{ steps.resume.outputs.source_sha || steps.empty.outputs.source_sha }}
       cli_version: ${{ steps.resume.outputs.cli_version || steps.empty.outputs.cli_version }}
       stack_version: ${{ steps.resume.outputs.stack_version || steps.empty.outputs.stack_version }}
@@ -148,6 +154,8 @@ jobs:
         if: ${{ inputs.origin_run_id == '' }}
         run: |
           {
+            echo 'desktop_run_number='
+            echo 'desktop_artifacts={}'
             echo 'source_sha='
             echo 'cli_version='
             echo 'stack_version='
@@ -220,10 +228,12 @@ jobs:
           EXPECTED_DIGEST: ${{ steps.inspect.outputs.artifact_digest }}
         run: |
           set -euo pipefail
-          gh api "repos/${GH_REPO}/actions/artifacts/${STATUS_ARTIFACT_ID}/zip" \
-            > "$RUNNER_TEMP/release-status.zip"
-          actual_digest="$(sha256sum "$RUNNER_TEMP/release-status.zip" | cut -d ' ' -f 1)"
-          test "sha256:${actual_digest}" = "${EXPECTED_DIGEST}"
+          node scripts/pipeline/release/resolve-release-resume.mjs \
+            --mode download \
+            --expected-repository "$GH_REPO" \
+            --artifact-id "$STATUS_ARTIFACT_ID" \
+            --artifact-digest "$EXPECTED_DIGEST" \
+            --archive-path "$RUNNER_TEMP/release-status.zip"
           mkdir -p "$RUNNER_TEMP/release-status"
           unzip -q "$RUNNER_TEMP/release-status.zip" -d "$RUNNER_TEMP/release-status"
           test -f "$RUNNER_TEMP/release-status/release-status.json"

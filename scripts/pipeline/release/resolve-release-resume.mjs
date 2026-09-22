@@ -3,10 +3,15 @@
 // @ts-check
 
 import { appendFile, readFile } from 'node:fs/promises';
+import { openSync, closeSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { pathToFileURL } from 'node:url';
 
 import { validateCandidateVersions } from './verify-release-candidate-identity.mjs';
+import { fileSha256 } from './lib/release-files.mjs';
+import { execFileSyncPortable } from '../lib/exec-file-sync-portable.mjs';
+import { downloadReleaseAssetWithRetry } from '../github/lib/release-asset-transfer.mjs';
+import { BUNDLE_CANDIDATE_PLATFORMS } from '../tauri/bundle-candidate.mjs';
 
 const SHA_PATTERN = /^[a-f0-9]{40}$/u;
 const DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/u;
@@ -86,6 +91,67 @@ function flattenArtifacts(value) {
   return flattened;
 }
 
+/** @param {Record<string, unknown>} artifact @param {number} runId @param {string} workflowSha */
+function inspectOriginArtifact(artifact, runId, workflowSha) {
+  if (!Number.isSafeInteger(artifact.id) || Number(artifact.id) < 1) {
+    throw new Error('[release] resume artifact ID is invalid');
+  }
+  const digest = requiredString(artifact.digest, 'resume artifact digest').toLowerCase();
+  if (!DIGEST_PATTERN.test(digest)) throw new Error('[release] resume artifact digest must be SHA-256');
+  const workflowRun = asRecord(artifact.workflow_run, 'resume artifact workflow run');
+  if (workflowRun.id !== runId || requiredSha(workflowRun.head_sha, 'artifact workflow SHA') !== workflowSha) {
+    throw new Error('[release] resume artifact does not belong to the exact origin run and workflow SHA');
+  }
+  return { id: Number(artifact.id), digest };
+}
+
+/** @param {unknown} artifacts @param {Record<string, unknown>} run @param {string} workflowSha */
+function resolveDesktopArtifacts(artifacts, run, workflowSha) {
+  if (!Number.isSafeInteger(run.run_number) || Number(run.run_number) < 1) {
+    throw new Error('[release] desktop origin run number must be a positive safe integer');
+  }
+  /** @type {Record<string, { id: number; digest: string }>} */
+  const selected = {};
+  const seen = new Set();
+  for (const rawArtifact of flattenArtifacts(artifacts)) {
+    const artifact = asRecord(rawArtifact, 'artifact');
+    if (typeof artifact.name !== 'string' || !artifact.name.startsWith('tauri-candidate-')) continue;
+    const platform = artifact.name.slice('tauri-candidate-'.length);
+    if (!BUNDLE_CANDIDATE_PLATFORMS.includes(platform)) throw new Error('[release] unknown desktop candidate artifact platform');
+    if (seen.has(platform)) throw new Error('[release] duplicate desktop candidate artifact');
+    seen.add(platform);
+    const admitted = inspectOriginArtifact(artifact, Number(run.id), workflowSha);
+    if (typeof artifact.expired !== 'boolean') throw new Error('[release] desktop artifact expiry must be boolean');
+    if (!artifact.expired) selected[platform] = admitted;
+  }
+  return { runNumber: Number(run.run_number), artifacts: selected };
+}
+
+/** @param {{ repository: string; artifactId: number; digest: string; archivePath: string }} input */
+export async function downloadReleaseResumeArtifact(input) {
+  const repository = requiredString(input.repository, 'artifact repository');
+  if (!/^[\w.-]+\/[\w.-]+$/u.test(repository)) throw new Error('[release] invalid artifact repository');
+  if (!Number.isSafeInteger(input.artifactId) || input.artifactId < 1) throw new Error('[release] invalid artifact ID');
+  if (!DIGEST_PATTERN.test(input.digest)) throw new Error('[release] invalid artifact digest');
+  const archivePath = requiredString(input.archivePath, 'artifact archive path');
+  await downloadReleaseAssetWithRetry({
+    name: `Actions artifact ${input.artifactId}`,
+    download(timeoutMs) {
+      const descriptor = openSync(archivePath, 'w');
+      try {
+        execFileSyncPortable('gh', ['api', `repos/${repository}/actions/artifacts/${input.artifactId}/zip`], {
+          stdio: ['ignore', descriptor, 'pipe'], timeout: timeoutMs,
+        });
+      } finally {
+        closeSync(descriptor);
+      }
+    },
+  });
+  if (`sha256:${await fileSha256(input.archivePath)}` !== input.digest) {
+    throw new Error('[release] downloaded resume artifact digest does not match GitHub metadata');
+  }
+}
+
 /**
  * @param {{
  *   originRun: unknown;
@@ -136,18 +202,8 @@ export function inspectReleaseResumeOrigin(input) {
   }
   const artifact = matches[0];
   if (artifact.expired !== false) throw new Error('[release] resume status artifact is expired');
-  if (!Number.isSafeInteger(artifact.id) || Number(artifact.id) < 1) {
-    throw new Error('[release] resume status artifact ID is invalid');
-  }
-  const digest = requiredString(artifact.digest, 'resume status artifact digest').toLowerCase();
-  if (!DIGEST_PATTERN.test(digest)) {
-    throw new Error('[release] resume status artifact digest must be SHA-256');
-  }
-  const workflowRun = asRecord(artifact.workflow_run, 'resume status artifact workflow run');
-  if (workflowRun.id !== runId || requiredSha(workflowRun.head_sha, 'artifact workflow SHA') !== workflowSha) {
-    throw new Error('[release] resume status artifact does not belong to the exact origin run and workflow SHA');
-  }
-  return { artifactDigest: digest, artifactId: Number(artifact.id), workflowSha };
+  const admitted = inspectOriginArtifact(artifact, runId, workflowSha);
+  return { artifactDigest: admitted.digest, artifactId: admitted.id, workflowSha };
 }
 
 /**
@@ -215,6 +271,17 @@ export function resolveReleaseResume(input) {
   for (const [index, rawSurface] of status.surfaces.entries()) {
     const surface = asRecord(rawSurface, `resume status surface ${index}`);
     const surfaceId = requiredString(surface.id, `resume status surface ${index} id`);
+    if (surfaceId === 'ui_desktop' && input.expected.workflowPath === '.github/workflows/nightly-dev.yml') {
+      const identity = asRecord(surface.identity, 'desktop candidate identity');
+      if (identity.candidateOriginRunId !== undefined) {
+        if (!Number.isSafeInteger(identity.candidateOriginRunId) || Number(identity.candidateOriginRunId) < 1) {
+          throw new Error('[release] desktop candidate origin run ID must be a positive safe integer');
+        }
+        if (identity.candidateOriginRunId !== originRun.id) {
+          throw new Error(`[release] resume the original desktop candidate run ${identity.candidateOriginRunId}; chained desktop recovery is not supported`);
+        }
+      }
+    }
     const verifiedCompletionKey = RESUMABLE_VERIFIED_SURFACES.get(surfaceId);
     if (verifiedCompletionKey && surface.requested === true && surface.state === 'complete' && surface.result === 'success') {
       const identity = asRecord(surface.identity, `completed ${surfaceId} identity`);
@@ -317,6 +384,8 @@ export function resolveReleaseResume(input) {
   }
   return {
     sourceSha: statusSourceSha,
+    ...(input.expected.workflowPath === '.github/workflows/nightly-dev.yml'
+      ? { desktop: resolveDesktopArtifacts(input.artifacts, originRun, inspected.workflowSha) } : {}),
     versions: validated.versions,
     requested,
     completed,
@@ -329,7 +398,7 @@ async function readJson(path) {
   return JSON.parse(await readFile(path, 'utf8'));
 }
 
-/** @param {string} path @param {Record<string, string | number>} outputs */
+/** @param {string} path @param {Record<string, string | number | boolean>} outputs */
 async function writeOutputs(path, outputs) {
   const lines = Object.entries(outputs).map(([key, value]) => `${key}=${value}\n`).join('');
   await appendFile(path, lines, 'utf8');
@@ -341,6 +410,9 @@ export async function main(argv = process.argv.slice(2)) {
     args: argv,
     options: {
       mode: { type: 'string' },
+      'artifact-id': { type: 'string' },
+      'artifact-digest': { type: 'string' },
+      'archive-path': { type: 'string' },
       'origin-run-json': { type: 'string' },
       'artifacts-json': { type: 'string' },
       'status-json': { type: 'string' },
@@ -356,6 +428,15 @@ export async function main(argv = process.argv.slice(2)) {
     allowPositionals: false,
   });
   const mode = String(values.mode ?? '');
+  if (mode === 'download') {
+    await downloadReleaseResumeArtifact({
+      repository: String(values['expected-repository'] ?? ''),
+      artifactId: Number(values['artifact-id']),
+      digest: String(values['artifact-digest'] ?? ''),
+      archivePath: String(values['archive-path'] ?? ''),
+    });
+    return;
+  }
   const originRun = await readJson(String(values['origin-run-json'] ?? ''));
   const artifacts = await readJson(String(values['artifacts-json'] ?? ''));
   const expected = {
@@ -388,6 +469,8 @@ export async function main(argv = process.argv.slice(2)) {
     });
     await writeOutputs(outputPath, {
       source_sha: resolved.sourceSha,
+      desktop_run_number: resolved.desktop?.runNumber ?? '',
+      desktop_artifacts: JSON.stringify(resolved.desktop?.artifacts ?? {}),
       cli_version: resolved.versions.cli,
       stack_version: resolved.versions.stack,
       server_version: resolved.versions.server,
@@ -417,7 +500,7 @@ export async function main(argv = process.argv.slice(2)) {
     });
     return resolved;
   }
-  throw new Error('[release] --mode must be inspect or resolve');
+  throw new Error('[release] --mode must be inspect, resolve, or download');
 }
 
 const isMain = process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url;

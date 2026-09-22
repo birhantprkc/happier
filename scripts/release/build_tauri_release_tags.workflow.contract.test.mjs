@@ -129,7 +129,7 @@ test('build-tauri can reproject an exact immutable production version without ru
   assert.match(raw, /retry_version:/);
   assert.match(raw, /RETRY_VERSION:\s*\$\{\{\s*inputs\.retry_version\s*\}\}/);
   assert.match(raw, /needs\.resolve_source\.outputs\.retry_version/);
-  assert.match(raw, /Build desktop candidate[\s\S]{0,220}if:\s*\$\{\{\s*needs\.resolve_source\.outputs\.retry_version\s*==\s*''\s*\}\}/);
+  assert.match(raw, /Build desktop candidate[\s\S]{0,220}if:\s*\$\{\{\s*needs\.resolve_source\.outputs\.retry_version\s*==\s*''\s*&&\s*needs\.resolve_source\.outputs\.build_needed == 'true'\s*\}\}/);
   assert.match(raw, /SOURCE_TAG:\s*ui-desktop-v\$\{\{\s*needs\.resolve_source\.outputs\.retry_version/);
   assert.match(raw, /SOURCE_VERSION:\s*\$\{\{\s*needs\.resolve_source\.outputs\.retry_version/);
   assert.doesNotMatch(raw, /retry_version must match apps\/ui\/package\.json version/);

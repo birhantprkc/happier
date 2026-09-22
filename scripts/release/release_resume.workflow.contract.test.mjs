@@ -25,6 +25,8 @@ test('one trusted reusable workflow resolves prior release candidates by exact r
   assert.ok(parsed.on.workflow_call.inputs.expected_channel);
   for (const output of [
     'source_sha',
+    'desktop_run_number',
+    'desktop_artifacts',
     'cli_version',
     'stack_version',
     'server_version',
@@ -54,9 +56,9 @@ test('one trusted reusable workflow resolves prior release candidates by exact r
   assert.equal(resolveJob.permissions.contents, 'read');
   const source = resolveJob.steps.map((step) => step.run ?? '').join('\n');
   assert.match(source, /resolve-release-resume\.mjs[\s\S]*--mode inspect/);
-  assert.match(source, /actions\/artifacts\/\$\{STATUS_ARTIFACT_ID\}\/zip/);
-  assert.match(source, /sha256sum/);
-  assert.match(source, /test "sha256:\$\{actual_digest\}" = "\$\{EXPECTED_DIGEST\}"/);
+  assert.match(source, /resolve-release-resume\.mjs[\s\S]*--mode download/);
+  assert.match(source, /--artifact-id "\$STATUS_ARTIFACT_ID"/);
+  assert.match(source, /--artifact-digest "\$EXPECTED_DIGEST"/);
   assert.match(source, /resolve-release-resume\.mjs[\s\S]*--mode resolve/);
 });
 
@@ -87,6 +89,7 @@ test('nightly resume pins the prior source, reuses completed immutable candidate
   assert.ok(parsed.on.workflow_dispatch.inputs.resume_run_id);
   assert.equal(parsed.jobs.resolve_resume.uses, './.github/workflows/resolve-release-resume.yml');
   assert.equal(parsed.jobs.resolve_resume.with.expected_workflow, '.github/workflows/nightly-dev.yml');
+  assert.equal(parsed.jobs.ui_desktop.with.resume_run_id, '${{ inputs.resume_run_id }}');
   assert.ok(needs(parsed.jobs.prepare_release_candidate).includes('resolve_resume'));
   const checkout = parsed.jobs.prepare_release_candidate.steps.find((step) => String(step.name).includes('Checkout requested nightly source'));
   assert.match(checkout.with.ref, /needs\.resolve_resume\.outputs\.source_sha/);
@@ -106,6 +109,7 @@ test('nightly resume pins the prior source, reuses completed immutable candidate
   assert.equal(statusProjection.env.CLI_RESUME_VERIFIED, '${{ needs.verify_resume_candidates.outputs.cli_verified }}');
   assert.equal(statusProjection.env.IMMUTABLE_VERIFICATION_RESULT, '${{ needs.release_verify.result }}');
   assert.equal(statusProjection.env.SOURCE_SHA, "${{ needs.prepare_release_candidate.outputs.source_sha || 'unavailable' }}");
+  assert.equal(statusProjection.env.DESKTOP_ORIGIN_RUN_ID, '${{ inputs.resume_run_id || github.run_id }}');
 });
 
 test('full release resume binds the prior run to the same operation and authorized source', () => {

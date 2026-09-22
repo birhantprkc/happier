@@ -35,6 +35,10 @@ The resolver must prove the origin workflow/channel, terminal `happier-release-s
 
 A control-only fix may change workflow/test code while reusing immutable candidates only when the workflow explicitly separates trusted current control bytes from the preserved candidate source. Never execute a new control flag using an old candidate checkout that cannot support it.
 
+Desktop recovery reuses unexpired `tauri-candidate-*` artifacts from that same original candidate-producing nightly. The resolver admits exact artifact IDs and SHA-256 digests; each finalizer verifies the archive digest before the existing source/channel/version/platform and file-hash checks. Missing or expired platforms alone rebuild. All available candidates skip unsigned builds, but trusted current-control finalizers still run. Desktop versions retain the original run number.
+
+Keep using that original run ID for later control-fixed retries. A resumed run records its desktop origin in the existing status identity and cannot itself become a desktop resume origin. This does not merge artifacts across runs: a later new-control retry can rebuild platforms that were missing in the original run; a same-control native failed-job rerun retains successful new sibling builds. Legacy original runs without this identity field remain admissible, subject to the existing manifest checks. Docker and mobile reuse are not provided by this desktop path.
+
 ## Monitoring
 
 - Use step-level status to distinguish queueing, dependency installation, compilation, notarization, store processing, publication, and cleanup.

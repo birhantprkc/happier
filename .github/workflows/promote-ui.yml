@@ -630,6 +630,7 @@ jobs:
     needs: [promote]
     permissions:
       contents: write
+      actions: read
     uses: ./.github/workflows/build-tauri.yml
     secrets: inherit
     with:
