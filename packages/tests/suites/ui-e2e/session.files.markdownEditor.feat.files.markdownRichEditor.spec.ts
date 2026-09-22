@@ -8,6 +8,7 @@ import { resolveUiWebBeforeAllTimeoutMs, startUiWeb, type StartedUiWeb } from '.
 import { type StartedDaemon } from '../../src/testkit/daemon/daemon';
 import { authenticateAndStartDaemon } from '../../src/testkit/uiE2e/authenticateAndStartDaemon';
 import { fakeClaudeFixturePath } from '../../src/testkit/fakeClaude';
+import { focusMonacoEditor } from '../../src/testkit/uiE2e/focusMonacoEditor';
 import { execGit, initGitRepo } from '../../src/testkit/uiE2e/gitRepoFixtures';
 import {
   gotoCommittedWithRetries,
@@ -145,9 +146,6 @@ test.describe('ui e2e: markdown rich editor (feat.files.markdownRichEditor)', ()
       extraEnv: {
         HAPPIER_BUILD_FEATURES_DENY: 'sharing.contentKeys',
         HAPPIER_FEATURE_AUTH_LOGIN__KEY_CHALLENGE_ENABLED: '1',
-        HAPPIER_PRESENCE_SESSION_TIMEOUT_MS: '60000',
-        HAPPIER_PRESENCE_MACHINE_TIMEOUT_MS: '60000',
-        HAPPIER_PRESENCE_TIMEOUT_TICK_MS: '1000',
         HAPPIER_E2E_PROVIDER_SKIP_SERVER_SHARED_DEPS_BUILD: '1',
         HAPPIER_E2E_PROVIDER_SKIP_SERVER_GENERATE: '1',
         HAPPIER_E2E_PROVIDER_USE_SERVER_SOURCE_ENTRYPOINT: '1',
@@ -243,16 +241,10 @@ test.describe('ui e2e: markdown rich editor (feat.files.markdownRichEditor)', ()
 
       // Type an appended line in raw mode (Monaco), the most deterministic way to
       // make a precise on-disk assertion across the rich<->raw round-trip.
-      const monacoRoot = rawEditor.locator('.monaco-editor');
-      await expect(monacoRoot).toHaveCount(1, { timeout: 60_000 });
-      const monacoInput = monacoRoot.locator('textarea');
-      if (await monacoInput.count()) {
-        await monacoInput.first().click({ force: true });
-      } else {
-        await monacoRoot.click({ force: true, position: { x: 60, y: 40 } });
-      }
+      await focusMonacoEditor(rawEditor);
       await page.keyboard.press('Control+End');
       await page.keyboard.type('\nAppended by e2e.');
+      await expect(rawEditor.locator('.view-lines')).toContainText('Appended by e2e.');
 
       // Switch back to Rich; the rich surface must remount with the latest text
       // (no character loss across the toggle).

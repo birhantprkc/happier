@@ -7,6 +7,7 @@ import { startServerLight, type StartedServer } from '../../src/testkit/process/
 import { startUiWeb, type StartedUiWeb } from '../../src/testkit/process/uiWeb';
 import { type StartedDaemon } from '../../src/testkit/daemon/daemon';
 import { fakeClaudeFixturePath } from '../../src/testkit/fakeClaude';
+import { focusMonacoEditor } from '../../src/testkit/uiE2e/focusMonacoEditor';
 import { gotoDomContentLoadedWithRetries, normalizeLoopbackBaseUrl } from '../../src/testkit/uiE2e/pageNavigation';
 import { clickScopedButtonByTestIdOrRole } from '../../src/testkit/uiE2e/clickScopedButtonByTestIdOrRole';
 import { createGitRepoWithChanges } from '../../src/testkit/uiE2e/gitRepoFixtures';
@@ -55,9 +56,6 @@ test.describe('ui e2e: SCM review position + tab state', () => {
       extraEnv: {
         HAPPIER_BUILD_FEATURES_DENY: 'sharing.contentKeys',
         HAPPIER_FEATURE_AUTH_LOGIN__KEY_CHALLENGE_ENABLED: '1',
-        HAPPIER_PRESENCE_SESSION_TIMEOUT_MS: '60000',
-        HAPPIER_PRESENCE_MACHINE_TIMEOUT_MS: '60000',
-        HAPPIER_PRESENCE_TIMEOUT_TICK_MS: '1000',
         HAPPIER_E2E_PROVIDER_USE_SERVER_SOURCE_ENTRYPOINT: '1',
       },
     });
@@ -278,16 +276,7 @@ test.describe('ui e2e: SCM review position + tab state', () => {
 
     const editorSurface = page.getByTestId('file-details-editor');
     await expect(editorSurface).toHaveCount(1, { timeout: 60_000 });
-    // Ensure Monaco is mounted and focus the editor's content area before typing.
-    const monacoRoot = editorSurface.locator('.monaco-editor');
-    await expect(monacoRoot).toHaveCount(1, { timeout: 60_000 });
-    // Monaco keeps focus in a hidden textarea; clicking the container isn't always sufficient on CI.
-    const monacoInput = monacoRoot.locator('textarea');
-    if (await monacoInput.count()) {
-      await monacoInput.first().click({ force: true });
-    } else {
-      await monacoRoot.click({ force: true, position: { x: 60, y: 40 } });
-    }
+    await focusMonacoEditor(editorSurface);
     await page.keyboard.type('\nui-e2e edit');
 
     // Ensure the edit landed before switching tabs (otherwise the next assertion is ambiguous).
