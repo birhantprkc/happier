@@ -12,7 +12,7 @@ import {
   reloadCreatedSessionFromNewSessionComposer,
   type CreatedSessionFromNewSessionComposer,
 } from '../../src/testkit/uiE2e/createSessionFromNewSessionComposer';
-import { fakeClaudeFixturePath } from '../../src/testkit/fakeClaude';
+import { fakeClaudeEchoResponseText, fakeClaudeFixturePath } from '../../src/testkit/fakeClaude';
 import { gotoDomContentLoadedWithRetries, normalizeLoopbackBaseUrl } from '../../src/testkit/uiE2e/pageNavigation';
 import { waitForDaemonMachineIdFromCliSettings } from '../../src/testkit/uiE2e/daemonMachineId';
 
@@ -427,11 +427,11 @@ test.describe('ui e2e: transcript viewport invariants', () => {
     return await waitForViewportTelemetryQuiescence(page);
   }
 
-  async function sendSeedPromptAndWaitForOk(page: Page, prompt: string, okNumber: number): Promise<void> {
+  async function sendSeedPromptAndWaitForEcho(page: Page, prompt: string): Promise<void> {
     const composer = page.locator('textarea[data-testid="session-composer-input"]:visible');
     await composer.fill(prompt);
     await composer.press('Enter');
-    await expect(page.getByText(`FAKE_CLAUDE_OK_${okNumber}`).first()).toBeVisible({ timeout: 180_000 });
+    await expect(page.getByText(fakeClaudeEchoResponseText(prompt)).first()).toBeVisible({ timeout: 180_000 });
   }
 
   test.beforeAll(async () => {
@@ -539,6 +539,7 @@ test.describe('ui e2e: transcript viewport invariants', () => {
         HOME: cliHomeDir,
         HAPPIER_CLAUDE_PATH: fakeClaudePath,
         HAPPIER_E2E_FAKE_CLAUDE_LOG: fakeClaudeLogPath,
+        HAPPIER_E2E_FAKE_CLAUDE_SCENARIO: 'echo-user-text',
         HAPPIER_E2E_FAKE_CLAUDE_SESSION_ID: `fake-claude-session-${run.runId}`,
         HAPPIER_E2E_FAKE_CLAUDE_INVOCATION_ID: `fake-claude-invocation-${run.runId}`,
       },
@@ -556,12 +557,12 @@ test.describe('ui e2e: transcript viewport invariants', () => {
     sessionId = createdSession.sessionId;
 
     await expect(page.getByTestId('transcript-chat-list')).toHaveCount(1, { timeout: 120_000 });
-    await expect(page.getByText('FAKE_CLAUDE_OK_1').first()).toBeVisible({ timeout: 180_000 });
+    await expect(page.getByText(fakeClaudeEchoResponseText(seedMessageText(0, run.runId))).first()).toBeVisible({ timeout: 180_000 });
 
     // Each turn persists ~5 messages. With the test-only 12-message initial request and six-message
     // older pages, this leaves multiple real older pages after the bounded entry-fill phase.
     for (let i = 1; i <= SEED_TURN_COUNT; i += 1) {
-      await sendSeedPromptAndWaitForOk(page, seedMessageText(i, run.runId), i + 1);
+      await sendSeedPromptAndWaitForEcho(page, seedMessageText(i, run.runId));
     }
 
     // Infrastructure strictness: the dev-gated telemetry buffer must be readable and capturing.

@@ -20,6 +20,7 @@ const readline = require('node:readline');
 const { createHash, randomUUID } = require('node:crypto');
 const { resolveClaudeProjectId } = require('../testkit/claudeProjectId.cjs');
 const {
+  fakeClaudeEchoResponseText,
   findArgValue,
   mergeMcpServers,
   parseHookForwarderCommand,
@@ -1302,6 +1303,12 @@ async function runSdkStreamUntilEof() {
       ]);
 
       emitSdk(assistant);
+      emitSdk(createResultSuccess());
+      continue;
+    }
+
+    if (scenario === 'echo-user-text') {
+      emitSdk(createAssistantMessage([{ type: 'text', text: fakeClaudeEchoResponseText(promptText) }]));
       emitSdk(createResultSuccess());
       continue;
     }

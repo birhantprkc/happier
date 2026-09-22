@@ -2,6 +2,10 @@ import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
+import {
+  fakeClaudeEchoResponseText as formatFakeClaudeEchoResponseText,
+  fakeClaudeEchoResponseTextFromSha256 as formatFakeClaudeEchoResponseTextFromSha256,
+} from '../fixtures/fake-claude-code-cli.helpers.cjs';
 import { repoRootDir } from './paths';
 import { sleep } from './timing';
 
@@ -37,6 +41,14 @@ export type FakeClaudeNativeAuthContract = {
 };
 
 export type FakeClaudeLogEvent = Record<string, unknown>;
+
+export function fakeClaudeEchoResponseText(promptText: string): string {
+  return formatFakeClaudeEchoResponseText(promptText);
+}
+
+export function fakeClaudeEchoResponseTextFromSha256(promptSha256: string): string {
+  return formatFakeClaudeEchoResponseTextFromSha256(promptSha256);
+}
 
 export function fakeClaudeFixturePath(): string {
   const path = resolve(repoRootDir(), 'packages/tests/src/fixtures/fake-claude-code-cli.js');
