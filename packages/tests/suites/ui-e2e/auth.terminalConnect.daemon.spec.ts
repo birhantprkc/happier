@@ -162,9 +162,7 @@ test.describe('ui e2e: auth + terminal connect', () => {
           // Keep this test focused on the auth + terminal-connect + daemon flow first.
           HAPPIER_BUILD_FEATURES_DENY: 'sharing.contentKeys',
           HAPPIER_FEATURE_AUTH_LOGIN__KEY_CHALLENGE_ENABLED: '1',
-          // Make presence timeouts fast enough for UI E2E reconnect flows.
-          // NOTE: DB lastActiveAt updates are throttled, so the timeout needs to be comfortably above that threshold.
-          HAPPIER_PRESENCE_SESSION_TIMEOUT_MS: '60000',
+          // This scenario explicitly waits for machine expiry before daemon reconnect.
           HAPPIER_PRESENCE_MACHINE_TIMEOUT_MS: '60000',
           HAPPIER_PRESENCE_TIMEOUT_TICK_MS: '1000',
         },

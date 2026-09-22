@@ -810,11 +810,6 @@ test.describe('ui e2e: Codex app-server dynamic controls', () => {
             extraEnv: {
                 HAPPIER_E2E_PROVIDER_USE_SERVER_SOURCE_ENTRYPOINT: '1',
                 HAPPIER_BUILD_FEATURES_DENY: 'sharing.contentKeys',
-                // Presence updates are throttled in the DB; keep the presence timeout comfortably above
-                // that threshold so the UI doesn't briefly classify the daemon machine as "offline".
-                HAPPIER_PRESENCE_SESSION_TIMEOUT_MS: '300000',
-                HAPPIER_PRESENCE_MACHINE_TIMEOUT_MS: '300000',
-                HAPPIER_PRESENCE_TIMEOUT_TICK_MS: '1000',
                 // UI e2e runs after workspace typechecks/builds in the pipeline runner; avoid
                 // expensive shared-deps/provider-generation work here to reduce beforeAll flake.
                 HAPPIER_E2E_PROVIDER_SKIP_SERVER_SHARED_DEPS_BUILD: '1',
