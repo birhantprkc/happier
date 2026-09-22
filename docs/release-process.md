@@ -115,10 +115,11 @@ directly and prove that exact wrapper with
 there is intentionally no required `hmaint --version` command. Do not resolve a
 different copy from `PATH`, invoke the maintainer CLI's internal JavaScript
 entry point, or install a second conductor inside the VM. This 0.2 checkout
-does not contain `hstack-exec`. From the managed Linux VM, invoke an existing
-configured 0.3 checkout's launcher from the intended repository-relative
-working directory; the launcher projects that directory remotely and does not
-accept a launcher-level `--cwd` option:
+does not contain `hstack-exec`. From the managed Linux VM, first enter an
+existing configured 0.3 checkout and invoke its launcher there, not from a 0.2
+working directory. The launcher projects the invocation directory remotely;
+its optional `--cwd` selects only a directory within the synchronized 0.3
+checkout, not a different release repository:
 
 ```bash
 cd <absolute-0.3-checkout>
@@ -127,7 +128,9 @@ cd <absolute-0.3-checkout>
   --repo <macOS-mounted-absolute-checkout> --json
 ```
 
-Always use the absolute checkout path returned by the actual execution host.
+The launcher's owning checkout and `hmaint --repo` target are independent.
+`--repo` may name a 0.2 checkout, but must use its independently verified absolute
+path on the Mac execution host, not an inferred translation of a VM path.
 If the launcher, configured `mac-host`, Mac wrapper, or Mac-visible target path
 cannot be proved, fail closed; do not translate paths by inspection or fall back
 to a VM-local conductor.
