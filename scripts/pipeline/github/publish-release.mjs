@@ -9,10 +9,12 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { buildRollingReleaseEditArgs } from './lib/gh-release-commands.mjs';
-
-const DEFAULT_RELEASE_UPLOAD_RETRIES = 3;
-const DEFAULT_RELEASE_UPLOAD_RETRY_DELAY_MS = 2_000;
-const DEFAULT_RELEASE_TRANSFER_TIMEOUT_MS = 10 * 60_000;
+import {
+  downloadReleaseAssetWithRetry,
+  formatExecError,
+  isTransientReleaseTransferError,
+  resolveReleaseAssetTransferPolicy,
+} from './lib/release-asset-transfer.mjs';
 
 function fail(message) {
   console.error(message);
@@ -71,57 +73,11 @@ function parseBool(value, name) {
 }
 
 /**
- * @param {string} name
- * @param {number} defaultValue
- * @returns {number}
- */
-function readPositiveIntegerEnv(name, defaultValue) {
-  const raw = String(process.env[name] ?? '').trim();
-  if (!raw) return defaultValue;
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    fail(`${name} must be a positive integer (got: ${raw || '<empty>'})`);
-  }
-  return parsed;
-}
-
-/**
  * @param {number} ms
  */
 function sleepSync(ms) {
   const buf = new SharedArrayBuffer(4);
   Atomics.wait(new Int32Array(buf), 0, 0, ms);
-}
-
-/**
- * @param {unknown} err
- * @returns {string}
- */
-function formatExecError(err) {
-  if (err instanceof Error) {
-    const stderr = 'stderr' in err ? String(err.stderr ?? '') : '';
-    const stdout = 'stdout' in err ? String(err.stdout ?? '') : '';
-    return `${stderr}\n${stdout}\n${err.message}`;
-  }
-  return String(err);
-}
-
-/**
- * @param {unknown} err
- * @returns {boolean}
- */
-function isTransientReleaseTransferError(err) {
-  const raw = formatExecError(err);
-  return (
-    /release not found/i.test(raw)
-    || /404/i.test(raw)
-    || /ETIMEDOUT/i.test(raw)
-    || /ECONNRESET/i.test(raw)
-    || /connection reset by peer/i.test(raw)
-    || /socket hang up/i.test(raw)
-    || /Service Unavailable/i.test(raw)
-    || /\b50[234]\b/.test(raw)
-  );
 }
 
 /**
@@ -181,11 +137,14 @@ async function fileSha256(filePath) {
   return hash.digest('hex');
 }
 
-async function assertRemoteAssetMatches({ tag, repo, name, expectedPath, env, timeoutMs, retries, retryDelayMs }) {
+/** @param {{ tag: string; repo: string; name: string; expectedPath: string; env: Record<string, string>; policy: ReturnType<typeof resolveReleaseAssetTransferPolicy> }} input */
+async function assertRemoteAssetMatches({ tag, repo, name, expectedPath, env, policy }) {
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'happier-immutable-release-audit-'));
   try {
-    for (let attempt = 1; attempt <= retries; attempt += 1) {
-      try {
+    await downloadReleaseAssetWithRetry({
+      name,
+      policy,
+      download: (timeoutMs) => {
         run('gh', [
           'release', 'download', tag,
           '--repo', repo,
@@ -193,15 +152,8 @@ async function assertRemoteAssetMatches({ tag, repo, name, expectedPath, env, ti
           '--dir', scratch,
           '--clobber',
         ], { env, timeoutMs });
-        break;
-      } catch (err) {
-        if (isTransientReleaseTransferError(err) && attempt < retries) {
-          sleepSync(retryDelayMs);
-          continue;
-        }
-        throw err;
-      }
-    }
+      },
+    });
     const downloadedPath = path.join(scratch, name);
     if (!fs.existsSync(downloadedPath)) {
       fail(`Immutable release audit did not download expected asset: ${name}`);
@@ -428,18 +380,8 @@ async function main() {
   }
 
   const ghToken = String(process.env.GH_TOKEN ?? '').trim();
-  const uploadRetries = readPositiveIntegerEnv(
-    'HAPPIER_PIPELINE_GH_RELEASE_UPLOAD_RETRIES',
-    DEFAULT_RELEASE_UPLOAD_RETRIES,
-  );
-  const uploadRetryDelayMs = readPositiveIntegerEnv(
-    'HAPPIER_PIPELINE_GH_RELEASE_UPLOAD_RETRY_DELAY_MS',
-    DEFAULT_RELEASE_UPLOAD_RETRY_DELAY_MS,
-  );
-  const transferTimeoutMs = readPositiveIntegerEnv(
-    'HAPPIER_PIPELINE_GH_RELEASE_TRANSFER_TIMEOUT_MS',
-    DEFAULT_RELEASE_TRANSFER_TIMEOUT_MS,
-  );
+  const transferPolicy = resolveReleaseAssetTransferPolicy();
+  const { retries: uploadRetries, retryDelayMs: uploadRetryDelayMs, timeoutMs: transferTimeoutMs } = transferPolicy;
   /** @type {Record<string, string>} */
   const ghEnv = {};
   if (repo) ghEnv.GH_REPO = repo;
@@ -641,9 +583,7 @@ async function main() {
           name,
           expectedPath: /** @type {string} */ (localByName.get(name)),
           env: ghEnv,
-          timeoutMs: transferTimeoutMs,
-          retries: uploadRetries,
-          retryDelayMs: uploadRetryDelayMs,
+          policy: transferPolicy,
         });
       }
     }
@@ -678,9 +618,7 @@ async function main() {
           name,
           expectedPath,
           env: ghEnv,
-          timeoutMs: transferTimeoutMs,
-          retries: uploadRetries,
-          retryDelayMs: uploadRetryDelayMs,
+          policy: transferPolicy,
         });
       }
     }

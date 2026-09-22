@@ -83,10 +83,12 @@ function fixture({ missingRolling = false } = {}) {
   const release77Tag = join(root, 'release-77-tag');
   const rollingReadFailureMarker = join(root, 'rolling-read-failure-marker');
   const sourceAssetReadCounter = join(root, 'source-asset-read-counter');
+  const downloadFailureCounter = join(root, 'download-failure-counter');
   const deleteConfirmFailureMarker = join(root, 'delete-confirm-failure-marker');
   writeFileSync(log, '');
   writeFileSync(uploadCounter, '0');
   writeFileSync(sourceAssetReadCounter, '0');
+  writeFileSync(downloadFailureCounter, '0');
   if (missingRolling) {
     rmSync(join(rolling, 'old-asset'));
   } else {
@@ -273,6 +275,21 @@ if [ "$1" = "api" ]; then
       ;;
     *"repos/test/test/releases/assets/"*)
       asset="\${2##*/}"
+      phase=""
+      if [ "$asset" = ${JSON.stringify(`55-${archiveName}`)} ]; then phase=immutable; fi
+      if [ "$asset" = ${JSON.stringify(`77-${aliasName}`)} ]; then
+        if [ -f ${JSON.stringify(draftState)} ]; then phase=staged; else phase=published; fi
+      fi
+      if [ -n "$phase" ] && [ "$phase" = "\${HAPPIER_TEST_DOWNLOAD_FAILURE_PHASE:-}" ]; then
+        count="$(cat ${JSON.stringify(downloadFailureCounter)})"
+        count=$((count + 1))
+        printf '%s' "$count" > ${JSON.stringify(downloadFailureCounter)}
+        if [ "$count" -le "\${HAPPIER_TEST_DOWNLOAD_FAILURES:-1}" ]; then
+          printf 'partial bytes that must be replaced'
+          echo "\${HAPPIER_TEST_DOWNLOAD_ERROR:-unexpected end of JSON input}" >&2
+          exit 1
+        fi
+      fi
       case "$asset" in
         55-*) cat ${JSON.stringify(source)}/"\${asset#55-}" ;;
         77-*) cat ${JSON.stringify(staging)}/"\${asset#77-}" ;;
@@ -407,6 +424,7 @@ exit 2
     rolling,
     staging,
     uploadCounter,
+    downloadFailureCounter,
     draftState,
     staleOtherDraftState,
     publishedState,
@@ -537,6 +555,8 @@ test('rolling promotion rejects a channel alias whose downloaded bytes differ fr
         ...process.env,
         PATH: `${testFixture.bin}:${process.env.PATH ?? ''}`,
         HAPPIER_TEST_CORRUPT_ALIAS: '1',
+        HAPPIER_TEST_DOWNLOAD_FAILURE_PHASE: 'staged',
+        HAPPIER_PIPELINE_GH_RELEASE_UPLOAD_RETRY_DELAY_MS: '10',
       },
       encoding: 'utf8',
     });
@@ -550,6 +570,68 @@ test('rolling promotion rejects a channel alias whose downloaded bytes differ fr
     rmSync(testFixture.root, { recursive: true, force: true });
   }
 });
+
+for (const phase of ['immutable', 'staged', 'published']) {
+  test(`rolling promotion retries a truncated ${phase} asset read with a complete fresh download`, () => {
+    const testFixture = fixture();
+    try {
+      const result = spawnSync(process.execPath, args(), {
+        cwd: repoRoot,
+        env: {
+          ...process.env,
+          PATH: `${testFixture.bin}:${process.env.PATH ?? ''}`,
+          HAPPIER_TEST_DOWNLOAD_FAILURE_PHASE: phase,
+          HAPPIER_PIPELINE_GH_RELEASE_UPLOAD_RETRY_DELAY_MS: '10',
+        },
+        encoding: 'utf8',
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stderr, /retrying.*download|download.*retrying/i);
+      assert.equal(readFileSync(testFixture.channelRef, 'utf8'), targetSha);
+      assert.deepEqual(
+        readFileSync(join(testFixture.staging, testFixture.aliasName)),
+        readFileSync(join(testFixture.root, 'source', testFixture.archiveName)),
+      );
+    } finally {
+      rmSync(testFixture.root, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const [error, attempts] of [
+  ['unexpected end of JSON input', 3],
+  ['gh: Bad credentials (HTTP 401)', 1],
+  ['gh: Resource not accessible by integration (HTTP 403)', 1],
+  ['gh: permanent download failure', 1],
+]) {
+  test(`rolling promotion leaves predecessor unchanged when asset reads fail: ${error}`, () => {
+    const testFixture = fixture();
+    try {
+      const result = spawnSync(process.execPath, args(), {
+        cwd: repoRoot,
+        env: {
+          ...process.env,
+          PATH: `${testFixture.bin}:${process.env.PATH ?? ''}`,
+          HAPPIER_TEST_DOWNLOAD_FAILURE_PHASE: 'staged',
+          HAPPIER_TEST_DOWNLOAD_FAILURES: '99',
+          HAPPIER_TEST_DOWNLOAD_ERROR: error,
+          HAPPIER_PIPELINE_GH_RELEASE_UPLOAD_RETRIES: '3',
+          HAPPIER_PIPELINE_GH_RELEASE_UPLOAD_RETRY_DELAY_MS: '10',
+        },
+        encoding: 'utf8',
+      });
+      assert.equal(result.status, 1);
+      assert.ok(result.stderr.includes(error), result.stderr);
+      assert.equal(Number(readFileSync(testFixture.downloadFailureCounter, 'utf8')), attempts);
+      assert.equal(readFileSync(testFixture.release1Tag, 'utf8'), 'cli-preview');
+      assert.equal(readFileSync(testFixture.channelRef, 'utf8'), oldSha);
+      assert.deepEqual(readdirSync(testFixture.rolling), ['old-asset']);
+      assert.doesNotMatch(readFileSync(testFixture.log, 'utf8'), /-X PATCH repos\/test\/test\/git\/refs\/tags\/cli-preview/);
+    } finally {
+      rmSync(testFixture.root, { recursive: true, force: true });
+    }
+  });
+}
 
 test('existing rolling replacement stages privately, restores after publish failure, and exposes only audited bytes', () => {
   const testFixture = fixture();

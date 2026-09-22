@@ -316,6 +316,19 @@ the same promotion reuses and re-audits the same-SHA staging draft or recognizes
 an already exact rolling Release; it does not create a second publication owner
 or blindly append assets to a partial rolling Release.
 
+Immutable publication audits and all rolling-promotion asset downloads share
+the read-retry owner in `scripts/pipeline/github/lib/release-asset-transfer.mjs`.
+They reuse the existing transfer budget: `HAPPIER_PIPELINE_GH_RELEASE_UPLOAD_RETRIES`
+(three attempts), `HAPPIER_PIPELINE_GH_RELEASE_UPLOAD_RETRY_DELAY_MS` (2,000 ms),
+and `HAPPIER_PIPELINE_GH_RELEASE_TRANSFER_TIMEOUT_MS` (ten minutes per command).
+The legacy `UPLOAD` names already govern publication audit reads as well as
+uploads. A failed read restarts with a truncated or clobbered local destination;
+retry warnings retain the original error. Transient transport failures and
+`gh`'s `unexpected end of JSON input` are retryable reads, not evidence that an
+artifact is corrupt. Authorization failures and other permanent errors stop
+immediately. Byte, checksum, and signature verification remain outside retries,
+and a read retry never repeats a publication mutation.
+
 ### Best-effort TestFlight distribution
 
 The native iOS build/submission and App Store processing/group attachment are
