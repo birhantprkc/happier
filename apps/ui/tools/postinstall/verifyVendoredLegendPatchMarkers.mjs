@@ -347,7 +347,9 @@ export function verifyVendoredLegendPatchMarkers(params) {
             missingBuilds.push(build);
             continue;
         }
-        const contents = fs.readFileSync(buildPath, 'utf8');
+        // Windows patch additions can carry CRLF into otherwise LF runtime builds. Match the
+        // same source lines without relaxing marker text, indentation, or occurrence counts.
+        const contents = fs.readFileSync(buildPath, 'utf8').replace(/\r\n/g, '\n');
         for (const entry of LEGEND_PATCH_MARKERS) {
             // A hunk scoped to a subset of builds is not expected in the others. This is the only
             // supported reason to skip a check, and it is declared per entry rather than inferred,
@@ -392,6 +394,7 @@ export function formatVendoredLegendPatchFailure(result) {
     return lines.join('\n');
 }
 
+/** @param {string} haystack @param {string} needle */
 function countOccurrences(haystack, needle) {
     let count = 0;
     let index = haystack.indexOf(needle);
