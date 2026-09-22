@@ -93,10 +93,6 @@ test.describe('ui e2e: auth + terminal connect', () => {
     accountSecretKeyFormatted = await readAccountSecretKeyFromSettings(page, baseUrl);
   }
 
-  function transcriptMessageLocator(page: Page) {
-    return page.locator('[data-testid^="transcript-message-"]');
-  }
-
   function getVisibleSessionComposer(page: Page) {
     return page.locator('[data-testid="session-composer-input"]:visible');
   }
@@ -323,7 +319,7 @@ test.describe('ui e2e: auth + terminal connect', () => {
     await expect(backendModeRow).toContainText('ACP', { timeout: 60_000 });
   });
 
-  test('daemon can reconnect and UI reflects offline → online', async ({ page }, testInfo) => {
+  test('daemon can reconnect and UI preserves a queued follow-up', async ({ page }, testInfo) => {
     test.setTimeout(420_000);
     if (!ui) throw new Error('missing ui fixture');
     if (!server) throw new Error('missing server fixture');
@@ -343,9 +339,6 @@ test.describe('ui e2e: auth + terminal connect', () => {
     try {
       await restoreAccountUsingSecretKey(page, uiBaseUrl, accountSecretKeyFormatted);
       await reloadCreatedSessionFromNewSessionComposer({ page, session: createdSession });
-
-      const transcriptMessages = transcriptMessageLocator(page);
-      const messageCountBefore = await transcriptMessages.count();
 
       const machineId = await waitForDaemonMachineIdFromCliSettings({ cliHomeDir, timeoutMs: 120_000 });
       await daemon.stop();
@@ -390,8 +383,12 @@ test.describe('ui e2e: auth + terminal connect', () => {
       const composer = getVisibleSessionComposer(page);
       await expect(composer).toHaveCount(1, { timeout: 120_000 });
       await composer.fill(followup);
-      await composer.press('Enter');
-      await expect.poll(async () => transcriptMessages.count(), { timeout: 180_000 }).toBeGreaterThan(messageCountBefore);
+      await page.getByTestId('session-composer-send').click();
+      // Reconnecting the daemon restores machine presence, not the stopped agent
+      // process. The follow-up must remain visible and queued until that session
+      // is explicitly resumed, rather than disappearing or being treated as sent.
+      await expect(page.getByText(followup, { exact: true })).toBeVisible({ timeout: 60_000 });
+      await expect(page.getByRole('button', { name: 'Pending messages · Queued' })).toBeVisible({ timeout: 60_000 });
     } catch (error) {
       thrown = error;
       throw error;

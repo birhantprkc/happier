@@ -376,38 +376,58 @@ test.describe('ui e2e: markdown rich editor (feat.files.markdownRichEditor)', ()
       await page.keyboard.press('Control+End');
       await page.keyboard.press('Enter');
 
-      // 1) Bold: type a word, select it back to the line start, toggle bold via
-      //    the toolbar chip. `@tiptap/markdown` serializes a bold mark as
-      //    `**...**`, which we assert on disk below.
+      // 1) Bold: select only the new word before using the toolbar chip.
+      //    Home and double-click selection differ across macOS/Linux, so pin
+      //    the browser selection to the exact text node under test.
       const boldWord = 'BoldByE2E';
       await page.keyboard.type(boldWord);
-      await page.keyboard.press('Shift+Home');
+      await proseMirror.evaluate((editor, word) => {
+        const document = editor.ownerDocument;
+        const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          const start = node.textContent?.indexOf(word) ?? -1;
+          if (start < 0) continue;
+          const range = document.createRange();
+          range.setStart(node, start);
+          range.setEnd(node, start + word.length);
+          const selection = document.defaultView?.getSelection();
+          if (!selection) throw new Error('Rich editor has no browser selection');
+          selection.removeAllRanges();
+          selection.addRange(range);
+          return;
+        }
+        throw new Error(`Rich editor is missing ${word}`);
+      }, boldWord);
+      await expect.poll(async () => page.evaluate(() => window.getSelection()?.toString())).toBe(boldWord);
       await firstVisibleDetailsByTestId(page, 'file-details-rich-editor-toolbar:bold').click({ force: true });
+      await expect(proseMirror.locator('strong', { hasText: boldWord })).toHaveCount(1);
+      await expect(proseMirror.locator('p').first().locator('strong')).toHaveCount(0);
 
       // 2) List: start a new line, type an item, toggle a bullet list via the
-      //    toolbar chip. TipTap can preserve the active bold mark across the
-      //    caret transition, so the disk assertion below checks the stable
-      //    toolbar contract (a persisted list marker) rather than the incidental
-      //    mark state of the list text.
-      await page.keyboard.press('ArrowRight');
-      await firstVisibleDetailsByTestId(page, 'file-details-rich-editor-toolbar:bold').click({ force: true });
-      await page.keyboard.press('Enter');
+      //    toolbar chip. Move the caret to the end of the bold paragraph before
+      //    typing; toggling Bold again while its text is selected would remove
+      //    the formatting this scenario is meant to verify.
+      await proseMirror.press('End');
+      await proseMirror.press('Enter');
       const listItem = 'ListItemByE2E';
       await page.keyboard.type(listItem);
       await firstVisibleDetailsByTestId(page, 'file-details-rich-editor-toolbar:bulletList').click({
         force: true,
       });
+      await expect(proseMirror.locator('li')).toContainText(listItem);
 
       // 3) Heading: start a new line, type text, apply H1 via the toolbar chip.
       //    Serializes as a leading `# `; the heading text may still carry the
       //    active bold mark, which is orthogonal to the block-format contract.
-      await page.keyboard.press('Enter');
-      await page.keyboard.press('Enter');
+      await proseMirror.press('End');
+      await proseMirror.press('Enter');
+      await proseMirror.press('Enter');
       const headingText = 'HeadingByE2E';
       await page.keyboard.type(headingText);
       await firstVisibleDetailsByTestId(page, 'file-details-rich-editor-toolbar:heading1').click({
         force: true,
       });
+      await expect(proseMirror.locator('h1')).toContainText(headingText);
 
       // Save and assert the on-disk markdown reflects the toolbar formatting:
       // a bold span (`**...**`), a bullet-list marker (`- `), and an H1 (`# `).
