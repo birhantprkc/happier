@@ -1449,6 +1449,8 @@ jobs:
     if: ${{ inputs.run_cli_update_continuity }}
     needs: [trusted_ref_guard]
     name: Release Validation — CLI Update Continuity (Linux)
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
@@ -1495,6 +1497,7 @@ jobs:
       - name: Run unified CLI update continuity validation
         env:
           CI: "1"
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           node scripts/pipeline/run.mjs release-validate \
@@ -1510,7 +1513,11 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: cli-update-continuity-artifacts
-          path: .project/logs/e2e
+          path: |
+            .project/logs/e2e/*core*/cli-update-*/*.log
+            .project/logs/e2e/*core*/cli-update-*/*.json
+            .project/logs/e2e/*core*/cli-update-*/*.jsonl
+            .project/logs/e2e/vitest-heartbeat-diagnostic.ndjson
           if-no-files-found: ignore
 
   daemon-continuity:
