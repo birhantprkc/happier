@@ -549,7 +549,7 @@ function runChecksPlan({ repoRoot, env, args, dryRun }) {
  */
 function runChecks({ repoRoot, env, args, dryRun }) {
   const scriptPath = path.join(repoRoot, 'scripts', 'pipeline', 'checks', 'run-checks.mjs');
-  const fullArgs = [scriptPath, ...args];
+  const fullArgs = ['--experimental-strip-types', scriptPath, ...args];
   if (dryRun) {
     console.log(`[pipeline] exec: node ${fullArgs.map((a) => JSON.stringify(a)).join(' ')}`);
   }

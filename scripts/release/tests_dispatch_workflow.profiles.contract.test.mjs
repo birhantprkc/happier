@@ -114,8 +114,7 @@ test('manual deep CI retains the complete source certification set', () => {
   }
 
   assert.equal(flags.run_providers, 'false', 'live provider scenarios remain an explicit credentialed check');
-  assert.equal(flags.run_cli_update_continuity, undefined, 'published-channel CLI updates remain release-candidate validation');
-  assert.equal(workflow.jobs.tests.with.run_cli_update_continuity, undefined);
+  assert.equal(flags.run_cli_update_continuity, 'false', 'published-channel CLI updates require explicit selection');
 
   const wsreplLima = workflow.jobs['ui-e2e-wsrepl-lima'];
   assert.deepEqual(wsreplLima.needs, ['resolve', 'release_actor_guard']);
@@ -153,6 +152,12 @@ test('custom CI trims tokens before selecting lanes', () => {
   assert.equal(flags.run_server, 'false');
 });
 
+test('targeted UI specs cannot narrow a complete profile', () => {
+  const { result } = runResolver({ profile: 'release', uiE2eSpecs: 'packages/tests/suites/ui-e2e/example.spec.ts' });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /profile=custom is required when ui_e2e_specs is set/);
+});
+
 test('custom CI selects shared packages and build smoke independently', () => {
   const { result, flags } = runResolver({
     profile: 'custom',
@@ -162,6 +167,18 @@ test('custom CI selects shared packages and build smoke independently', () => {
   assert.equal(flags.run_shared_packages, 'true');
   assert.equal(flags.run_build_smoke, 'true');
   assert.equal(flags.run_ui, 'false');
+});
+
+test('custom CI can target CLI update continuity without unrelated lanes', () => {
+  const { result, flags } = runResolver({ profile: 'custom', custom: 'cli_update_continuity' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(Object.entries(flags).filter(([, value]) => value === 'true'), [['run_cli_update_continuity', 'true']]);
+  assert.equal(workflow.jobs.tests.with.run_cli_update_continuity, "${{ needs.resolve.outputs.run_cli_update_continuity == 'true' }}");
+  assert.equal(workflow.jobs.tests.with.cli_update_to_source, '${{ inputs.cli_update_to_source }}');
+  assert.equal(workflow.jobs.tests.with.cli_update_to_ref, '${{ inputs.cli_update_to_ref }}');
+  assert.equal(workflow.jobs.tests.with.installers_channel, '${{ inputs.installers_channel }}');
+  assert.equal(workflow.on.workflow_dispatch.inputs.cli_update_to_source.default, 'local-build');
+  assert.equal(workflow.on.workflow_dispatch.inputs.cli_update_to_ref.default, '.');
 });
 
 test('custom CI rejects every empty or unknown token in one early result', () => {

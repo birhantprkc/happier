@@ -15,7 +15,7 @@ test('one root-owned all-settled inventory drives local and CI shared-package te
   const commands = (job.steps ?? []).map((step) => String(step.run ?? '')).join('\n');
 
   assert.equal(packageJson.scripts['test:shared-packages:local'], 'node --experimental-strip-types scripts/testing/runSharedPackageTests.ts');
-  assert.equal(packageJson.scripts['test:unit'], 'yarn -s test:shared-packages:local && yarn workspace @happier-dev/app test && yarn workspace @happier-dev/cli test:unit && yarn --cwd apps/server test:unit && yarn --cwd apps/stack test:unit');
+  // Root execution and shared-package delegation are exercised by rootPackageScripts.test.ts.
   assert.deepEqual(owner.SHARED_PACKAGE_TEST_COMMANDS.map(({ id, args }) => ({ id, args: [...args] })), [
     { id: 'privacy-kit:test', args: ['workspace', 'privacy-kit', 'test'] },
     { id: 'privacy-kit:bun', args: ['workspace', 'privacy-kit', 'test:runtime:bun'] },

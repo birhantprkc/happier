@@ -128,7 +128,7 @@ Host-test green alone is not shippable for user-visible behavior; this skill own
 - Treat live gates (managed-stack browser QA, argent device QA) as ship gates for UI-visible changes; write or extend host tests from what the live loop taught, afterwards.
 - For daemon/session/provider/API behavior that depends on real process, transport, authentication, persistence, or provider semantics, run the named composed CLI/API/daemon recipe when the authorized environment is available. Corridor tests do not replace this gate.
 - If a defect family escapes host tests twice, stop adding host tests and switch to live-in-the-loop: fix → load and identify the updated build/bundle/module actually consumed → replay the exact failing recipe → verify live, closing each defect with a live PASS against that observed basis in the same session.
-- When a full-suite result is used as a release/ship gate, or shared-state leakage/order dependence is a material risk, run it twice back-to-back before calling it deterministic.
+- Reuse an applicable successful full-suite result; release use alone does not require running it twice. Repeat the affected lane when investigating nondeterminism, shared-state leakage, order dependence, or when an explicit release protocol requires independent execution. Two passes are evidence, not proof of determinism.
 - If a documented memory-heavy UI host suite OOMs at the default heap, rerun with `NODE_OPTIONS=--max-old-space-size=8192` instead of silently narrowing the lane.
 - Device QA must pin bundle identity when stale Metro state could invalidate the result: full Metro reload, Fast Refresh off, and a module probe.
 

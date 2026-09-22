@@ -1022,6 +1022,10 @@ jobs:
         id: integration-tests
         if: ${{ matrix.part == 1 && !cancelled() }}
         continue-on-error: true
+        env:
+          # Integration runs once, unlike the two-part unit matrix.
+          HAPPIER_CLI_VITEST_PART: "1"
+          HAPPIER_CLI_VITEST_PARTS: "1"
         run: |
           yarn --cwd apps/cli vitest run --config vitest.integration.config.ts src/backends/codex/appServer/client/createCodexUnixWebSocket.bun.integration.test.ts
           yarn workspace @happier-dev/cli test:integration

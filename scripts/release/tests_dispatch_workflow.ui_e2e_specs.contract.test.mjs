@@ -10,8 +10,6 @@ test('manual tests dispatch can run an exact bounded UI E2E spec selection', asy
   const reusable = await readFile(join(repoRoot, '.github', 'workflows', 'tests.yml'), 'utf8');
 
   assert.match(dispatch, /ui_e2e_specs:/, 'manual dispatch should expose the optional exact-spec selection');
-  assert.match(dispatch, /profile=custom is required when ui_e2e_specs is set/, 'full and fast profiles must not be narrowed by a targeted selection');
-  assert.match(dispatch, /custom_checks must include ui_e2e when ui_e2e_specs is set/, 'a targeted selection must activate its owning lane');
   assert.match(dispatch, /ui_e2e_specs:\s*\$\{\{\s*needs\.resolve\.outputs\.ui_e2e_specs\s*\}\}/, 'dispatch should pass only the admitted selection to the reusable workflow');
   assert.match(reusable, /UI_E2E_SPECS:\s*\$\{\{\s*inputs\.ui_e2e_specs\s*\}\}/, 'the UI E2E job should receive the selection only as environment data');
   assert.match(reusable, /packages\/tests\/suites\/ui-e2e\/\*\.spec\.ts/, 'targeted specs should be restricted to the canonical UI E2E directory');

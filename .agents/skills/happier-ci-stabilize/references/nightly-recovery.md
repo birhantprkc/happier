@@ -12,17 +12,22 @@
 
 Successful sibling candidates are reusable evidence, not disposable intermediate work. Preserve them unless source, packaging, dependency, signing, or candidate bytes changed.
 
-For 0.2 nightly, the public workflow input is defined by `.github/workflows/nightly-dev.yml`. A typical authorized dispatch is:
+For an explicitly authorized 0.2 public nightly dispatch, inputs are defined by `.github/workflows/nightly-dev.yml`. First check for an active scheduled or manual run already serving the same recovery; do not queue duplicate publication work. A prepared preview/production conductor operation must instead use its recorded recovery command.
+
+A manual 0.2 nightly requires the successful candidate-source CI run ID, including on resume:
 
 ```bash
 gh workflow run nightly-dev.yml \
   --repo happier-dev/happier \
   --ref dev \
-  -f source_ref=dev \
+  -f source_ref=<candidate-source-sha> \
+  -f ci_run_id=<successful-candidate-source-ci-run-id> \
   -f resume_run_id=<completed-origin-run-id>
 ```
 
 Do not dispatch merely because this command is documented. Confirm current repository instructions, release authority, exact control SHA, origin run, and source identity first.
+
+On resume, the resolver binds the preserved **candidate source SHA** from the origin, while `--ref` selects current **workflow control bytes**. Therefore `ci_run_id` must prove that candidate source, not a newer control-only fix. CI for the newer control change is separate evidence; passing its run ID as candidate evidence fails exact-SHA admission. A fresh nightly instead binds CI to the new source. After dispatch, bind the returned run ID and verify both identities and skipped build/sign jobs before claiming reuse.
 
 ## Resume invariants
 

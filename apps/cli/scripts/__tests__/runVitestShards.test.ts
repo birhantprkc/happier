@@ -95,6 +95,28 @@ describe('runVitestShards', () => {
     );
   });
 
+  it.each([2, 3, 32])('distributes every isolated run exactly once across %i CI parts', (parts) => {
+    const fullPlan = resolveVitestIsolationPlan('vitest.config.ts');
+    const plans = Array.from({ length: parts }, (_, index) => resolveVitestIsolationPlan(
+      'vitest.config.ts',
+      resolveVitestShardRange({
+        HAPPIER_CLI_VITEST_PART: String(index + 1),
+        HAPPIER_CLI_VITEST_PARTS: String(parts),
+      }, 64),
+    ));
+
+    for (const plan of plans) {
+      expect(plan.shardExcludes).toEqual(fullPlan.shardExcludes);
+    }
+    const assignedRuns = plans.flatMap((plan) => plan.runs);
+    expect(assignedRuns).toHaveLength(fullPlan.runs.length);
+    expect(assignedRuns.map((run) => JSON.stringify(run)).sort()).toEqual(
+      fullPlan.runs.map((run) => JSON.stringify(run)).sort(),
+    );
+    const runCounts = plans.map((plan) => plan.runs.length);
+    expect(Math.max(...runCounts) - Math.min(...runCounts)).toBeLessThanOrEqual(1);
+  });
+
   it('returns null when --config is missing', () => {
     expect(resolveVitestConfigPath(['node', 'run'])).toBe(null);
   });

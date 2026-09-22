@@ -41,7 +41,7 @@ export function resolveVitestShardRange(env, shardCount) {
   return { start, end, part, parts };
 }
 
-export function resolveVitestIsolationPlan(configPath) {
+export function resolveVitestIsolationPlan(configPath, { part = 1, parts = 1 } = {}) {
   if (typeof configPath !== 'string' || basename(configPath) !== 'vitest.config.ts') {
     return { shardExcludes: [], runs: [] };
   }
@@ -108,7 +108,7 @@ export function resolveVitestIsolationPlan(configPath) {
       { file: nonInteractiveAuthFile, testNamePattern: '.*' },
       { file: durableMutationOutboxFile, testNamePattern: '.*' },
       { file: ephemeralExecutionRunPromptFile, testNamePattern: '.*' },
-    ],
+    ].filter((_, index) => index % parts === part - 1),
   };
 }
 
@@ -169,9 +169,7 @@ async function main(argv) {
   const shardCount = resolveVitestShardCount(process.env, configPath);
   const workerArgs = resolveVitestWorkerArgs(process.env, configPath);
   const shardRange = resolveVitestShardRange(process.env, shardCount);
-  const isolationPlan = shardRange.part === 1
-    ? resolveVitestIsolationPlan(configPath)
-    : { shardExcludes: resolveVitestIsolationPlan(configPath).shardExcludes, runs: [] };
+  const isolationPlan = resolveVitestIsolationPlan(configPath, shardRange);
   const sizeMb = resolveMaxOldSpaceSizeMb(process.env);
   const nodeOptions = upsertMaxOldSpaceSize(process.env.NODE_OPTIONS, sizeMb);
 

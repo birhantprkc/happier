@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import YAML from 'yaml';
+import { resolveVitestShardRange } from '../../apps/cli/scripts/runVitestShards.mjs';
 
 function jobIds(raw) {
   const jobs = raw.slice(raw.indexOf('\njobs:'));
@@ -67,4 +68,19 @@ test('selected owner jobs collect every independent diagnostic before failing', 
       );
     }
   }
+});
+
+test('CLI integration covers every shard despite the unit-job partition', async () => {
+  const workflow = YAML.parse(await readFile(join(process.cwd(), '.github/workflows/tests.yml'), 'utf8'));
+  const job = workflow.jobs.cli;
+  const integration = job.steps.find((step) => step.name === 'Run integration tests');
+  assert.ok(integration, 'CLI integration must remain scheduled');
+  // A single-part integration step must not inherit the two-part unit partition.
+  const selectedParts = String(integration.if).includes('matrix.part == 1') ? [1] : job.strategy.matrix.part;
+  const covered = new Set();
+  for (const part of selectedParts) {
+    const range = resolveVitestShardRange({ ...job.env, HAPPIER_CLI_VITEST_PART: String(part), ...integration.env }, 8);
+    for (let shard = range.start; shard <= range.end; shard += 1) covered.add(shard);
+  }
+  assert.deepEqual([...covered].sort((a, b) => a - b), [1, 2, 3, 4, 5, 6, 7, 8]);
 });
