@@ -443,6 +443,7 @@ export async function fetchAndApplyMessages(params: {
 
 export async function fetchAndApplyOlderMessages(params: {
     sessionId: string;
+    shouldContinue?: () => boolean;
     beforeSeq: number;
     limit: number;
     scope?: 'main' | 'sidechain' | 'all';
@@ -475,6 +476,7 @@ export async function fetchAndApplyOlderMessages(params: {
     const result = await runSessionMessagesPagePipeline({
         sessionId,
         purpose: 'older',
+        shouldContinue: params.shouldContinue,
         page: {
             direction: 'older',
             requestPath,
@@ -504,6 +506,7 @@ export async function fetchAndApplyOlderMessages(params: {
 
 export async function fetchAndApplyNewerMessages(params: {
     sessionId: string;
+    shouldContinue?: () => boolean;
     afterSeq: number;
     limit: number;
     scope?: 'main' | 'sidechain' | 'all';
@@ -536,6 +539,7 @@ export async function fetchAndApplyNewerMessages(params: {
     const result = await runSessionMessagesPagePipeline({
         sessionId,
         purpose: 'newer',
+        shouldContinue: params.shouldContinue,
         page: {
             direction: 'newer',
             requestPath,

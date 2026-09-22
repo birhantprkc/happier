@@ -147,6 +147,7 @@ function shouldDropTargetWindowCommit(params: Readonly<{
 
 export async function fetchAndApplyTargetWindowMessages(params: {
     sessionId: string;
+    shouldContinue?: () => boolean;
     windowId: string;
     target: TargetWindowTarget;
     direction: TargetWindowDirection;
@@ -214,6 +215,7 @@ export async function fetchAndApplyTargetWindowMessages(params: {
             afterSeq: page.afterSeq,
         },
         lifecyclePolicy: 'suppress',
+        shouldContinue: params.shouldContinue,
         getSessionEncryption: params.getSessionEncryption,
         isSessionKnown: params.isSessionKnown,
         request: params.request,
@@ -233,9 +235,9 @@ export async function fetchAndApplyTargetWindowMessages(params: {
         beforeSeq,
         afterSeq,
     });
-    if (result.skippedMissingSession) {
+    if (result.skippedMissingSession || result.skippedSuperseded) {
         return {
-            status: 'skipped_missing_session',
+            status: result.skippedSuperseded ? 'stale' : 'skipped_missing_session',
             windowId: params.windowId,
             targetSeq: targetSequence,
             targetPresent: false,
@@ -311,10 +313,10 @@ export async function fetchAndApplyTargetWindowMessages(params: {
             }),
             afterSeq: targetSequence,
         });
-        if (newerResult.skippedMissingSession) {
+        if (newerResult.skippedMissingSession || newerResult.skippedSuperseded) {
             const latestWindowState = params.getWindowState();
             return {
-                status: 'skipped_missing_session',
+                status: newerResult.skippedSuperseded ? 'stale' : 'skipped_missing_session',
                 windowId: params.windowId,
                 targetSeq: targetSequence,
                 targetPresent: false,

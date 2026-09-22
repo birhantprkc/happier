@@ -115,7 +115,7 @@ function createSession(sessionId: string): Session {
     };
 }
 
-function createDirectSession(sessionId: string): Session {
+function createDirectSession(sessionId: string): Session & { metadata: NonNullable<Session['metadata']> } {
     const now = Date.now();
     return {
         ...createSession(sessionId),
@@ -1385,6 +1385,304 @@ describe('sync.fetchMessages server-scoped known-session checks', () => {
         expect(requestMock).not.toHaveBeenCalled();
         await internals.fetchMessages(sessionId);
         expect(machineDirectSessionTranscriptReadAfterMock).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(['pull', 'push'] as const)('replaces a hosted target window on live-tail handoff through %s even before the main transcript was loaded', async (entry) => {
+        const sessionId = `cold_target_window_direct_handoff_${entry}`;
+        const { sync } = await import('./sync');
+        const internals = sync as unknown as {
+            encryption: { getSessionEncryption: () => null }; fetchMessages(id: string): Promise<void>;
+            handleDirectSessionTranscriptEphemeralUpdate(update: { sessionId: string; items: []; fromCursor: string; nextCursor: string }): Promise<void>;
+        };
+        internals.encryption = { getSessionEncryption: () => null };
+        storage.getState().applySessions([{ ...createSession(sessionId), encryptionMode: 'plain' }]);
+        requestMock.mockResolvedValueOnce(Response.json({ messages: [{ id: 'hosted-target', seq: 20, localId: null, createdAt: 20,
+            content: { t: 'plain', v: { role: 'user', content: { type: 'text', text: 'hosted target' } } } }],
+            hasMore: true, nextBeforeSeq: 20 })).mockResolvedValueOnce(Response.json({ messages: [], hasMore: false, nextAfterSeq: null }));
+        await expect(sync.loadTargetWindowMessages(sessionId, { kind: 'seq', seq: 20 })).resolves.toMatchObject({ status: 'loaded' });
+        expect(storage.getState().sessionMessages[sessionId]?.isLoaded).toBe(false);
+        expect(sync.getSessionTargetWindowState(sessionId).isWindowMode).toBe(true);
+        const accepted = storage.getState().sessionMessages[sessionId];
+        storage.getState().applySessions([createDirectSession(sessionId)]);
+        machineDirectSessionTranscriptPageMock.mockResolvedValue({ ok: true, items: [{ id: 'direct-current', createdAtMs: 40,
+            raw: { role: 'user', content: { type: 'text', text: 'direct current' } } }],
+            tailCursor: 'direct-tail', nextCursor: null, hasMore: false });
+        const refresh = () => entry === 'pull' ? internals.fetchMessages(sessionId)
+            : internals.handleDirectSessionTranscriptEphemeralUpdate({ sessionId, items: [], fromCursor: 'tail', nextCursor: 'push-tail' });
+        if (entry === 'pull') {
+            await refresh();
+            expect(storage.getState().sessionMessages[sessionId]).toBe(accepted);
+            expect(sync.getSessionTargetWindowState(sessionId).isWindowMode).toBe(true);
+        }
+        sync.markSessionLiveTailIntent(sessionId);
+        await refresh();
+        expect(Object.values(storage.getState().sessionMessages[sessionId]?.messagesById ?? {}).map((message) => message.realID))
+            .toEqual(['direct-current']);
+        expect(sync.getSessionTargetWindowState(sessionId).isWindowMode).toBe(false);
+        await expect(sync.loadOlderMessages(sessionId)).resolves.toMatchObject({ status: 'no_more' });
+    });
+
+    it('stages a hosted-to-direct handoff before retiring hosted rows and numeric pagination', async () => {
+        const sessionId = 'hosted_to_direct_handoff';
+        const { sync } = await import('./sync');
+        const { buildSessionHandoffMetadataPatch } = await import('./ops/buildSessionHandoffMetadataPatch');
+        const internals = sync as unknown as {
+            encryption: { getSessionEncryption: () => null };
+            fetchMessages(id: string): Promise<void>;
+            openSessionTailDiscontinuityFromSnapshotPage(id: string, prefix: number, page: { messages: Array<{ seq: number }> }): void;
+        };
+        internals.encryption = { getSessionEncryption: () => null };
+        const hosted = { ...createSession(sessionId), encryptionMode: 'plain' as const };
+        storage.getState().applySessions([hosted]);
+        requestMock.mockResolvedValueOnce(Response.json({
+            messages: [1, 1000].map((seq) => ({ id: `hosted-${seq}`, seq, localId: null, createdAt: seq,
+                content: { t: 'plain', v: { role: 'user', content: { type: 'text', text: `hosted ${seq}` } } } })),
+            hasMore: true, nextBeforeSeq: 1,
+        }));
+        await internals.fetchMessages(sessionId);
+        internals.openSessionTailDiscontinuityFromSnapshotPage(sessionId, 1, { messages: [{ seq: 1000 }] });
+        const accepted = storage.getState().sessionMessages[sessionId];
+        storage.getState().applySessions([{ ...hosted, metadata: buildSessionHandoffMetadataPatch({
+            metadata: { path: '/workspace', host: 'host', machineId: 'source-machine' },
+            providerId: 'codex', sourceMachineId: 'source-machine', targetMachineId: 'machine-1',
+            sessionStorageBefore: 'persisted', sessionStorageAfter: 'direct', targetPath: '/workspace',
+            transportStrategy: 'direct_peer', completedAtMs: 2, targetRemoteSessionId: 'vendor-session-1',
+            targetDirectSource: { kind: 'codexHome', home: 'user' },
+        }) }]);
+        machineDirectSessionTranscriptReadAfterMock.mockResolvedValue({ ok: true, items: [], nextCursor: 'tail-now', truncated: false });
+        machineDirectSessionTranscriptPageMock.mockResolvedValueOnce({ ok: false, error: 'temporarily offline' });
+        await expect(internals.fetchMessages(sessionId)).rejects.toThrow('temporarily offline');
+        expect(storage.getState().sessionMessages[sessionId]).toBe(accepted);
+        expect(storage.getState().getSessionTailContiguousBoundary(sessionId)).toEqual({ kind: 'seq', seq: 1000 });
+
+        machineDirectSessionTranscriptPageMock.mockResolvedValueOnce({ ok: true,
+            items: [{ id: 'direct-initial', createdAtMs: 2000, raw: { role: 'user', content: { type: 'text', text: 'direct initial' } } }],
+            nextCursor: 'direct-older', tailCursor: 'direct-tail', hasMore: true,
+        }).mockResolvedValueOnce({ ok: true,
+            items: [{ id: 'direct-older-row', createdAtMs: 1500, raw: { role: 'user', content: { type: 'text', text: 'direct older' } } }],
+            nextCursor: null, hasMore: false,
+        });
+        await internals.fetchMessages(sessionId);
+        expect(Object.values(storage.getState().sessionMessages[sessionId]?.messagesById ?? {}).map((message) => message.realID))
+            .toEqual(['direct-initial']);
+        expect(storage.getState().getSessionTailContiguousBoundary(sessionId)).toBeNull();
+        expect(sync.getSessionTailDiscontinuityOlderAvailability(sessionId)).toBeNull();
+        await sync.loadOlderMessages(sessionId);
+        expect(machineDirectSessionTranscriptPageMock).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: 'direct-older' }), expect.anything());
+        expect(machineDirectSessionTranscriptReadAfterMock).not.toHaveBeenCalled();
+    });
+
+    it.each(['hosted', 'direct', 'direct-link'] as const)('discards a held %s initial page after the Session switches transcript source', async (source) => {
+        const sessionId = `held_${source}_handoff`;
+        const { sync } = await import('./sync');
+        const internals = sync as unknown as {
+            encryption: { getSessionEncryption: () => null };
+            fetchMessages(id: string): Promise<void>;
+        };
+        internals.encryption = { getSessionEncryption: () => null };
+        const hosted = { ...createSession(sessionId), encryptionMode: 'plain' as const };
+        const direct = { ...createDirectSession(sessionId), encryptionMode: 'plain' as const };
+        const responseStarted = createDeferred<void>();
+        const held = createDeferred<void>();
+        const hostedPage = () => Response.json({ messages: [{ id: 'hosted-page', seq: 1, localId: null, createdAt: 1,
+            content: { t: 'plain', v: { role: 'user', content: { type: 'text', text: 'hosted page' } } } }],
+            hasMore: false, nextBeforeSeq: null });
+        const directPage = { ok: true, items: [{ id: 'direct-page', createdAtMs: 2,
+            raw: { role: 'user', content: { type: 'text', text: 'direct page' } } }],
+            nextCursor: null, tailCursor: 'direct-tail', hasMore: false };
+        requestMock.mockImplementation(async () => {
+            if (source === 'hosted') { responseStarted.resolve(); await held.promise; }
+            return hostedPage();
+        });
+        machineDirectSessionTranscriptPageMock.mockImplementation(async () => {
+            if (source !== 'hosted' && machineDirectSessionTranscriptPageMock.mock.calls.length === 1) {
+                responseStarted.resolve(); await held.promise;
+                return directPage;
+            }
+            return source === 'direct-link'
+                ? { ...directPage, items: [{ ...directPage.items[0], id: 'rebound-page' }] }
+                : directPage;
+        });
+        storage.getState().applySessions([source === 'hosted' ? hosted : direct]);
+        const oldRead = internals.fetchMessages(sessionId);
+        await responseStarted.promise;
+        storage.getState().applySessions([source === 'hosted' ? direct : source === 'direct' ? hosted : {
+            ...direct, metadata: { ...direct.metadata, directSessionV1: {
+                ...direct.metadata!.directSessionV1!, remoteSessionId: 'replacement-source',
+            } },
+        }]);
+        await internals.fetchMessages(sessionId);
+        held.resolve();
+        await oldRead;
+        expect(Object.values(storage.getState().sessionMessages[sessionId]?.messagesById ?? {}).map((message) => message.realID))
+            .toEqual([source === 'hosted' ? 'direct-page' : source === 'direct' ? 'hosted-page' : 'rebound-page']);
+    });
+
+    it('stages direct-link rebinding and the return to hosted storage without clearing last-known-good rows on failure', async () => {
+        const sessionId = 'staged_direct_rebinding';
+        const { sync } = await import('./sync');
+        const internals = sync as unknown as {
+            encryption: { getSessionEncryption: () => null };
+            fetchMessages(id: string): Promise<void>;
+        };
+        internals.encryption = { getSessionEncryption: () => null };
+        const direct = { ...createDirectSession(sessionId), encryptionMode: 'plain' as const };
+        storage.getState().applySessions([direct]);
+        const page = (id: string) => ({ ok: true, items: [{ id, createdAtMs: 1,
+            raw: { role: 'user', content: { type: 'text', text: id } } }],
+            nextCursor: 'older', tailCursor: 'same-tail', hasMore: true });
+        machineDirectSessionTranscriptPageMock.mockResolvedValueOnce(page('original-source'));
+        await internals.fetchMessages(sessionId);
+        const accepted = storage.getState().sessionMessages[sessionId];
+        const rebound = { ...direct, metadata: { ...direct.metadata, directSessionV1: {
+            ...direct.metadata!.directSessionV1!, remoteSessionId: 'replacement-source',
+        } } };
+        storage.getState().applySessions([rebound]);
+        machineDirectSessionTranscriptReadAfterMock.mockResolvedValue({ ok: true, items: [], nextCursor: 'same-tail', truncated: false });
+        machineDirectSessionTranscriptPageMock.mockRejectedValueOnce(new Error('replacement offline'));
+        await expect(internals.fetchMessages(sessionId)).rejects.toThrow('replacement offline');
+        expect(storage.getState().sessionMessages[sessionId]).toBe(accepted);
+        machineDirectSessionTranscriptPageMock.mockResolvedValueOnce(page('replacement-source'));
+        await internals.fetchMessages(sessionId);
+        expect(Object.values(storage.getState().sessionMessages[sessionId]?.messagesById ?? {}).map((message) => message.realID))
+            .toEqual(['replacement-source']);
+        // Presence/activity metadata does not change transcript identity.
+        storage.getState().applySessions([{ ...rebound, metadata: { ...rebound.metadata,
+            directSessionV1: { ...rebound.metadata.directSessionV1, lastKnownActivityAtMs: 100 },
+        } }]);
+        await internals.fetchMessages(sessionId);
+        expect(machineDirectSessionTranscriptReadAfterMock).toHaveBeenCalledWith(expect.objectContaining({ cursor: 'same-tail' }), expect.anything());
+        const reboundAccepted = storage.getState().sessionMessages[sessionId];
+        storage.getState().applySessions([{ ...createSession(sessionId), encryptionMode: 'plain' }]);
+        requestMock.mockRejectedValueOnce(new Error('hosted offline'));
+        await expect(internals.fetchMessages(sessionId)).rejects.toThrow('hosted offline');
+        expect(storage.getState().sessionMessages[sessionId]).toBe(reboundAccepted);
+        requestMock.mockResolvedValueOnce(Response.json({ messages: [], hasMore: false, nextBeforeSeq: null }));
+        await internals.fetchMessages(sessionId);
+        expect(storage.getState().sessionMessages[sessionId]?.messageIdsOldestFirst).toEqual([]);
+        expect(storage.getState().getSessionTailContiguousBoundary(sessionId)).toBeNull();
+    });
+
+    it.each(['older', 'newer', 'target', 'sidechain', 'repair'] as const)('discards held hosted %s pagination after a direct handoff', async (direction) => {
+        const sessionId = `held_hosted_${direction}_handoff`;
+        const { sync } = await import('./sync');
+        const internals = sync as unknown as {
+            encryption: { getSessionEncryption: () => null };
+            fetchMessages(id: string): Promise<void>;
+            fetchStaleTranscriptRegion(id: string, stale: { minSeq: number; messageIds: string[] }): Promise<ReadonlySet<string>>;
+        };
+        internals.encryption = { getSessionEncryption: () => null };
+        storage.getState().applySessions([{ ...createSession(sessionId), encryptionMode: 'plain' }]);
+        const hostedPage = (seq: number) => Response.json({ messages: [{ id: `hosted-${seq}`, seq, localId: null, createdAt: seq,
+            content: { t: 'plain', v: { role: 'user', content: { type: 'text', text: `hosted ${seq}` } } } }],
+            hasMore: true, nextBeforeSeq: seq, nextAfterSeq: seq });
+        requestMock.mockResolvedValueOnce(hostedPage(10));
+        await internals.fetchMessages(sessionId);
+        const accepted = storage.getState().sessionMessages[sessionId];
+        const started = createDeferred<void>();
+        const held = createDeferred<void>();
+        requestMock.mockImplementationOnce(async () => { started.resolve(); await held.promise; return hostedPage(direction === 'older' ? 5 : 20); });
+        requestMock.mockResolvedValue(hostedPage(30));
+        const oldRead = direction === 'older' ? sync.loadOlderMessages(sessionId)
+            : direction === 'newer' ? sync.loadNewerMessages(sessionId)
+            : direction === 'target' ? sync.loadTargetWindowMessages(sessionId, { kind: 'seq', seq: 20 })
+            : direction === 'sidechain' ? sync.ensureSidechainMessagesLoaded(sessionId, 'child-chain')
+            : internals.fetchStaleTranscriptRegion(sessionId, { minSeq: 20, messageIds: ['hosted-20'] });
+        await started.promise;
+        storage.getState().applySessions([createDirectSession(sessionId)]);
+        machineDirectSessionTranscriptPageMock.mockResolvedValue({ ok: true, items: [{ id: 'direct-current', createdAtMs: 30,
+            raw: { role: 'user', content: { type: 'text', text: 'direct' } } }],
+            tailCursor: 'current-tail', nextCursor: null, hasMore: false });
+        held.resolve();
+        await oldRead;
+        expect(storage.getState().sessionMessages[sessionId]).toBe(accepted);
+        expect(sync.getSessionTargetWindowState(sessionId).isWindowMode).toBe(false);
+        await internals.fetchMessages(sessionId);
+        expect(Object.values(storage.getState().sessionMessages[sessionId]?.messagesById ?? {}).map((message) => message.realID))
+            .toEqual(['direct-current']);
+        expect(storage.getState().getSessionTailContiguousBoundary(sessionId)).toBeNull();
+        await expect(sync.loadOlderMessages(sessionId)).resolves.toMatchObject({ loaded: 0, hasMore: false, status: 'no_more' });
+    });
+
+    it('retains the direct transcript when a hosted handoff fails or the reader detaches before commit', async () => {
+        const sessionId = 'failed_hosted_handoff';
+        const { sync } = await import('./sync');
+        const internals = sync as unknown as { encryption: { getSessionEncryption: () => null }; fetchMessages(id: string): Promise<void> };
+        internals.encryption = { getSessionEncryption: () => null };
+        storage.getState().applySessions([createDirectSession(sessionId)]);
+        machineDirectSessionTranscriptPageMock.mockResolvedValue({ ok: true, items: [{ id: 'accepted-direct', createdAtMs: 1,
+            raw: { role: 'user', content: { type: 'text', text: 'accepted' } } }],
+            tailCursor: 'tail-1', nextCursor: 'older-1', hasMore: true });
+        await internals.fetchMessages(sessionId);
+        const accepted = storage.getState().sessionMessages[sessionId];
+        storage.getState().applySessions([{ ...createSession(sessionId), encryptionMode: 'plain' }]);
+        requestMock.mockRejectedValueOnce(new Error('offline'));
+        await expect(internals.fetchMessages(sessionId)).rejects.toThrow('offline');
+        expect(storage.getState().sessionMessages[sessionId]).toBe(accepted);
+        const started = createDeferred<void>();
+        const held = createDeferred<void>();
+        const hostedPage = () => Response.json({ messages: [{ id: 'accepted-hosted', seq: 10, localId: null, createdAt: 10,
+            content: { t: 'plain', v: { role: 'user', content: { type: 'text', text: 'hosted' } } } }],
+            hasMore: false, nextBeforeSeq: null });
+        requestMock.mockImplementationOnce(async () => { started.resolve(); await held.promise; return hostedPage(); });
+        requestMock.mockImplementation(async () => hostedPage());
+        const pending = internals.fetchMessages(sessionId);
+        await started.promise;
+        sync.onSessionViewportChange(sessionId, { isPinned: false, offsetY: 123, shouldRestoreViewport: true });
+        const viewport = sync.getSessionViewport(sessionId);
+        held.resolve();
+        await pending;
+        expect(storage.getState().sessionMessages[sessionId]).toBe(accepted);
+        expect(sync.getSessionViewport(sessionId)).toBe(viewport);
+        expect(sync.hasDeferredNewerMessages(sessionId)).toBe(true);
+        await internals.fetchMessages(sessionId);
+        expect(storage.getState().sessionMessages[sessionId]).toBe(accepted);
+        sync.markSessionLiveTailIntent(sessionId);
+        await internals.fetchMessages(sessionId);
+        expect(Object.values(storage.getState().sessionMessages[sessionId]?.messagesById ?? {}).map((message) => message.realID))
+            .toEqual(['accepted-hosted']);
+    });
+
+    it('preserves existing sidechain HTTP loading while a direct link remains current', async () => {
+        const sessionId = 'direct_sidechain_source_control';
+        const { sync } = await import('./sync');
+        const internals = sync as unknown as { encryption: { getSessionEncryption: () => null } };
+        internals.encryption = { getSessionEncryption: () => null };
+        storage.getState().applySessions([{ ...createDirectSession(sessionId), encryptionMode: 'plain' }]);
+        requestMock.mockResolvedValue(Response.json({ messages: [{ id: 'server-sidechain-row', seq: 1, localId: null, createdAt: 1,
+            content: { t: 'plain', v: { role: 'user', content: { type: 'text', text: 'sidechain' } } } }],
+            hasMore: false, nextBeforeSeq: null }));
+        await expect(sync.ensureSidechainMessagesLoaded(sessionId, 'sidechain-1')).resolves.toBe('loaded');
+        expect(storage.getState().sessionMessages[sessionId]?.reducerState.messageIds.has('server-sidechain-row')).toBe(true);
+    });
+
+    it.each(['older', 'newer'] as const)('discards a held direct %s page when its linked source changes before replacement', async (direction) => {
+        const sessionId = `held_direct_${direction}_rebind`;
+        const { sync } = await import('./sync');
+        const internals = sync as unknown as { fetchMessages(id: string): Promise<void> };
+        const direct = createDirectSession(sessionId);
+        storage.getState().applySessions([direct]);
+        machineDirectSessionTranscriptPageMock.mockResolvedValueOnce({ ok: true, items: [{ id: 'accepted-direct', createdAtMs: 10,
+            raw: { role: 'user', content: { type: 'text', text: 'accepted' } } }],
+            tailCursor: 'tail-1', nextCursor: 'older-1', hasMore: true });
+        await internals.fetchMessages(sessionId);
+        const accepted = storage.getState().sessionMessages[sessionId];
+        const started = createDeferred<void>();
+        const held = createDeferred<void>();
+        const response = { ok: true, items: [{ id: 'retired-row', createdAtMs: 5,
+            raw: { role: 'user', content: { type: 'text', text: 'retired' } } }],
+            nextCursor: 'retired-cursor', hasMore: true, truncated: false };
+        const read = async () => { started.resolve(); await held.promise; return response; };
+        machineDirectSessionTranscriptPageMock.mockImplementationOnce(read);
+        machineDirectSessionTranscriptReadAfterMock.mockImplementationOnce(read);
+        const oldRead = direction === 'older' ? sync.loadOlderMessages(sessionId) : sync.loadNewerMessages(sessionId);
+        await started.promise;
+        storage.getState().applySessions([{ ...direct, metadata: { ...direct.metadata, directSessionV1: {
+            ...direct.metadata!.directSessionV1!, remoteSessionId: 'replacement-source',
+        } } }]);
+        held.resolve();
+        await oldRead;
+        expect(storage.getState().sessionMessages[sessionId]).toBe(accepted);
     });
 
     it.each(['push', 'older page'] as const)('keeps detached history through a source reset from %s until live-tail recovery succeeds', async (source) => {
