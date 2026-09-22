@@ -2362,6 +2362,10 @@ export const ChatListInternal = React.memo((props: ChatListInternalProps) => {
         isLoadingOlder,
         mainTranscriptListShellFrame: mainTranscriptRendererBinding.frame,
         olderPaginationIsLoadingOlder: olderPagination.isLoadingOlder,
+        // Bounded fill can leave only raw/sidechain rows. Reader intent uses the
+        // same prepend loader; target windows retain their separate cursors.
+        olderPaginationCanContinue: !targetWindowActive && olderPagination.hasMore && !isScrollable(),
+        onContinueOlderPagination: olderPagination.continueOlderLoad,
         onRequestSwitchToRemote: props.onRequestSwitchToRemote,
         prependRangeReservePx: prependHost.slots.rangeReservePx,
         renderTranscriptItemAtIndex,

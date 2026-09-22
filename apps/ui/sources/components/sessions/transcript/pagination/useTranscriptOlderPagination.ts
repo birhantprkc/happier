@@ -22,7 +22,7 @@ export type TranscriptOlderPaginationLoadResult = Readonly<{
     hasMore: boolean;
 }>;
 
-export type TranscriptOlderPaginationLoadTrigger = 'threshold-enter' | 'post-cooldown' | 'readiness-open';
+export type TranscriptOlderPaginationLoadTrigger = 'threshold-enter' | 'post-cooldown' | 'readiness-open' | 'explicit-continuation';
 
 export type TranscriptOlderPaginationLoadOptions = Readonly<{
     trigger: TranscriptOlderPaginationLoadTrigger;
@@ -66,6 +66,8 @@ export type UseTranscriptOlderPaginationResult = Readonly<{
     getSnapshot: () => TranscriptOlderPaginationSnapshot;
     /** Feed completed reads from initial fill or navigation into the same availability owner. */
     observeLoadResult: (result: TranscriptOlderPaginationLoadResult | null) => void;
+    /** Read one retained older page without requiring a scrollable viewport. */
+    continueOlderLoad: () => void;
     reset: () => void;
 }>;
 
@@ -296,6 +298,13 @@ export function useTranscriptOlderPagination(input: UseTranscriptOlderPagination
         dispatch({ type: 'sourceExhausted' });
     }, [clearCooldownTimeout, dispatch]);
 
+    const continueOlderLoad = React.useCallback(() => {
+        reconcileExhaustedSource();
+        clearCooldownTimeout();
+        dispatch({ type: 'continuationRequested' });
+        maybeStartLoadRef.current('explicit-continuation');
+    }, [clearCooldownTimeout, dispatch, reconcileExhaustedSource]);
+
     React.useEffect(() => {
         mountedRef.current = true;
         return () => {
@@ -306,5 +315,5 @@ export function useTranscriptOlderPagination(input: UseTranscriptOlderPagination
         };
     }, [clearCooldownTimeout, clearSpinnerTimeout]);
 
-    return { onScrollObservation, isReadyForLoad, isNearOlderEdge, isLoadingOlder, hasMore, getSnapshot, observeLoadResult, reset };
+    return { onScrollObservation, isReadyForLoad, isNearOlderEdge, isLoadingOlder, hasMore, getSnapshot, observeLoadResult, continueOlderLoad, reset };
 }

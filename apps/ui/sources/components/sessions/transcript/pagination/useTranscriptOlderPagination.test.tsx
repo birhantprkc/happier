@@ -110,6 +110,31 @@ describe('useTranscriptOlderPagination', () => {
         standardCleanup();
     });
 
+    it('holds explicit underfilled continuation until fill and viewport ownership are ready', async () => {
+        let fillDone = false;
+        let transactionOpen = true;
+        const { input, loadOlder, pendingLoads } = createHarness({
+            isFillDone: () => fillDone,
+            isTransactionOpen: () => transactionOpen,
+        });
+        const hook = await renderHook(() => useTranscriptOlderPagination(input));
+        await observe(hook, { offsetY: 0, scrollable: false });
+        await act(async () => hook.getCurrent().continueOlderLoad());
+        expect(loadOlder).not.toHaveBeenCalled();
+
+        fillDone = true;
+        await hook.rerender();
+        expect(loadOlder).not.toHaveBeenCalled();
+        transactionOpen = false;
+        await hook.rerender();
+        expect(loadOlder).toHaveBeenCalledTimes(1);
+        expect(loadOlder).toHaveBeenLastCalledWith({ trigger: 'readiness-open' });
+        await resolveLoad(pendingLoads, { status: 'no_more', loaded: 0, hasMore: false });
+        await act(async () => hook.getCurrent().continueOlderLoad());
+        expect(loadOlder).toHaveBeenCalledTimes(1);
+        await hook.unmount();
+    });
+
     it('consumes initial-fill exhaustion before any threshold load and reopens a later gap', async () => {
         let gapAvailability: boolean | null = null;
         const { input, loadOlder } = createHarness();

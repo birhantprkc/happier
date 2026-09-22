@@ -88,6 +88,8 @@ export type OlderPaginationEvent =
     /** Initial-fill and navigation reads use the same source without arming this pager. */
     | Readonly<{ type: 'sourceExhausted' }>
     | Readonly<{ type: 'cooldownElapsed' }>
+    /** A reader can request a retained page even when short content cannot scroll. */
+    | Readonly<{ type: 'continuationRequested' }>
     | Readonly<{ type: 'suspend'; reason: OlderPaginationSuspendReason }>
     | Readonly<{ type: 'resume'; reason: OlderPaginationSuspendReason }>
     | Readonly<{ type: 'reset' }>;
@@ -320,6 +322,19 @@ export function reduceOlderPagination(state: OlderPaginationState, event: OlderP
                     : false,
                 successfulLoadAwaitingCommittedLayout:
                     state.successfulLoadAwaitingCommittedLayout && !rearm,
+            };
+        }
+        case 'continuationRequested': {
+            if (!state.hasMore || state.phase === 'loading') return state;
+            return {
+                ...state,
+                phase: 'armed',
+                committedExactEdgeDuringLoad: false,
+                successfulLoadAwaitingCommittedLayout: false,
+                rearmEligible: false,
+                // Position gates automatic observations, not explicit reader intent.
+                // Fill and viewport-transaction suspensions remain authoritative.
+                suspendedReasons: withSuspendedReason(state.suspendedReasons, 'negative-offset', false),
             };
         }
         case 'suspend': {
