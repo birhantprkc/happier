@@ -231,11 +231,13 @@ export const SECTION_NAMES = [
     'enterprise-zdr',
     'enterprise-licence',
     'enterprise-cta',
-    // /download. Two steps, because the page has two halves and one job each:
+    // /download. Three steps, because the page has three distinct jobs:
     // 'download-hub' is every download and the auto-redirect (which emits
     // download_badge_clicked itself, since location.replace is not a click the
-    // delegated listener can see), 'download-cli' is the install command.
+    // delegated listener can see), 'download-guidance' explains which surface
+    // to choose, and 'download-cli' is the install command.
     'download-hub',
+    'download-guidance',
     'download-cli',
 ] as const;
 

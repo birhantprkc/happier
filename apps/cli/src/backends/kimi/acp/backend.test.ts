@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { withTempDir } from '@/testkit/fs/tempDir';
@@ -11,6 +11,7 @@ import { getExecutionRunBackendFactory } from '@/agent/executionRuns/registry/ex
 describe.skipIf(process.platform === 'win32')('Kimi ACP backend', () => {
   it('classifies the executable then creates and resumes with plain acp and MCP', async () => {
     await withTempDir('happier-kimi-backend-', async (dir) => {
+      const physicalDir = realpathSync(dir);
       const command = writeKimiFixture(dir, 'current');
       const options = {
         cwd: dir, env: { HAPPIER_KIMI_PATH: command }, permissionMode: 'yolo' as const,
@@ -31,8 +32,8 @@ describe.skipIf(process.platform === 'win32')('Kimi ACP backend', () => {
       } finally { await resumed.dispose(); }
       const requests = readFileSync(join(dir, 'requests.ndjson'), 'utf8').trim().split('\n').map((line) => JSON.parse(line));
       expect(requests.filter((request) => ['session/new', 'session/load'].includes(request.method))).toEqual([
-        expect.objectContaining({ method: 'session/new', cwd: dir, args: ['acp'], params: expect.objectContaining({ mcpServers: [expect.objectContaining({ name: 'happier', command: '/bin/echo' })] }) }),
-        expect.objectContaining({ method: 'session/load', cwd: dir, args: ['acp'], params: expect.objectContaining({ sessionId: 'kimi-fixture-session', mcpServers: [expect.objectContaining({ name: 'happier' })] }) }),
+        expect.objectContaining({ method: 'session/new', cwd: physicalDir, args: ['acp'], params: expect.objectContaining({ mcpServers: [expect.objectContaining({ name: 'happier', command: '/bin/echo' })] }) }),
+        expect.objectContaining({ method: 'session/load', cwd: physicalDir, args: ['acp'], params: expect.objectContaining({ sessionId: 'kimi-fixture-session', mcpServers: [expect.objectContaining({ name: 'happier' })] }) }),
       ]);
       expect(requests.some((request) => request.method === 'session/set_mode')).toBe(false);
       const forked = createKimiBackend(options);

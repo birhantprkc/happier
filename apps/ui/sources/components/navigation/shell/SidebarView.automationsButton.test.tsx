@@ -63,6 +63,7 @@ installNavigationShellCommonModuleMocks({
         return createPartialStorageModuleMock(importOriginal, {
             useSocketStatus: () => ({ status: socketStatusState.status, lastError: socketStatusState.lastError }),
             useFriendRequests: () => friendRequestsState.items,
+            useFriendRequestCount: () => friendRequestsState.items.length,
             useSetting: () => false,
             useSyncError: () => syncErrorState.value as any,
             useRealtimeStatus: () => 'disconnected',

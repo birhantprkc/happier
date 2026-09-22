@@ -565,7 +565,7 @@ describe('MessageView (fork button)', () => {
     expect(flowArgs.settings).toEqual(expect.objectContaining({ sessionReplayEnabled: true }));
   });
 
-  it('renders fork button when replay is disabled but provider supports native fork-at-message', async () => {
+  it('does not render fork button when replay is disabled and the server dialect cannot prove native fork-at-message support', async () => {
     replayEnabled = false;
     sessionMetadata = { machineId: 'm1', flavor: 'opencode', opencodeBackendMode: 'server' };
 
@@ -574,8 +574,7 @@ describe('MessageView (fork button)', () => {
 
     const screen = await renderScreen(<MessageView message={message} metadata={null} sessionId="s1" />);
 
-    expect(screen.findByTestId('transcript-message-fork:m1')).toBeTruthy();
-    expect(screen.findByTestId('transcript-message-fork:m1')?.props.accessibilityLabel).toBe('session.forking.forkFromMessageA11y');
+    expect(screen.findByTestId('transcript-message-fork:m1')).toBeNull();
   });
 
   it('still opens the strategy modal when session metadata machineId is missing', async () => {

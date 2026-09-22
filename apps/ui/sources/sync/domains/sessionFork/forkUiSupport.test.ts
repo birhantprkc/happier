@@ -32,9 +32,9 @@ describe('forkUiSupport', () => {
     expect(canForkFromMessage({ session, messageSeq: 5, replayEnabled: true, agentSwitchingEnabled: false })).toBe(true);
   });
 
-  it('allows fork-from-message when replay is disabled but OpenCode server backend is active', () => {
+  it('fails closed for OpenCode server fork-from-message until the connected dialect is known', () => {
     const session = makeSession({ machineId: 'm1', flavor: 'opencode', opencodeBackendMode: 'server' });
-    expect(canForkFromMessage({ session, messageSeq: 5, replayEnabled: false, agentSwitchingEnabled: false })).toBe(true);
+    expect(canForkFromMessage({ session, messageSeq: 5, replayEnabled: false, agentSwitchingEnabled: false })).toBe(false);
   });
 
   it('does not allow fork-from-message for OpenCode ACP when replay and switching are both off', () => {
@@ -129,10 +129,10 @@ describe('resolveSessionForkStrategyAvailability', () => {
   });
 
   it('offers both routes when the Agent forks natively and Replay is enabled', () => {
-    const session = makeSession({ machineId: 'm1', flavor: 'opencode', opencodeBackendMode: 'server' });
+    const session = makeSession({ machineId: 'm1', flavor: 'opencode', opencodeBackendMode: 'acp' });
     expect(resolveSessionForkStrategyAvailability({
       session,
-      forkPoint: { type: 'seq', upToSeqInclusive: 5 },
+      forkPoint: { type: 'latest' },
       replayEnabled: true,
       agentSwitchingEnabled: false,
     })).toEqual({ native: true, replay: true, configure: false, nativeUnavailableReason: null });

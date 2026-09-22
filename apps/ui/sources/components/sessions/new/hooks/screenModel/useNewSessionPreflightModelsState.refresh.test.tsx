@@ -37,7 +37,7 @@ describe('useNewSessionPreflightModelsState (refresh)', () => {
         const { useNewSessionPreflightModelsState } = await import('./useNewSessionPreflightModelsState');
         const hook = await renderHook(
             () => useNewSessionPreflightModelsState({
-                backendTarget: { kind: 'builtInAgent', agentId: 'qwen' },
+                backendTarget: { kind: 'builtInAgent', agentId: 'kiro' },
                 selectedMachineId: 'machine-1',
                 capabilityServerId: 'server-1',
                 cwd: '/repo',
@@ -46,7 +46,7 @@ describe('useNewSessionPreflightModelsState (refresh)', () => {
 
         expect(machineCapabilitiesInvokeMock).not.toHaveBeenCalled();
         expect(hook.getCurrent().modelOptions.map((o) => o.value)).toEqual(
-            getModelOptionsForAgentType('qwen').map((o) => o.value),
+            getModelOptionsForAgentType('kiro').map((o) => o.value),
         );
         expect(hook.getCurrent().probe.phase).toBe('idle');
         expect(hook.getCurrent().probe.onRefresh).toBeUndefined();
@@ -285,7 +285,7 @@ describe('useNewSessionPreflightModelsState (refresh)', () => {
 
         const { useNewSessionPreflightModelsState } = await import('./useNewSessionPreflightModelsState');
         const hook = await renderHook(
-            (props: { backendTarget: { kind: 'builtInAgent'; agentId: 'codex' | 'qwen' } }) =>
+            (props: { backendTarget: { kind: 'builtInAgent'; agentId: 'codex' | 'kiro' } }) =>
                 useNewSessionPreflightModelsState({
                     backendTarget: props.backendTarget,
                     selectedMachineId: 'machine-1',
@@ -299,13 +299,13 @@ describe('useNewSessionPreflightModelsState (refresh)', () => {
         expect(hook.getCurrent().preflightModelsTargetKey).toBe('agent:codex');
         expect(hook.getCurrent().modelOptions.some((option) => option.value === 'gpt-5.5')).toBe(true);
 
-        await hook.rerender({ backendTarget: { kind: 'builtInAgent', agentId: 'qwen' } });
+        await hook.rerender({ backendTarget: { kind: 'builtInAgent', agentId: 'kiro' } });
 
         expect(hook.getCurrent().preflightModels).toBeNull();
         expect(hook.getCurrent().preflightModelsTargetKey).toBeNull();
         expect(hook.getCurrent().modelOptions.some((option) => option.value === 'gpt-5.5')).toBe(false);
         expect(hook.getCurrent().modelOptions.map((option) => option.value)).toEqual(
-            getModelOptionsForAgentType('qwen').map((option) => option.value),
+            getModelOptionsForAgentType('kiro').map((option) => option.value),
         );
         expect(machineCapabilitiesInvokeMock).toHaveBeenCalledTimes(1);
 

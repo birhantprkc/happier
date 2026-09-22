@@ -143,7 +143,7 @@ test.describe('ui e2e: embedded terminal (PTY)', () => {
 
             await expect(getVisibleSessionComposer(page)).toHaveCount(1, { timeout: 180_000 });
 
-            await page.getByTestId('session-header-terminal-button').click();
+            await page.getByTestId('session-action-rail:terminal').click();
 
             await expect(page.getByTestId('session-bottompanel-surface-terminal')).toHaveCount(1, { timeout: 180_000 });
 

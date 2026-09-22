@@ -232,7 +232,7 @@ describe('happier relay --json', () => {
             expect(parsed.ok).toBe(true);
             expect(parsed.kind).toBe('relay_inspect_target');
             expect(parsed.data?.active?.serverUrl).toBe('https://api.happier.dev');
-            expect(parsed.data?.active?.webappUrl).toBe('https://app.happier.dev');
+            expect(parsed.data?.active?.webappUrl).toBe('https://cloud.happier.dev');
             expect(parsed.data?.active?.comparableKey).toBe('https://api.happier.dev');
             expect(process.exitCode).toBe(0);
         } finally {

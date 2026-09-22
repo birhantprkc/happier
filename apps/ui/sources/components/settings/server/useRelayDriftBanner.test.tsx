@@ -469,7 +469,7 @@ describe('useRelayDriftBanner', () => {
 
         expect(startMock).toHaveBeenCalledWith(setupSpecMatcher({
             activeRelayUrl: 'https://api.happier.dev',
-            activeWebappUrl: 'https://app.happier.dev',
+            activeWebappUrl: 'https://cloud.happier.dev',
             activeLocalRelayUrl: null,
         }));
     });

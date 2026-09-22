@@ -225,6 +225,10 @@ test.describe('ui e2e: SCM review position + tab state', () => {
       roleName: 'Files',
       timeoutMs: 60_000,
     });
+    // Playwright checks the next target before moving its synthetic pointer. Move into the
+    // repository surface first, matching a real pointer transition and dismissing the rail tooltip.
+    await rightPane.getByTestId('repository-tree-search').hover();
+    await expect(page.getByTestId('session-action-rail:files-tooltip')).toHaveCount(0);
     const bigPath = 'src/big.txt';
     const bigTreeRow = rightPane.getByTestId(`repository-tree-row-${toTestIdSafeValue(bigPath)}`);
     if (await bigTreeRow.count() === 0) {
@@ -345,7 +349,13 @@ test.describe('ui e2e: SCM review position + tab state', () => {
       await page.getByTestId('session-open-source-control').click();
     }
     await expect(rightPaneLocator(page)).toHaveCount(1, { timeout: 60_000 });
-    await page.getByTestId('session-action-rail:git').click();
+    const session2GitAction = page.getByTestId('session-action-rail:git');
+    const session2GitSurface = rightPaneLocator(page).getByTestId('session-rightpanel-surface-git');
+    if (!(await session2GitSurface.isVisible().catch(() => false))) {
+      await session2GitAction.click();
+      await expect(session2GitSurface).toBeVisible({ timeout: 60_000 });
+    }
+    await session2GitAction.click();
     await expect(rightPaneLocator(page)).toHaveCount(0, { timeout: 60_000 });
 
     await expect(page.getByTestId(`session-list-item-${sessionId}`)).toHaveCount(1, { timeout: 90_000 });

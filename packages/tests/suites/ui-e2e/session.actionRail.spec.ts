@@ -219,7 +219,7 @@ test.describe('ui e2e: session action rail', () => {
       const changedCount = gitTooltip.getByText('Changed files: 101', { exact: true });
       const addedLines = gitTooltip.getByText('+460', { exact: true });
       const removedLines = gitTooltip.getByText('−240', { exact: true });
-      const branch = gitTooltip.getByText('rail-tooltip-fixture', { exact: true });
+      const branch = gitTooltip.getByText('Branch: rail-tooltip-fixture', { exact: true });
       await expect(changedCount).toBeVisible();
       await expect(addedLines).toBeVisible();
       await expect(removedLines).toBeVisible();

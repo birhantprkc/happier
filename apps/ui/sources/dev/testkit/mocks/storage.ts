@@ -182,6 +182,7 @@ export function createStorageModuleStub<TOverrides extends object>(overrides: TO
             isOnline: false,
         }),
         useAllSessions: () => allSessions,
+        useFriendRequestCount: () => 0,
         useAllSessionListRenderables: () => allSessionListRenderables,
         useAllSessionsForAttention: () => allAttentionSessions,
         useAllSessionListRenderablesForAttention: () => allAttentionSessionListRenderables,
