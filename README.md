@@ -6,7 +6,7 @@
 
   ### The multi-device control room to run teams of 100x coding agents
 
-  **The way orchestrating agents should feel.<br />From your phone, desktop and browser.**
+  **The way orchestrating parallel agents should feel.<br />From your phone, desktop and browser.**
 
   Claude Code, Codex, OpenCode, Pi and more, working together and in parallel on your own machines.
   
