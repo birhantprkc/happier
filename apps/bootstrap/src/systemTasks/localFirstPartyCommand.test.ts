@@ -13,6 +13,30 @@ describe('ensureLocalFirstPartyComponentCommand', () => {
         vi.clearAllMocks();
     });
 
+    it('keeps non-CLI acquisition failures provider-neutral', async () => {
+        const rootDir = mkdtempSync(join(tmpdir(), 'hsetup-server-acquisition-failure-'));
+        const preparePayload = vi.fn(async () => {
+            throw new Error('release unavailable');
+        });
+
+        try {
+            await expect(ensureLocalFirstPartyComponentCommand({
+                componentId: 'happier-server',
+                releaseRing: 'stable',
+                processEnv: {
+                    HAPPIER_HOME_DIR: join(rootDir, 'home'),
+                    HAPPIER_STACK_REPO_DIR: join(rootDir, 'elsewhere'),
+                    PATH: '',
+                },
+            }, {
+                preparePayload,
+                installPayload: vi.fn(),
+            })).rejects.toMatchObject({ code: 'first_party_component_install_failed' });
+        } finally {
+            rmSync(rootDir, { recursive: true, force: true });
+        }
+    });
+
     it('prefers the repo-local hstack command before attempting a payload download', async () => {
         const rootDir = mkdtempSync(join(tmpdir(), 'hsetup-repo-local-hstack-'));
         const repoRoot = join(rootDir, 'repo');

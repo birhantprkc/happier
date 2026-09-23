@@ -186,6 +186,15 @@ function resolveRepoRootForFirstPartyComponent(processEnv: NodeJS.ProcessEnv): s
 
 type PreparedPayload = Pick<PreparedFirstPartyComponentPayload, 'versionId' | 'payloadRoot' | 'cleanup'>;
 
+function acquisitionFailureCode(
+  componentId: FirstPartyComponentId,
+  phase: Parameters<NonNullable<FirstPartyAcquisitionOptions['onProgress']>>[0]['phase'],
+): string {
+  return componentId === 'happier-cli'
+    ? `cli_acquisition_${phase}_failed`
+    : 'first_party_component_install_failed';
+}
+
 export type LocalFirstPartyCommandAcquisitionDeps = Readonly<{
   preparePayload: (params: FirstPartyAcquisitionOptions & Readonly<{
     componentId: FirstPartyComponentId;
@@ -255,7 +264,10 @@ export async function acquireManagedLocalFirstPartyComponentCommand(
     const failurePhase = error instanceof FirstPartyAcquisitionError ? error.phase : phase;
     const failureCause = error instanceof FirstPartyAcquisitionError ? error.failureCause : readAcquisitionFailureCause(error);
     onProgress({ phase: failurePhase, failure: { cause: failureCause } });
-    throw new SystemTaskExecutionError(`cli_acquisition_${failurePhase}_failed`, redactAcquisitionDiagnostic(message));
+    throw new SystemTaskExecutionError(
+      acquisitionFailureCode(params.componentId, failurePhase),
+      redactAcquisitionDiagnostic(message),
+    );
   } finally {
     if (prepared) {
       await prepared.cleanup().catch(() => undefined);
@@ -275,7 +287,7 @@ export async function acquireManagedLocalFirstPartyComponentCommand(
 
   onProgress({ phase: 'finalizing', failure: { cause: 'managed_command_unavailable' } });
   throw new SystemTaskExecutionError(
-    'cli_acquisition_finalizing_failed',
+    acquisitionFailureCode(params.componentId, 'finalizing'),
     `Installed ${params.componentId}, but its managed command path is still unavailable.`,
   );
 }
