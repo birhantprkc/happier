@@ -3199,6 +3199,7 @@ describe('claudeRemoteAgentSdk options and hooks', () => {
                         claudeRemoteAdvancedOptionsJson: JSON.stringify({
                             plugins: [{ type: 'local', path: '/tmp/plugin' }],
                             hooks: { SessionStart: [] },
+                            pathToClaudeCodeExecutable: null,
                         }),
                     }),
                 }),
@@ -3209,6 +3210,7 @@ describe('claudeRemoteAgentSdk options and hooks', () => {
             } as any);
 
             expect(capturedOptions?.plugins).toEqual([{ type: 'local', path: '/tmp/plugin' }]);
+            expect(capturedOptions?.pathToClaudeCodeExecutable).toBe('/tmp/claude');
             expect(capturedOptions?.hooks?.SessionStart?.[0]?.hooks?.length).toBe(1);
             expect(typeof capturedOptions?.debugFile).toBe('string');
             expect(capturedOptions?.debugFile).toMatch(/^\/tmp\/happier-claude-debug-artifacts\//);
