@@ -55,6 +55,28 @@ switching; it is not input authorization. A delayed or failed notification does
 not block the Pending row. Exact turn-marker and terminal notifications retain
 their existing serialized lifecycle handling.
 
+## Claude startup activity (development)
+
+The Claude remote launcher publishes its prelaunch activity through the existing
+provider activity adapter before waiting for Pending input on each SDK or legacy
+provider launch. Those runners start their provider process only after input arrives.
+Waiting for their stream observer to publish activity would deadlock delivery
+configured as `after_runtime_idle`.
+
+After a local provider stops or a remote provider relaunches, a lost observer can
+publish prelaunch idle when no unresolved provider tasks remain. Unresolved task
+evidence keeps activity unknown; it is not silently cleared. Prelaunch publication
+does not install the new stream observer. Each owned local process attempt also
+uses this prelaunch publication before activating its installed scanner, including
+retries after process failure. Unified-terminal attachment retains its observation
+startup because the attached provider may already be working.
+
+Claude remote capability reports register the runner with the daemon using the
+Happier session ID. The Claude session ID identifies the provider transcript and
+must not replace the daemon's Happier session identity. Otherwise a subsequent
+wake can miss the live runner and attach a second one; replacing the publisher
+turns unresolved delivery claims into `delivery_outcome_uncertain`.
+
 ## Current Queue V2 activation ownership
 
 Pending Queue V2 remains the sole durable owner of message custody, ordering, and exact-row actions. An inactive-session start request is a small session-level authorization for one exact eligible queued row; it is not another message-delivery state machine and does not change that row's delivery priority.
