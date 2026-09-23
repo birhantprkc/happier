@@ -71,6 +71,13 @@ uses this prelaunch publication before activating its installed scanner, includi
 retries after process failure. Unified-terminal attachment retains its observation
 startup because the attached provider may already be working.
 
+Local fast-start retains a deferred session client across the switch to remote.
+That wrapper must forward provider input outcomes and delivery-state reads to the
+attached `SessionClient`, which owns acceptance and settlement. Buffering or
+submitting a provider prompt alone does not settle its Pending row.
+The same forwarding preserves the all-blocked queue signal used by Claude's
+ready notification, so blocked messages do not suppress completion indefinitely.
+
 Claude remote capability reports register the runner with the daemon using the
 Happier session ID. The Claude session ID identifies the provider transcript and
 must not replace the daemon's Happier session identity. Otherwise a subsequent
