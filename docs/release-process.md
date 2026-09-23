@@ -299,8 +299,12 @@ registry after publication rather than relying only on the workflow badge.
 For CLI, stack, server-runtime, and UI-web binary releases:
 
 1. The hosted workflow binds the authorized source commit once.
-2. It publishes the version-tagged Release first. Existing immutable tags,
-   assets, and bytes must match; they are never moved or clobbered.
+2. It creates or resumes the version-tagged Release as a draft, uploads missing
+   assets, and remotely verifies every asset's bytes before publishing the draft.
+   Failed uploads or audits leave the draft private for retry. Existing public
+   immutable releases are verified without adding assets or changing visibility;
+   missing or different assets fail. Tags and existing bytes are never moved or
+   clobbered.
 3. It downloads that Release and verifies the complete checksummed and signed
    asset set.
 4. A separate promotion step projects those exact bytes into the rolling

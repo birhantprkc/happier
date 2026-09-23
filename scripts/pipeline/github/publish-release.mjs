@@ -364,6 +364,9 @@ async function main() {
   const generateNotes = parseBool(values['generate-notes'], '--generate-notes');
   const clobber = parseBool(values.clobber, '--clobber');
   const pruneAssets = parseBool(values['prune-assets'], '--prune-assets');
+  if (!rollingTag && (clobber || pruneAssets)) {
+    fail('Immutable version releases forbid --clobber true and --prune-assets true.');
+  }
   const notes = String(values.notes ?? '');
   const releaseMessage = String(values['release-message'] ?? '');
   const dryRun = values['dry-run'] === true;
@@ -452,6 +455,13 @@ async function main() {
     releaseExists = false;
   }
 
+  let immutableDraft = !rollingTag;
+  if (!rollingTag && releaseExists && !dryRun) {
+    immutableDraft = parseBool(run('gh', [
+      'release', 'view', tag, '--repo', repo, '--json', 'isDraft', '--jq', '.isDraft',
+    ], { env: ghEnv }).trim(), 'GitHub Release isDraft');
+  }
+
   if (!releaseExists) {
     if (!tagEnsured && !dryRun) {
       fail(`Cannot create release ${tag}: tag ref could not be ensured.`);
@@ -459,7 +469,7 @@ async function main() {
     if (generateNotes && !approvedReleaseBody) {
       run(
         'gh',
-        ['release', 'create', tag, ...prereleaseFlag, '--title', title, '--generate-notes'],
+        ['release', 'create', tag, ...prereleaseFlag, ...(!rollingTag ? ['--draft'] : []), '--title', title, '--generate-notes'],
         { env: ghEnv, dryRun },
       );
     } else {
@@ -467,7 +477,7 @@ async function main() {
       if (!body) fail('notes or release_message is required when generate_notes=false');
       run(
         'gh',
-        ['release', 'create', tag, ...prereleaseFlag, '--title', title, '--notes', body],
+        ['release', 'create', tag, ...prereleaseFlag, ...(!rollingTag ? ['--draft'] : []), '--title', title, '--notes', body],
         { env: ghEnv, dryRun },
       );
     }
@@ -551,9 +561,6 @@ async function main() {
   }
 
   if (!rollingTag) {
-    if (clobber || pruneAssets) {
-      fail('Immutable version releases forbid --clobber true and --prune-assets true.');
-    }
     const localByName = new Map();
     for (const spec of uploadSpecs) {
       const name = path.basename(spec);
@@ -575,6 +582,13 @@ async function main() {
     if (unexpected.length > 0) {
       fail(`Immutable release contains unexpected pre-existing asset(s): ${unexpected.join(', ')}`);
     }
+    const existing = new Set(existingAssetNames);
+    if (!immutableDraft) {
+      const missing = [...localByName.keys()].filter((name) => !existing.has(name));
+      if (missing.length > 0) {
+        fail(`Published immutable release is missing authorized asset(s): ${missing.join(', ')}. Refusing to mutate it.`);
+      }
+    }
     if (!dryRun) {
       for (const name of existingAssetNames) {
         await assertRemoteAssetMatches({
@@ -587,7 +601,6 @@ async function main() {
         });
       }
     }
-    const existing = new Set(existingAssetNames);
     for (const [name, spec] of localByName) {
       if (existing.has(name)) continue;
       let uploaded = false;
@@ -621,6 +634,10 @@ async function main() {
           policy: transferPolicy,
         });
       }
+    }
+    // The complete asset set stays private until every remote byte has passed the audit.
+    if (immutableDraft) {
+      run('gh', ['release', 'edit', tag, '--repo', repo, '--draft=false'], { env: ghEnv, dryRun });
     }
     return;
   }

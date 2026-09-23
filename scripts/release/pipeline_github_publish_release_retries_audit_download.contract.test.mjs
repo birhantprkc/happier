@@ -29,7 +29,11 @@ const path = require('node:path');
 const args = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(ghLog)}, \`gh \${args.join(' ')}\\n\`);
 
-if (args[0] === 'release' && args[1] === 'view' && args.includes('--json')) {
+if (args[0] === 'release' && args[1] === 'view' && args.includes('isDraft')) {
+  process.stdout.write('false');
+  process.exit(0);
+}
+if (args[0] === 'release' && args[1] === 'view' && args.includes('assets')) {
   process.stdout.write('asset.txt\\n');
   process.exit(0);
 }
