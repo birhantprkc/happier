@@ -1870,6 +1870,9 @@ export async function claudeRemoteLauncher(
                         if (isUnifiedTerminalTranscriptActive()) {
                             return unifiedBinding.sessionOptions.onProviderPromptStarted?.();
                         }
+                        if (activeRemoteRunnerKind === 'agentSdk') {
+                            return beginPromptTurn();
+                        }
                         beginReadyNotificationTurn();
                         return undefined;
                     },

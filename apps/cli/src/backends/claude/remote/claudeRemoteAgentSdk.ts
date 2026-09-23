@@ -55,6 +55,7 @@ import {
     readClaudeSessionHookProviderTaskActivity,
 } from '@/backends/claude/providerActivity/createClaudeProviderActivityLedger';
 import type { createClaudeProviderRuntimeActivityAdapter } from '@/backends/claude/providerActivity/createClaudeProviderRuntimeActivityAdapter';
+import { hasClaudeQueuedUserTurns } from './resultTurnBoundary';
 import {
     handleClaudeRuntimeActivityLoss,
     createClaudeRuntimeActivityEvidence,
@@ -171,6 +172,7 @@ export async function claudeRemoteAgentSdk(opts: {
     // Callbacks
     onSessionFound: (id: string, data?: SessionHookData) => void;
     onThinkingChange?: (thinking: boolean) => void;
+    onProviderPromptStarted?: () => void | Promise<void>;
     onMessage: (message: SDKMessage) => void;
     /** Correlation supplied by the workflow owner after onMessage has observed the same SDK fact. */
     isWorkflowProviderTaskId?: (taskId: string) => boolean;
@@ -1193,6 +1195,17 @@ export async function claudeRemoteAgentSdk(opts: {
 
         const hasActiveProviderTasks = (): boolean => providerActivityLedger.hasActiveProviderTasks();
 
+        const resetForegroundTurn = () => {
+            lastTurnFlushSummary = null;
+            didPublishAssistantTextThisTurn = false;
+            sidechainsWithPublishedAssistantTextThisTurn.clear();
+            streamedAssistantTextAwaitingAssembly.clear();
+            streamedThinkingTextAwaitingAssembly.clear();
+            didReleaseTurnForResult = false;
+            didSettleRuntimeActivityForCurrentTurn = false;
+            foregroundTaskInterruptId = null;
+        };
+
         const markAssistantTextPublished = (text: string | null | undefined, sidechainId: string | null) => {
             if (typeof text !== 'string' || text.trim().length === 0) return;
             didPublishAssistantTextThisTurn = true;
@@ -1571,13 +1584,7 @@ export async function claudeRemoteAgentSdk(opts: {
                         }
 
                         if (pendingProviderAction !== 'steer') {
-                            didPublishAssistantTextThisTurn = false;
-                            sidechainsWithPublishedAssistantTextThisTurn.clear();
-                            streamedAssistantTextAwaitingAssembly.clear();
-                            streamedThinkingTextAwaitingAssembly.clear();
-                            didReleaseTurnForResult = false;
-                            didSettleRuntimeActivityForCurrentTurn = false;
-                            foregroundTaskInterruptId = null;
+                            resetForegroundTurn();
                         }
                         foregroundTurnInterruptActive = true;
                         messages.push({
@@ -1784,6 +1791,26 @@ export async function claudeRemoteAgentSdk(opts: {
             }
 
             if (message && typeof message === 'object' && (message as any).type === 'stream_event') {
+                // Resume can emit an earlier result before processing the supplied prompt.
+                // A new live root message proves foreground work restarted; late deltas and
+                // child output alone must not reopen an already completed turn.
+                if (
+                    (didReleaseTurnForResult || didFinalizeTurn)
+                    && !isReplaySdkMessage(message)
+                    && message.parent_tool_use_id === null
+                    && typeof message.session_id === 'string'
+                    && message.session_id.trim().length > 0
+                    && providerActivityLedger.isOwnedSessionId(message.session_id)
+                    && message.event?.type === 'message_start'
+                ) {
+                    awaitingNextTurnStart = false;
+                    didFinalizeTurn = false;
+                    resetForegroundTurn();
+                    foregroundTurnInterruptActive = true;
+                    await opts.onProviderPromptStarted?.();
+                    updateThinking(true);
+                    opts.onInFlightSteerAvailabilityChange?.(true);
+                }
                 const clearFinalizeGuardForNextTurnStart = () => {
                     // Claude can emit the next turn's assistant output exclusively via stream_event
                     // messages (no assembled assistant/user message). If we finalized the previous
@@ -2216,7 +2243,8 @@ export async function claudeRemoteAgentSdk(opts: {
                 const didRequestThisResult = awaitingRequestedTurnInterruptResult;
                 awaitingRequestedTurnInterruptResult = false;
                 const failure = readAgentSdkResultFailure(message);
-                if (failure) {
+                const hasQueuedUserTurns = hasClaudeQueuedUserTurns(message);
+                if (failure && !hasQueuedUserTurns) {
                     if (didRequestThisResult && message.subtype === 'error_during_execution') {
                         if (!didFinalizeTurn) {
                             await releaseCurrentTurnForResult();
@@ -2226,6 +2254,7 @@ export async function claudeRemoteAgentSdk(opts: {
                     await reconcileRuntimeActivityForResult();
                     throw new Error(failure);
                 }
+                if (failure) opts.onCompletionEvent?.(failure);
 
                 const resultText = extractResultText(message);
                 if (!streamedTranscriptWriter && !didPublishAssistantTextThisTurn && resultText) {
@@ -2238,6 +2267,23 @@ export async function claudeRemoteAgentSdk(opts: {
                         lastUuid: typeof (message as any).uuid === 'string' ? (message as any).uuid : null,
                     });
                     flushBufferedStreamEventAssistantMessage(message);
+                }
+
+                if (hasQueuedUserTurns) {
+                    // A resumed notification or failed earlier command can finish before the
+                    // submitted user send. Preserve its output without releasing foreground custody.
+                    lastTurnFlushSummary = await flushStreamedTranscriptWriter('turn-end');
+                    maybeEmitResultAssistantFallback(message, resultText);
+                    resetForegroundTurn();
+                    if (isCompactCommand) {
+                        emitCompactionCompleted();
+                        isCompactCommand = false;
+                    }
+                    await reconcileClaudeRuntimeActivity({
+                        ...runtimeActivityEffectParams,
+                        reason: 'claude_agent_sdk_result_with_queued_user_turns',
+                    });
+                    continue;
                 }
 
                 if (!didFinalizeTurn) {

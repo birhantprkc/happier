@@ -384,6 +384,7 @@ describe('claudeRemoteAgentSdk stream events', () => {
             } as any;
         });
         const runtimeActivityAdapter = {
+            publishBeforeRuntimeStart: vi.fn(async () => {}),
             activateObservation: vi.fn(async () => {
                 readinessOrder.push('runtime-offered');
                 throw new Error('observer activation failed');
