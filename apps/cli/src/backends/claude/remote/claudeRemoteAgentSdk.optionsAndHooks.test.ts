@@ -3346,7 +3346,7 @@ describe('claudeRemoteAgentSdk options and hooks', () => {
             suppressOutput: true,
             hookSpecificOutput: {
                 hookEventName: 'PermissionRequest',
-                decision: { behavior: 'allow', updatedInput, updatedPermissions },
+                decision: { behavior: 'allow', updatedPermissions },
             },
         });
     });
