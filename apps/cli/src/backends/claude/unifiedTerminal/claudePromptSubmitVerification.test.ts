@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+import { runTerminalPromptSubmission } from '@/integrations/terminalHost/promptSubmitVerification';
 
 import { createClaudePromptSubmitVerificationPolicy } from './claudePromptSubmitVerification';
 
@@ -70,6 +72,34 @@ describe('createClaudePromptSubmitVerificationPolicy', () => {
         '  ⏵⏵ auto mode on (shift+tab to cycle)',
       ].join('\n'),
     })).toBe(true);
+  });
+
+  it('submits a staged URL wrapped inside the token', async () => {
+    const policy = createClaudePromptSubmitVerificationPolicy();
+    const prompt = `Check https://example.invalid/?q=${'a'.repeat(90)}`;
+    const screenText = [
+      `❯ Check https://example.invalid/?q=${'a'.repeat(50)}`,
+      `  ${'a'.repeat(40)}`,
+    ].join('\n');
+    const submitEnter = vi.fn(async () => 'success' as const);
+
+    expect(policy.isPromptStagedBeforeSubmit?.({
+      promptText: prompt,
+      screenText,
+    })).toBe(true);
+    expect(await runTerminalPromptSubmission({
+      promptText: prompt,
+      verifyStagedBeforeSubmit: async ({ promptText }) => policy.isPromptStagedBeforeSubmit?.({
+        promptText,
+        screenText,
+      }) ?? false,
+      submitEnter,
+      verifyAfterSubmit: async () => false,
+      remainingTimeoutMs: () => 0,
+      wait: async () => {},
+      submitRetryDelayMs: 0,
+    })).toEqual({ success: true });
+    expect(submitEnter).toHaveBeenCalledOnce();
   });
 
   it('accepts a sufficiently long canonical visible composer window before and after submit', () => {

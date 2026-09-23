@@ -45,4 +45,19 @@ describe('normalizeClaudeUnifiedPromptIdentityText', () => {
       composerText: injected,
     })).toBe(true);
   });
+
+  it('matches visual wraps inside tokens without matching changed token content', () => {
+    const prompt = 'Check https://example.invalid/?q=' + 'a'.repeat(90) + ' and {"key":"value"}';
+    const wrapped = `Check https://example.invalid/?q=${'a'.repeat(50)}\n${'a'.repeat(40)} and {"key":"val\nue"}`;
+
+    expect(isClaudeUnifiedComposerTextMatch({ promptText: prompt, composerText: wrapped })).toBe(true);
+    expect(isClaudeUnifiedComposerTextMatch({
+      promptText: prompt,
+      composerText: wrapped.replace('val\nue', 'bad\nue'),
+    })).toBe(false);
+    expect(isClaudeUnifiedComposerTextMatch({
+      promptText: prompt,
+      composerText: wrapped.replace('a'.repeat(40), 'b'.repeat(40)),
+    })).toBe(false);
+  });
 });

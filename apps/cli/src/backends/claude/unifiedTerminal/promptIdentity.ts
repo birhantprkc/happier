@@ -25,8 +25,8 @@ export function normalizeClaudeUnifiedPromptIdentityText(value: string): string 
 }
 
 /**
- * Claude may render one logical composer value across several terminal rows. Treat those visual
- * whitespace breaks as presentation only while retaining the exact normalized word sequence.
+ * Claude may render one logical composer value across several terminal rows. This form is used
+ * for recorded candidate text; matching also handles row breaks within tokens below.
  */
 export function normalizeClaudeUnifiedComposerRenderingText(value: string): string {
   return normalizeClaudeUnifiedPromptIdentityText(value).replace(/\s+/g, ' ');
@@ -37,8 +37,8 @@ export const CLAUDE_UNIFIED_LONG_COMPOSER_RESIDUE_MIN_CHARS = 256;
 /**
  * Match the complete logical composer text, or a sufficiently long visible window when Claude's
  * terminal viewport exposes only part of a longer draft. The cursor may leave that window at the
- * beginning, middle, or end of the prompt. Both sides use the same soft-wrap-insensitive identity
- * so terminal row wrapping is presentation, not prompt content.
+ * beginning, middle, or end of the prompt. A captured row break may fall at a word boundary or
+ * inside a token; the actual characters on each row must still match the prompt.
  */
 export function isClaudeUnifiedComposerTextMatch(params: Readonly<{
   promptText: string;
@@ -46,26 +46,40 @@ export function isClaudeUnifiedComposerTextMatch(params: Readonly<{
   minPrefixChars?: number | undefined;
 }>): boolean {
   const promptText = normalizeClaudeUnifiedComposerRenderingText(params.promptText);
-  const composerText = normalizeClaudeUnifiedComposerRenderingText(params.composerText);
-  if (!promptText || !composerText) return false;
-  if (composerText === promptText) return true;
+  const composerLines = normalizeClaudeUnifiedPromptIdentityText(params.composerText)
+    .split('\n')
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  if (!promptText || composerLines.length === 0) return false;
+  const composerLength = composerLines.join(' ').length;
 
   const minPrefixChars = Math.max(
     1,
     Math.trunc(params.minPrefixChars ?? CLAUDE_UNIFIED_LONG_COMPOSER_RESIDUE_MIN_CHARS),
   );
-  if (
-    composerText.length >= CLAUDE_UNIFIED_LONG_COMPOSER_RESIDUE_MIN_CHARS
-    && promptText.length > composerText.length
-    && promptText.includes(composerText)
-  ) {
-    return true;
+  // A captured row break can stand for either an actual whitespace boundary or no character at
+  // all when the terminal wraps inside a URL or JSON token. Keep spaces within each row required.
+  const firstLine = composerLines[0]!;
+  const remainingLines = composerLines.slice(1);
+  for (let start = promptText.indexOf(firstLine); start !== -1; start = promptText.indexOf(firstLine, start + 1)) {
+    let end = start + firstLine.length;
+    let matches = true;
+    for (const line of remainingLines) {
+      if (promptText.startsWith(line, end)) {
+        end += line.length;
+      } else if (promptText[end] === ' ' && promptText.startsWith(line, end + 1)) {
+        end += line.length + 1;
+      } else {
+        matches = false;
+        break;
+      }
+    }
+    if (!matches) continue;
+    if (start === 0 && end === promptText.length) return true;
+    if (composerLength >= CLAUDE_UNIFIED_LONG_COMPOSER_RESIDUE_MIN_CHARS) return true;
+    // Short possible-write residues are prefix-only so a genuine user draft that merely shares
+    // a phrase with an earlier injection is never treated as controller-owned.
+    if (start === 0 && composerLength >= minPrefixChars) return true;
   }
-
-  // Only the evidence-backed long viewport window may occur in the middle or at the end. Keep
-  // explicitly authorized short possible-write residues prefix-only so a genuine user draft that
-  // merely shares a short phrase with an earlier injection is never treated as controller-owned.
-  return composerText.length >= minPrefixChars
-    && promptText.length > composerText.length
-    && promptText.startsWith(composerText);
+  return false;
 }
