@@ -83,6 +83,7 @@ const baseInstallerProps = {
     depTitle: 'Codex ACP',
     depIconName: 'wrench',
     depStatus: null,
+    detectResult: { ok: true, checkedAt: 1, data: null },
     capabilitiesStatus: 'loaded',
     installLabels,
     installModal,
@@ -90,7 +91,7 @@ const baseInstallerProps = {
 } satisfies Omit<InstallableDepInstallerProps, 'refreshLatestVersion' | 'extraItems'>;
 
 async function renderInstaller(
-    overrides: Partial<Pick<InstallableDepInstallerProps, 'depStatus' | 'capabilitiesStatus' | 'refreshStatus' | 'refreshLatestVersion' | 'extraItems'>> = {},
+    overrides: Partial<Pick<InstallableDepInstallerProps, 'depStatus' | 'detectResult' | 'capabilitiesStatus' | 'refreshStatus' | 'refreshLatestVersion' | 'extraItems'>> = {},
 ) {
     const { InstallableDepInstaller } = await import('./InstallableDepInstaller');
 
@@ -140,6 +141,19 @@ describe('InstallableDepInstaller', () => {
             screen.pressRowByTitle(baseInstallerProps.depTitle);
         });
         expect(refreshStatus).toHaveBeenCalled();
+        expect(machineCapabilitiesInvokeMock).not.toHaveBeenCalled();
+        await screen.unmount();
+    });
+
+    it('disables installation when the selected CLI did not return the installable capability', async () => {
+        const screen = await renderInstaller({ detectResult: null });
+
+        expect(screen.findRowByTitle(baseInstallerProps.depTitle)?.props.subtitle).toBe('deps.ui.notAvailableUpdateCli');
+        expect(screen.findRowByTitle(installLabels.install)?.props.disabled).toBe(true);
+
+        await act(async () => {
+            screen.pressRowByTitle(installLabels.install);
+        });
         expect(machineCapabilitiesInvokeMock).not.toHaveBeenCalled();
         await screen.unmount();
     });

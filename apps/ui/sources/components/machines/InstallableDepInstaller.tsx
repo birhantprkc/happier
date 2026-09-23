@@ -7,7 +7,7 @@ import { ItemGroup } from '@/components/ui/lists/ItemGroup';
 import { useMachineCapabilityInvokeWithAlerts } from '@/hooks/machine/useMachineCapabilityInvokeWithAlerts';
 import { Modal } from '@/modal';
 import { t } from '@/text';
-import type { CapabilityId } from '@/sync/api/capabilities/capabilitiesProtocol';
+import type { CapabilityDetectResult, CapabilityId } from '@/sync/api/capabilities/capabilitiesProtocol';
 import { isInstallableDepUpdateAvailable } from '@/capabilities/installablesUpdateAvailable';
 import type { InstallableDepDataLike } from '@/capabilities/installablesRegistry';
 import { useUnistyles } from 'react-native-unistyles';
@@ -30,6 +30,7 @@ export type InstallableDepInstallerProps = {
     depTitle: string;
     depIconName: IconName;
     depStatus: InstallableDepDataLike | null;
+    detectResult: CapabilityDetectResult | null;
     capabilitiesStatus: 'idle' | 'loading' | 'loaded' | 'error' | 'not-supported';
     extraItems?: React.ReactNode;
     installLabels: { install: string; update: string; reinstall: string };
@@ -51,6 +52,8 @@ export function InstallableDepInstaller(props: InstallableDepInstallerProps) {
         if (props.capabilitiesStatus === 'not-supported') return t('deps.ui.notAvailableUpdateCli');
         if (props.capabilitiesStatus === 'error') return t('deps.ui.errorRefresh');
         if (props.capabilitiesStatus !== 'loaded') return t('deps.ui.notAvailable');
+        if (!props.detectResult) return t('deps.ui.notAvailableUpdateCli');
+        if (!props.detectResult.ok) return t('deps.ui.errorRefresh');
         if (props.depStatus?.runtimeState === 'downloading') return t('deps.installable.downloading');
 
         if (props.depStatus?.installed) {
@@ -72,7 +75,7 @@ export function InstallableDepInstaller(props: InstallableDepInstallerProps) {
     const installButtonLabel = props.depStatus?.installed
         ? (updateAvailable ? props.installLabels.update : props.installLabels.reinstall)
         : props.installLabels.install;
-    const installActionDisabled = isInstalling || props.capabilitiesStatus !== 'loaded';
+    const installActionDisabled = isInstalling || props.capabilitiesStatus !== 'loaded' || props.detectResult?.ok !== true;
 
     const runInstall = async () => {
         const isInstalled = props.depStatus?.installed === true;
