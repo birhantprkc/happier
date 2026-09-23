@@ -25,6 +25,8 @@ const IGNORED_UNTRANSLATED_KEYS = new Set([
     'connectedServices.detail.prompts.accessTokenPlaceholder',
     'connectedServices.serviceNames.github',
     'deps.installable.githubCli.title',
+    // Product name, shared across locales.
+    'deps.installable.difftastic.title',
     'newSession.githubCliBanner.title',
     'files.markdown',
     'settingsSession.sessionCreation.modalModeSimpleTitle',

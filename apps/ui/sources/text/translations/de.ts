@@ -4400,6 +4400,18 @@ export const de: TranslationStructure = {
         installed: 'Installiert',
         installLog: ({ path }: { path: string }) => `Installations-Log: ${path}`,
         installable: {
+            downloading: "Wird heruntergeladen… Zum Aktualisieren tippen.",
+            install: "Installieren",
+            update: "Aktualisieren",
+            reinstall: "Neu installieren",
+            localEmbeddings: {
+                title: "Lokale Embedding-Laufzeit",
+                description: "Installiert nur die Laufzeit. Lade für die semantische Offline-Suche auch dein ausgewähltes lokales Modell herunter, solange du online bist.",
+            },
+            difftastic: {
+                title: "Difftastic",
+                description: "Installiere Difftastic für syntaxbasierte Vergleiche, bevor du offline gehst.",
+            },
             codexResume: {
                 title: 'Codex-Resume-Server',
             },
@@ -9490,6 +9502,20 @@ settingsSession: {
     },
 
     setupSurface: {
+        acquisitionResolvingReleaseStatus: "Die Version der Happier-Kommandozeile wird gesucht.",
+        acquisitionDownloadingStatus: "Die Happier-Kommandozeile wird heruntergeladen.",
+        acquisitionVerifyingStatus: "Der Download wird überprüft.",
+        acquisitionUnpackingStatus: "Die Happier-Kommandozeile wird entpackt.",
+        acquisitionInstallingStatus: "Die Happier-Kommandozeile wird installiert.",
+        acquisitionFinalizingStatus: "Die Installation der Kommandozeile wird abgeschlossen.",
+        acquisitionCheckingCliStatus: "Die Happier-Kommandozeile wird überprüft.",
+        acquisitionCheckingDaemonStatus: "Der Hintergrunddienst wird überprüft.",
+        acquisitionReleaseFailed: "Happier konnte die Version der Kommandozeile nicht finden. Versuche es erneut.",
+        acquisitionDownloadFailed: "Der Download der Kommandozeile wurde nicht abgeschlossen. Versuche es erneut.",
+        acquisitionVerificationFailed: "Happier konnte den Download nicht überprüfen. Versuche es erneut.",
+        acquisitionInstallFailed: "Die Installation der Kommandozeile wurde nicht abgeschlossen. Versuche es erneut.",
+        acquisitionDownloadBytes: ({ received }: { received: string }) => `${received} heruntergeladen`,
+        acquisitionDownloadBytesTotal: ({ received, total }: { received: string; total: string }) => `${received} von ${total} heruntergeladen`,
         checkingTitle: 'Dieser Computer wird geprüft',
         checkingStatus: ({ relay }: { relay: string }) => `Wir sehen nach, was dieser Computer für ${relay} bereits hat.`,
         workingTitle: 'Dieser Computer wird eingerichtet',
@@ -9505,7 +9531,7 @@ settingsSession: {
         blockedPairingIncompleteStatus: 'Die Verbindung dieses Computers wurde nicht abgeschlossen.',
         blockedCliOutdatedStatus: 'Die Happier-Befehlszeile auf diesem Computer ist älter, als die Einrichtung benötigt. Aktualisiere Happier und versuch es erneut.',
         blockedCliUnresponsiveStatus: 'Die Happier-Befehlszeile antwortet nicht mehr.',
-        blockedCliUnavailableStatus: 'Happier konnte seine Befehlszeile auf diesem Computer nicht starten. Es wurde nichts geändert.',
+        blockedCliUnavailableStatus: "Happier konnte seine Kommandozeile auf diesem Computer nicht starten.",
         blockedCliFailedStatus: 'Happier konnte die Einrichtung dieses Computers nicht zu Ende lesen.',
         unreachableStatus: ({ relay }: { relay: string }) => `Dieser Computer antwortet auf ${relay} noch nicht.`,
         notConvergedStatus: ({ relay }: { relay: string }) => `Der Hintergrunddienst dieses Computers ist für ${relay} noch nicht vollständig gestartet.`,

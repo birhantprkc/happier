@@ -4400,6 +4400,18 @@ export const fr: TranslationStructure = {
         installed: 'Installé',
         installLog: ({ path }: { path: string }) => `Log d’installation : ${path}`,
         installable: {
+            downloading: "Téléchargement… Appuyez pour actualiser.",
+            install: "Installer",
+            update: "Mettre à jour",
+            reinstall: "Réinstaller",
+            localEmbeddings: {
+                title: "Moteur d’embeddings local",
+                description: "Installe uniquement le moteur. Pour la recherche sémantique hors ligne, chargez aussi le modèle local choisi pendant que vous êtes connecté.",
+            },
+            difftastic: {
+                title: "Difftastic",
+                description: "Installez Difftastic pour comparer le code selon sa syntaxe avant de passer hors ligne.",
+            },
             codexResume: {
                 title: 'Serveur de reprise Codex',
             },
@@ -9477,6 +9489,20 @@ settingsSession: {
     },
 
     setupSurface: {
+        acquisitionResolvingReleaseStatus: "Recherche de la version de l’outil en ligne de commande Happier.",
+        acquisitionDownloadingStatus: "Téléchargement de l’outil en ligne de commande Happier.",
+        acquisitionVerifyingStatus: "Vérification du téléchargement.",
+        acquisitionUnpackingStatus: "Décompression de l’outil en ligne de commande Happier.",
+        acquisitionInstallingStatus: "Installation de l’outil en ligne de commande Happier.",
+        acquisitionFinalizingStatus: "Finalisation de l’installation de l’outil en ligne de commande.",
+        acquisitionCheckingCliStatus: "Vérification de l’outil en ligne de commande Happier.",
+        acquisitionCheckingDaemonStatus: "Vérification du service en arrière-plan.",
+        acquisitionReleaseFailed: "Happier n’a pas trouvé la version de l’outil en ligne de commande. Réessayez.",
+        acquisitionDownloadFailed: "Le téléchargement de l’outil en ligne de commande n’a pas abouti. Réessayez.",
+        acquisitionVerificationFailed: "Happier n’a pas pu vérifier le téléchargement. Réessayez.",
+        acquisitionInstallFailed: "L’installation de l’outil en ligne de commande n’a pas abouti. Réessayez.",
+        acquisitionDownloadBytes: ({ received }: { received: string }) => `${received} téléchargés`,
+        acquisitionDownloadBytesTotal: ({ received, total }: { received: string; total: string }) => `${received} sur ${total} téléchargés`,
         checkingTitle: 'Vérification de cet ordinateur',
         checkingStatus: ({ relay }: { relay: string }) => `Nous regardons ce que cet ordinateur possède déjà pour ${relay}.`,
         workingTitle: 'Configuration de cet ordinateur',
@@ -9492,7 +9518,7 @@ settingsSession: {
         blockedPairingIncompleteStatus: 'La connexion de cet ordinateur ne s’est pas terminée.',
         blockedCliOutdatedStatus: 'La ligne de commande Happier de cet ordinateur est plus ancienne que ce qu’exige la configuration. Mettez Happier à jour, puis réessayez.',
         blockedCliUnresponsiveStatus: 'La ligne de commande Happier ne répond plus.',
-        blockedCliUnavailableStatus: 'Happier n’a pas pu démarrer sa ligne de commande sur cet ordinateur. Rien n’a été modifié.',
+        blockedCliUnavailableStatus: "Happier n’a pas pu démarrer son outil en ligne de commande sur cet ordinateur.",
         blockedCliFailedStatus: 'Happier n’a pas pu finir de lire la configuration de cet ordinateur.',
         unreachableStatus: ({ relay }: { relay: string }) => `Cet ordinateur ne répond pas encore sur ${relay}.`,
         notConvergedStatus: ({ relay }: { relay: string }) => `Le service en arrière-plan de cet ordinateur n’a pas fini de démarrer pour ${relay}.`,

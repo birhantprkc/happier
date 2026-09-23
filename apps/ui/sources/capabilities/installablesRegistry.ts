@@ -31,6 +31,7 @@ export type InstallableDepDataLike = {
     sourceKind: string;
     lastInstallLogPath: string | null;
     lastBackgroundUpdateCheckAtMs: number | null;
+    runtimeState?: 'downloading' | 'ready' | 'unavailable';
     latestVersionCheck?:
         | { ok: true; latestVersion: string | null; label: string | null; checkedAt?: number }
         | { ok: false; errorMessage: string; checkedAt?: number };
@@ -64,8 +65,57 @@ export type InstallableRegistryEntry = Readonly<{
     buildLatestVersionDetectRequest: () => CapabilitiesDetectRequest;
 }>;
 
+type InstallableUiEntry = Omit<InstallableRegistryEntry, 'key' | 'kind' | 'experimental' | 'capabilityId' | 'defaultPolicy'>;
+
+function buildPinnedRuntimeUiEntry(params: {
+    capabilityId: Extract<CapabilityId, `dep.${string}`>;
+    titleKey: TranslationKey;
+    descriptionKey: TranslationKey;
+    iconName: string;
+}): InstallableUiEntry {
+    return {
+        enabledWhen: () => true,
+        title: t(params.titleKey),
+        iconName: params.iconName,
+        groupTitleKey: params.titleKey,
+        supportsManagedOverrideInstall: false,
+        installLabels: {
+            installKey: 'deps.installable.install',
+            updateKey: 'deps.installable.update',
+            reinstallKey: 'deps.installable.reinstall',
+        },
+        installModal: {
+            installTitleKey: params.titleKey,
+            updateTitleKey: params.titleKey,
+            reinstallTitleKey: params.titleKey,
+            descriptionKey: params.descriptionKey,
+        },
+        getDetectResult: (results) => results?.[params.capabilityId] ?? null,
+        getStatus: (results) => {
+            const result = results?.[params.capabilityId];
+            if (!result?.ok || !result.data || typeof result.data !== 'object') return null;
+            return result.data as InstallableDepDataLike;
+        },
+        // Runtime archives follow the CLI version; detection only reads local install state.
+        shouldPrefetchLatestVersion: () => false,
+        buildLatestVersionDetectRequest: () => ({ requests: [{ id: params.capabilityId }] }),
+    };
+}
+
 export function getInstallablesRegistryEntries(): readonly InstallableRegistryEntry[] {
-    const uiByKey: Readonly<Record<InstallableKey, Omit<InstallableRegistryEntry, 'key' | 'kind' | 'experimental' | 'capabilityId' | 'defaultPolicy'>>> = {
+    const uiByKey: Readonly<Record<InstallableKey, InstallableUiEntry>> = {
+        [INSTALLABLE_KEYS.LOCAL_EMBEDDINGS]: buildPinnedRuntimeUiEntry({
+            capabilityId: 'dep.local-embeddings',
+            titleKey: 'deps.installable.localEmbeddings.title',
+            descriptionKey: 'deps.installable.localEmbeddings.description',
+            iconName: 'cpu',
+        }),
+        [INSTALLABLE_KEYS.DIFFTASTIC]: buildPinnedRuntimeUiEntry({
+            capabilityId: 'dep.difftastic',
+            titleKey: 'deps.installable.difftastic.title',
+            descriptionKey: 'deps.installable.difftastic.description',
+            iconName: 'arrows-left-right',
+        }),
         [INSTALLABLE_KEYS.CODEX_ACP]: {
             enabledWhen: () => true,
             title: t('deps.installable.codexAcp.title'),

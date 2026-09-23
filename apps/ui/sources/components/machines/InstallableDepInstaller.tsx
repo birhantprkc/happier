@@ -9,17 +9,9 @@ import { Modal } from '@/modal';
 import { t } from '@/text';
 import type { CapabilityId } from '@/sync/api/capabilities/capabilitiesProtocol';
 import { isInstallableDepUpdateAvailable } from '@/capabilities/installablesUpdateAvailable';
+import type { InstallableDepDataLike } from '@/capabilities/installablesRegistry';
 import { useUnistyles } from 'react-native-unistyles';
 import { Icon, type IconName } from '@/components/ui/icons/Icon';
-
-type InstallableDepData = {
-    installed: boolean;
-    installedVersion: string | null;
-    sourceKind: string;
-    lastInstallLogPath: string | null;
-    lastBackgroundUpdateCheckAtMs: number | null;
-    latestVersionCheck?: { ok: true; latestVersion: string | null; label: string | null } | { ok: false; errorMessage: string };
-};
 
 function formatTimestamp(ms: number): string {
     try {
@@ -37,7 +29,7 @@ export type InstallableDepInstallerProps = {
     depId: Extract<CapabilityId, `dep.${string}`>;
     depTitle: string;
     depIconName: IconName;
-    depStatus: InstallableDepData | null;
+    depStatus: InstallableDepDataLike | null;
     capabilitiesStatus: 'idle' | 'loading' | 'loaded' | 'error' | 'not-supported';
     extraItems?: React.ReactNode;
     installLabels: { install: string; update: string; reinstall: string };
@@ -59,6 +51,7 @@ export function InstallableDepInstaller(props: InstallableDepInstallerProps) {
         if (props.capabilitiesStatus === 'not-supported') return t('deps.ui.notAvailableUpdateCli');
         if (props.capabilitiesStatus === 'error') return t('deps.ui.errorRefresh');
         if (props.capabilitiesStatus !== 'loaded') return t('deps.ui.notAvailable');
+        if (props.depStatus?.runtimeState === 'downloading') return t('deps.installable.downloading');
 
         if (props.depStatus?.installed) {
             if (updateAvailable) {
@@ -117,7 +110,7 @@ export function InstallableDepInstaller(props: InstallableDepInstallerProps) {
                 subtitle={subtitle}
                 icon={<Icon name={props.depIconName} size={20} color={theme.colors.text.secondary} />}
                 showChevron={false}
-                onPress={() => props.refreshLatestVersion?.()}
+                onPress={() => (props.refreshLatestVersion ?? props.refreshStatus)()}
             />
 
             {props.extraItems}

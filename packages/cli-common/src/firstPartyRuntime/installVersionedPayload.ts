@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { FirstPartyAcquisitionOptions } from './acquisitionProgress.js';
 import { lstat, rename } from 'node:fs/promises';
 
 import type { FirstPartyComponentId } from './componentCatalog.js';
@@ -162,7 +163,7 @@ async function resolveWindowsRetryPayloadRoot(params: Readonly<{
   return params.payloadRoot;
 }
 
-export async function installVersionedPayload(params: Readonly<{
+export async function installVersionedPayload(params: FirstPartyAcquisitionOptions & Readonly<{
   componentId: FirstPartyComponentId;
   versionId: string;
   payloadRoot: string;
@@ -171,6 +172,7 @@ export async function installVersionedPayload(params: Readonly<{
   releaseRing?: PublicReleaseRingId;
   processEnv?: NodeJS.ProcessEnv;
 }>): Promise<FirstPartyPayloadPromotionResult> {
+  params.signal?.throwIfAborted();
   const layout = resolveFirstPartyInstallLayout({
     componentId: params.componentId,
     channel: params.channel,
@@ -198,7 +200,7 @@ export async function installVersionedPayload(params: Readonly<{
   }
 }
 
-async function installVersionedPayloadOnce(params: Readonly<{
+async function installVersionedPayloadOnce(params: FirstPartyAcquisitionOptions & Readonly<{
   componentId: FirstPartyComponentId;
   versionId: string;
   payloadRoot: string;
@@ -207,6 +209,9 @@ async function installVersionedPayloadOnce(params: Readonly<{
   releaseRing?: PublicReleaseRingId;
   processEnv?: NodeJS.ProcessEnv;
 }>): Promise<FirstPartyPayloadPromotionResult> {
+  // Promotion and shim/marker finalization finish together once started. Aborting halfway
+  // through would leave a current pointer without its matching command shims.
+  params.onProgress?.({ phase: 'installing' });
   const promotion = await promoteVersionedPayload({
     componentId: params.componentId,
     versionId: params.versionId,
@@ -217,6 +222,7 @@ async function installVersionedPayloadOnce(params: Readonly<{
     processEnv: params.processEnv,
   });
 
+  params.onProgress?.({ phase: 'finalizing' });
   const releaseChannel = params.channel ?? params.releaseRing ?? 'stable';
 
   await syncInstalledFirstPartyShims({

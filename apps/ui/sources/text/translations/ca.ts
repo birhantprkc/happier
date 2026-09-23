@@ -4461,6 +4461,18 @@ deps: {
         installed: 'Instal·lat',
         installLog: ({ path }: { path: string }) => `Registre d'instal·lació: ${path}`,
         installable: {
+            downloading: "S’està baixant… Toca per actualitzar.",
+            install: "Instal·lar",
+            update: "Actualitzar",
+            reinstall: "Reinstal·lar",
+            localEmbeddings: {
+                title: "Motor d’embeddings local",
+                description: "Només instal·la el motor. Per a la cerca semàntica sense connexió, carrega també el model local seleccionat mentre tinguis connexió.",
+            },
+            difftastic: {
+                title: "Difftastic",
+                description: "Instal·la Difftastic per comparar codi segons la sintaxi abans de desconnectar-te.",
+            },
             codexResume: {
                 title: 'Servidor de represa de Codex',
             },
@@ -9426,6 +9438,20 @@ settingsSession: {
     },
 
     setupSurface: {
+        acquisitionResolvingReleaseStatus: "Cercant la versió de la línia d’ordres de Happier.",
+        acquisitionDownloadingStatus: "Descarregant la línia d’ordres de Happier.",
+        acquisitionVerifyingStatus: "Verificant la descàrrega.",
+        acquisitionUnpackingStatus: "Descomprimint la línia d’ordres de Happier.",
+        acquisitionInstallingStatus: "Instal·lant la línia d’ordres de Happier.",
+        acquisitionFinalizingStatus: "Finalitzant la instal·lació de la línia d’ordres.",
+        acquisitionCheckingCliStatus: "Comprovant la línia d’ordres de Happier.",
+        acquisitionCheckingDaemonStatus: "Comprovant el servei en segon pla.",
+        acquisitionReleaseFailed: "Happier no ha pogut trobar la versió de la línia d’ordres. Torna-ho a provar.",
+        acquisitionDownloadFailed: "La descàrrega de la línia d’ordres no s’ha completat. Torna-ho a provar.",
+        acquisitionVerificationFailed: "Happier no ha pogut verificar la descàrrega. Torna-ho a provar.",
+        acquisitionInstallFailed: "La instal·lació de la línia d’ordres no s’ha completat. Torna-ho a provar.",
+        acquisitionDownloadBytes: ({ received }: { received: string }) => `${received} descarregats`,
+        acquisitionDownloadBytesTotal: ({ received, total }: { received: string; total: string }) => `${received} de ${total} descarregats`,
         checkingTitle: 'Comprovant aquest ordinador',
         checkingStatus: ({ relay }: { relay: string }) => `Estem mirant què té ja aquest ordinador per a ${relay}.`,
         workingTitle: 'Configurant aquest ordinador',
@@ -9441,7 +9467,7 @@ settingsSession: {
         blockedPairingIncompleteStatus: 'La connexió d’aquest ordinador no ha acabat.',
         blockedCliOutdatedStatus: 'La línia d’ordres del Happier d’aquest ordinador és més antiga del que necessita la configuració. Actualitza el Happier i torna-ho a provar.',
         blockedCliUnresponsiveStatus: 'La línia d’ordres del Happier ha deixat de respondre.',
-        blockedCliUnavailableStatus: 'El Happier no ha pogut iniciar la seva línia d’ordres en aquest ordinador. No s’ha canviat res.',
+        blockedCliUnavailableStatus: "Happier no ha pogut iniciar la seva línia d’ordres en aquest ordinador.",
         blockedCliFailedStatus: 'El Happier no ha pogut acabar de llegir la configuració d’aquest ordinador.',
         unreachableStatus: ({ relay }: { relay: string }) => `Aquest ordinador encara no respon a ${relay}.`,
         notConvergedStatus: ({ relay }: { relay: string }) => `El servei en segon pla d’aquest ordinador encara no ha acabat d’arrencar per a ${relay}.`,

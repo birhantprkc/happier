@@ -90,7 +90,7 @@ const baseInstallerProps = {
 } satisfies Omit<InstallableDepInstallerProps, 'refreshLatestVersion' | 'extraItems'>;
 
 async function renderInstaller(
-    overrides: Partial<Pick<InstallableDepInstallerProps, 'depStatus' | 'capabilitiesStatus' | 'refreshLatestVersion' | 'extraItems'>> = {},
+    overrides: Partial<Pick<InstallableDepInstallerProps, 'depStatus' | 'capabilitiesStatus' | 'refreshStatus' | 'refreshLatestVersion' | 'extraItems'>> = {},
 ) {
     const { InstallableDepInstaller } = await import('./InstallableDepInstaller');
 
@@ -114,6 +114,34 @@ describe('InstallableDepInstaller', () => {
 
     afterEach(() => {
         return flushHookEffects({ cycles: 1 });
+    });
+
+    it.each([
+        ['downloading', false, 'deps.installable.downloading'],
+        ['unavailable', false, 'deps.ui.notInstalled'],
+        ['ready', true, 'deps.ui.installed'],
+    ] as const)('shows externally started runtime state %s and lets users refresh it', async (runtimeState, installed, subtitle) => {
+        const refreshStatus = vi.fn();
+        const depStatus = {
+            installed,
+            runtimeState,
+            installedVersion: null,
+            sourceKind: 'pinned_archive',
+            lastInstallLogPath: '/runtime/install.log',
+            lastBackgroundUpdateCheckAtMs: null,
+        };
+        const screen = await renderInstaller({ depStatus, refreshStatus });
+
+        expect(screen.findRowByTitle(baseInstallerProps.depTitle)?.props.subtitle).toBe(subtitle);
+        expect(screen.findRowByTitle(installed ? installLabels.reinstall : installLabels.install)?.props.disabled).toBe(false);
+        expect(screen.findRowByTitle('deps.ui.lastInstallLog')?.props.subtitle).toBe('/runtime/install.log');
+
+        await act(async () => {
+            screen.pressRowByTitle(baseInstallerProps.depTitle);
+        });
+        expect(refreshStatus).toHaveBeenCalled();
+        expect(machineCapabilitiesInvokeMock).not.toHaveBeenCalled();
+        await screen.unmount();
     });
 
     it('routes install invocation through the provided serverId', async () => {

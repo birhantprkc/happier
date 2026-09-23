@@ -4769,6 +4769,18 @@ export const pl: TranslationStructure = {
     installed: "Zainstalowano",
     installLog: ({ path }: { path: string }) => `Log instalacji: ${path}`,
     installable: {
+        downloading: "Pobieranie… Dotknij, aby odświeżyć.",
+        install: "Zainstaluj",
+        update: "Aktualizuj",
+        reinstall: "Zainstaluj ponownie",
+        localEmbeddings: {
+            title: "Środowisko lokalnych osadzeń",
+            description: "Instaluje tylko środowisko wykonawcze. Aby wyszukiwać semantycznie offline, wczytaj też wybrany model lokalny, gdy masz połączenie z internetem.",
+        },
+        difftastic: {
+            title: "Difftastic",
+            description: "Zainstaluj Difftastic do porównywania kodu na podstawie składni przed przejściem w tryb offline.",
+        },
       codexResume: {
         title: "Serwer wznawiania Codex",
       },
@@ -10127,7 +10139,21 @@ settingsSession: {
       },
 
 
-  setupSurface: {
+    setupSurface: {
+        acquisitionResolvingReleaseStatus: "Wyszukiwanie wersji narzędzia wiersza poleceń Happier.",
+        acquisitionDownloadingStatus: "Pobieranie narzędzia wiersza poleceń Happier.",
+        acquisitionVerifyingStatus: "Weryfikowanie pobranego pliku.",
+        acquisitionUnpackingStatus: "Rozpakowywanie narzędzia wiersza poleceń Happier.",
+        acquisitionInstallingStatus: "Instalowanie narzędzia wiersza poleceń Happier.",
+        acquisitionFinalizingStatus: "Kończenie instalacji narzędzia wiersza poleceń.",
+        acquisitionCheckingCliStatus: "Sprawdzanie narzędzia wiersza poleceń Happier.",
+        acquisitionCheckingDaemonStatus: "Sprawdzanie usługi działającej w tle.",
+        acquisitionReleaseFailed: "Happier nie znalazł wersji narzędzia wiersza poleceń. Spróbuj ponownie.",
+        acquisitionDownloadFailed: "Pobieranie narzędzia wiersza poleceń nie zostało ukończone. Spróbuj ponownie.",
+        acquisitionVerificationFailed: "Happier nie mógł zweryfikować pobranego pliku. Spróbuj ponownie.",
+        acquisitionInstallFailed: "Instalacja narzędzia wiersza poleceń nie została ukończona. Spróbuj ponownie.",
+        acquisitionDownloadBytes: ({ received }: { received: string }) => `Pobrano ${received}`,
+        acquisitionDownloadBytesTotal: ({ received, total }: { received: string; total: string }) => `Pobrano ${received} z ${total}`,
     checkingTitle: 'Sprawdzanie tego komputera',
     checkingStatus: ({ relay }: { relay: string }) => `Sprawdzamy, co ten komputer ma już dla ${relay}.`,
     workingTitle: 'Konfigurowanie tego komputera',
@@ -10143,7 +10169,7 @@ settingsSession: {
     blockedPairingIncompleteStatus: 'Łączenie tego komputera nie zostało ukończone.',
     blockedCliOutdatedStatus: 'Wiersz poleceń Happier na tym komputerze jest starszy, niż wymaga konfiguracja. Zaktualizuj Happier i spróbuj ponownie.',
     blockedCliUnresponsiveStatus: 'Wiersz poleceń Happier przestał odpowiadać.',
-    blockedCliUnavailableStatus: 'Happier nie mógł uruchomić swojego wiersza poleceń na tym komputerze. Nic nie zostało zmienione.',
+        blockedCliUnavailableStatus: "Happier nie mógł uruchomić swojego narzędzia wiersza poleceń na tym komputerze.",
     blockedCliFailedStatus: 'Happier nie mógł dokończyć odczytu konfiguracji tego komputera.',
     unreachableStatus: ({ relay }: { relay: string }) => `Ten komputer jeszcze nie odpowiada na ${relay}.`,
     notConvergedStatus: ({ relay }: { relay: string }) => `Usługa w tle na tym komputerze nie zakończyła jeszcze uruchamiania dla ${relay}.`,

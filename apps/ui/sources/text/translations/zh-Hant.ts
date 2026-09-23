@@ -4408,6 +4408,18 @@ const zhHantOverrides: DeepPartial<TranslationStructure> = {
 
     deps: {
         installable: {
+            downloading: "正在下載… 點按以重新整理。",
+            install: "安裝",
+            update: "更新",
+            reinstall: "重新安裝",
+            localEmbeddings: {
+                title: "本機嵌入執行環境",
+                description: "僅安裝執行環境。若要離線使用語意搜尋，還需在連線時載入所選的本機模型。",
+            },
+            difftastic: {
+                title: "Difftastic",
+                description: "在離線前安裝 Difftastic，以檢視基於語法的程式碼差異。",
+            },
             githubCli: {
                 title: 'GitHub CLI',
             },
@@ -8150,6 +8162,20 @@ settingsSession: {
 
 
     setupSurface: {
+        acquisitionResolvingReleaseStatus: "正在尋找 Happier 命令列版本。",
+        acquisitionDownloadingStatus: "正在下載 Happier 命令列。",
+        acquisitionVerifyingStatus: "正在驗證下載內容。",
+        acquisitionUnpackingStatus: "正在解壓縮 Happier 命令列。",
+        acquisitionInstallingStatus: "正在安裝 Happier 命令列。",
+        acquisitionFinalizingStatus: "正在完成命令列安裝。",
+        acquisitionCheckingCliStatus: "正在檢查 Happier 命令列。",
+        acquisitionCheckingDaemonStatus: "正在檢查背景服務。",
+        acquisitionReleaseFailed: "Happier 找不到命令列版本。請重試。",
+        acquisitionDownloadFailed: "命令列下載未完成。請重試。",
+        acquisitionVerificationFailed: "Happier 無法驗證下載內容。請重試。",
+        acquisitionInstallFailed: "命令列安裝未完成。請重試。",
+        acquisitionDownloadBytes: ({ received }: { received: string }) => `已下載 ${received}`,
+        acquisitionDownloadBytesTotal: ({ received, total }: { received: string; total: string }) => `已下載 ${received}，共 ${total}`,
         checkingTitle: '正在檢查這台電腦',
         checkingStatus: ({ relay }: { relay: string }) => `正在查看這台電腦已經為 ${relay} 準備了什麼。`,
         workingTitle: '正在設定這台電腦',
@@ -8165,7 +8191,7 @@ settingsSession: {
         blockedPairingIncompleteStatus: '這台電腦沒有完成連線。',
         blockedCliOutdatedStatus: '這台電腦上的 Happier 命令列版本低於設定所需的版本。請更新 Happier 後再試一次。',
         blockedCliUnresponsiveStatus: 'Happier 命令列停止回應。',
-        blockedCliUnavailableStatus: 'Happier 無法在這台電腦上啟動命令列。沒有做任何變更。',
+        blockedCliUnavailableStatus: "Happier 無法在此電腦上啟動命令列。",
         blockedCliFailedStatus: 'Happier 沒能讀完這台電腦的設定。',
         unreachableStatus: ({ relay }: { relay: string }) => `這台電腦還沒在 ${relay} 上回應。`,
         notConvergedStatus: ({ relay }: { relay: string }) => `這台電腦的背景服務還沒為 ${relay} 完成啟動。`,

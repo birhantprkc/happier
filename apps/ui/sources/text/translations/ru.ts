@@ -4686,6 +4686,18 @@ export const ru: TranslationStructure = {
     installed: "Установлено",
     installLog: ({ path }: { path: string }) => `Лог установки: ${path}`,
     installable: {
+        downloading: "Загрузка… Нажмите, чтобы обновить.",
+        install: "Установить",
+        update: "Обновить",
+        reinstall: "Переустановить",
+        localEmbeddings: {
+            title: "Среда локальных эмбеддингов",
+            description: "Устанавливает только среду выполнения. Для семантического поиска без интернета также загрузите выбранную локальную модель, пока есть подключение.",
+        },
+        difftastic: {
+            title: "Difftastic",
+            description: "Установите Difftastic для сравнения кода с учётом синтаксиса до перехода в автономный режим.",
+        },
       codexResume: {
         title: "Сервер возобновления Codex",
       },
@@ -10021,7 +10033,21 @@ settingsSession: {
     },
   },
 
-  setupSurface: {
+    setupSurface: {
+        acquisitionResolvingReleaseStatus: "Поиск версии командной строки Happier.",
+        acquisitionDownloadingStatus: "Загрузка командной строки Happier.",
+        acquisitionVerifyingStatus: "Проверка загруженного файла.",
+        acquisitionUnpackingStatus: "Распаковка командной строки Happier.",
+        acquisitionInstallingStatus: "Установка командной строки Happier.",
+        acquisitionFinalizingStatus: "Завершение установки командной строки.",
+        acquisitionCheckingCliStatus: "Проверка командной строки Happier.",
+        acquisitionCheckingDaemonStatus: "Проверка фоновой службы.",
+        acquisitionReleaseFailed: "Happier не удалось найти версию командной строки. Повторите попытку.",
+        acquisitionDownloadFailed: "Загрузка командной строки не завершена. Повторите попытку.",
+        acquisitionVerificationFailed: "Happier не удалось проверить загруженный файл. Повторите попытку.",
+        acquisitionInstallFailed: "Установка командной строки не завершена. Повторите попытку.",
+        acquisitionDownloadBytes: ({ received }: { received: string }) => `Загружено ${received}`,
+        acquisitionDownloadBytesTotal: ({ received, total }: { received: string; total: string }) => `Загружено ${received} из ${total}`,
     checkingTitle: 'Проверяем этот компьютер',
     checkingStatus: ({ relay }: { relay: string }) => `Смотрим, что у этого компьютера уже есть для ${relay}.`,
     workingTitle: 'Настраиваем этот компьютер',
@@ -10037,7 +10063,7 @@ settingsSession: {
     blockedPairingIncompleteStatus: 'Подключение этого компьютера не завершилось.',
     blockedCliOutdatedStatus: 'Командная строка Happier на этом компьютере старее, чем требует настройка. Обновите Happier и попробуйте снова.',
     blockedCliUnresponsiveStatus: 'Командная строка Happier перестала отвечать.',
-    blockedCliUnavailableStatus: 'Happier не смог запустить свою командную строку на этом компьютере. Ничего не изменено.',
+        blockedCliUnavailableStatus: "Happier не удалось запустить командную строку на этом компьютере.",
     blockedCliFailedStatus: 'Happier не смог до конца прочитать настройку этого компьютера.',
     unreachableStatus: ({ relay }: { relay: string }) => `Этот компьютер пока не отвечает на ${relay}.`,
     notConvergedStatus: ({ relay }: { relay: string }) => `Фоновая служба на этом компьютере ещё не закончила запуск для ${relay}.`,

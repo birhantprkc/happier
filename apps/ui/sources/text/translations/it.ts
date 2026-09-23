@@ -5080,6 +5080,18 @@ export const it: TranslationStructure = {
     installed: "Installato",
     installLog: ({ path }: { path: string }) => `Log di installazione: ${path}`,
     installable: {
+        downloading: "Download in corso… Tocca per aggiornare.",
+        install: "Installa",
+        update: "Aggiorna",
+        reinstall: "Reinstalla",
+        localEmbeddings: {
+            title: "Runtime per embedding locali",
+            description: "Installa solo il runtime. Per la ricerca semantica offline, carica anche il modello locale selezionato mentre sei online.",
+        },
+        difftastic: {
+            title: "Difftastic",
+            description: "Installa Difftastic per confrontare il codice in base alla sintassi prima di passare offline.",
+        },
       codexResume: {
         title: "Server di ripresa Codex",
       },
@@ -10450,7 +10462,21 @@ settingsSession: {
       },
 
 
-  setupSurface: {
+    setupSurface: {
+        acquisitionResolvingReleaseStatus: "Ricerca della versione della riga di comando di Happier.",
+        acquisitionDownloadingStatus: "Download della riga di comando di Happier.",
+        acquisitionVerifyingStatus: "Verifica del download.",
+        acquisitionUnpackingStatus: "Decompressione della riga di comando di Happier.",
+        acquisitionInstallingStatus: "Installazione della riga di comando di Happier.",
+        acquisitionFinalizingStatus: "Completamento dell’installazione della riga di comando.",
+        acquisitionCheckingCliStatus: "Controllo della riga di comando di Happier.",
+        acquisitionCheckingDaemonStatus: "Controllo del servizio in background.",
+        acquisitionReleaseFailed: "Happier non ha trovato la versione della riga di comando. Riprova.",
+        acquisitionDownloadFailed: "Il download della riga di comando non è stato completato. Riprova.",
+        acquisitionVerificationFailed: "Happier non ha potuto verificare il download. Riprova.",
+        acquisitionInstallFailed: "L’installazione della riga di comando non è stata completata. Riprova.",
+        acquisitionDownloadBytes: ({ received }: { received: string }) => `${received} scaricati`,
+        acquisitionDownloadBytesTotal: ({ received, total }: { received: string; total: string }) => `${received} di ${total} scaricati`,
     checkingTitle: 'Controllo di questo computer',
     checkingStatus: ({ relay }: { relay: string }) => `Stiamo guardando cosa ha già questo computer per ${relay}.`,
     workingTitle: 'Configurazione di questo computer',
@@ -10466,7 +10492,7 @@ settingsSession: {
     blockedPairingIncompleteStatus: 'La connessione di questo computer non è stata completata.',
     blockedCliOutdatedStatus: 'La riga di comando di Happier su questo computer è più vecchia di quanto serva alla configurazione. Aggiorna Happier e riprova.',
     blockedCliUnresponsiveStatus: 'La riga di comando di Happier ha smesso di rispondere.',
-    blockedCliUnavailableStatus: 'Happier non è riuscito ad avviare la sua riga di comando su questo computer. Non è stato cambiato nulla.',
+        blockedCliUnavailableStatus: "Happier non ha potuto avviare la sua riga di comando su questo computer.",
     blockedCliFailedStatus: 'Happier non è riuscito a finire di leggere la configurazione di questo computer.',
     unreachableStatus: ({ relay }: { relay: string }) => `Questo computer non risponde ancora su ${relay}.`,
     notConvergedStatus: ({ relay }: { relay: string }) => `Il servizio in background di questo computer non ha ancora finito di avviarsi per ${relay}.`,

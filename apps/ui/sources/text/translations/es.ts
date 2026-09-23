@@ -4735,6 +4735,18 @@ export const es: TranslationStructure = {
     installLog: ({ path }: { path: string }) =>
       `Registro de instalación: ${path}`,
     installable: {
+        downloading: "Descargando… Toca para actualizar.",
+        install: "Instalar",
+        update: "Actualizar",
+        reinstall: "Reinstalar",
+        localEmbeddings: {
+            title: "Motor de embeddings local",
+            description: "Solo instala el motor. Para la búsqueda semántica sin conexión, carga también el modelo local seleccionado mientras tengas conexión.",
+        },
+        difftastic: {
+            title: "Difftastic",
+            description: "Instala Difftastic para comparar código según su sintaxis antes de desconectarte.",
+        },
       codexResume: {
         title: "Servidor de reanudación de Codex",
       },
@@ -10135,7 +10147,21 @@ settingsSession: {
       },
 
 
-  setupSurface: {
+    setupSurface: {
+        acquisitionResolvingReleaseStatus: "Buscando la versión de la línea de comandos de Happier.",
+        acquisitionDownloadingStatus: "Descargando la línea de comandos de Happier.",
+        acquisitionVerifyingStatus: "Verificando la descarga.",
+        acquisitionUnpackingStatus: "Descomprimiendo la línea de comandos de Happier.",
+        acquisitionInstallingStatus: "Instalando la línea de comandos de Happier.",
+        acquisitionFinalizingStatus: "Finalizando la instalación de la línea de comandos.",
+        acquisitionCheckingCliStatus: "Comprobando la línea de comandos de Happier.",
+        acquisitionCheckingDaemonStatus: "Comprobando el servicio en segundo plano.",
+        acquisitionReleaseFailed: "Happier no pudo encontrar la versión de la línea de comandos. Inténtalo de nuevo.",
+        acquisitionDownloadFailed: "La descarga de la línea de comandos no terminó. Inténtalo de nuevo.",
+        acquisitionVerificationFailed: "Happier no pudo verificar la descarga. Inténtalo de nuevo.",
+        acquisitionInstallFailed: "La instalación de la línea de comandos no terminó. Inténtalo de nuevo.",
+        acquisitionDownloadBytes: ({ received }: { received: string }) => `${received} descargados`,
+        acquisitionDownloadBytesTotal: ({ received, total }: { received: string; total: string }) => `${received} de ${total} descargados`,
     checkingTitle: 'Comprobando este ordenador',
     checkingStatus: ({ relay }: { relay: string }) => `Estamos viendo qué tiene ya este ordenador para ${relay}.`,
     workingTitle: 'Configurando este ordenador',
@@ -10151,7 +10177,7 @@ settingsSession: {
     blockedPairingIncompleteStatus: 'La conexión de este ordenador no terminó.',
     blockedCliOutdatedStatus: 'La línea de comandos de Happier en este ordenador es más antigua de lo que necesita la configuración. Actualiza Happier e inténtalo de nuevo.',
     blockedCliUnresponsiveStatus: 'La línea de comandos de Happier dejó de responder.',
-    blockedCliUnavailableStatus: 'Happier no pudo iniciar su línea de comandos en este ordenador. No se cambió nada.',
+        blockedCliUnavailableStatus: "Happier no pudo iniciar su línea de comandos en este ordenador.",
     blockedCliFailedStatus: 'Happier no pudo terminar de leer la configuración de este ordenador.',
     unreachableStatus: ({ relay }: { relay: string }) => `Este ordenador todavía no responde en ${relay}.`,
     notConvergedStatus: ({ relay }: { relay: string }) => `El servicio en segundo plano de este ordenador aún no ha terminado de arrancar para ${relay}.`,

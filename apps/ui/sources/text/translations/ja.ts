@@ -5012,6 +5012,18 @@ localTailscale: {
     installed: "インストールしました",
     installLog: ({ path }: { path: string }) => `インストールログ: ${path}`,
     installable: {
+        downloading: "ダウンロード中… タップして更新。",
+        install: "インストール",
+        update: "更新",
+        reinstall: "再インストール",
+        localEmbeddings: {
+            title: "ローカル埋め込みランタイム",
+            description: "ランタイムのみをインストールします。オフラインで意味検索を使うには、オンライン中に選択したローカルモデルも読み込んでください。",
+        },
+        difftastic: {
+            title: "Difftastic",
+            description: "オフラインになる前に、構文を考慮した差分表示用の Difftastic をインストールしてください。",
+        },
       codexResume: {
         title: "Codex 再開サーバー",
       },
@@ -10353,7 +10365,21 @@ settingsSession: {
       },
 
 
-  setupSurface: {
+    setupSurface: {
+        acquisitionResolvingReleaseStatus: "Happier コマンドラインのリリースを探しています。",
+        acquisitionDownloadingStatus: "Happier コマンドラインをダウンロードしています。",
+        acquisitionVerifyingStatus: "ダウンロードしたファイルを検証しています。",
+        acquisitionUnpackingStatus: "Happier コマンドラインを展開しています。",
+        acquisitionInstallingStatus: "Happier コマンドラインをインストールしています。",
+        acquisitionFinalizingStatus: "コマンドラインのインストールを仕上げています。",
+        acquisitionCheckingCliStatus: "Happier コマンドラインを確認しています。",
+        acquisitionCheckingDaemonStatus: "バックグラウンドサービスを確認しています。",
+        acquisitionReleaseFailed: "Happier コマンドラインのリリースが見つかりませんでした。もう一度お試しください。",
+        acquisitionDownloadFailed: "コマンドラインのダウンロードが完了しませんでした。もう一度お試しください。",
+        acquisitionVerificationFailed: "ダウンロードしたファイルを検証できませんでした。もう一度お試しください。",
+        acquisitionInstallFailed: "コマンドラインのインストールが完了しませんでした。もう一度お試しください。",
+        acquisitionDownloadBytes: ({ received }: { received: string }) => `${received} ダウンロード済み`,
+        acquisitionDownloadBytesTotal: ({ received, total }: { received: string; total: string }) => `${total} 中 ${received} ダウンロード済み`,
     checkingTitle: 'このコンピュータを確認しています',
     checkingStatus: ({ relay }: { relay: string }) => `${relay} 用にこのコンピュータに何が揃っているかを確認しています。`,
     workingTitle: 'このコンピュータをセットアップしています',
@@ -10369,7 +10395,7 @@ settingsSession: {
     blockedPairingIncompleteStatus: 'このコンピュータの接続が完了しませんでした。',
     blockedCliOutdatedStatus: 'このコンピュータの Happier コマンドラインはセットアップに必要なバージョンより古いです。Happier を更新してからもう一度お試しください。',
     blockedCliUnresponsiveStatus: 'Happier のコマンドラインが応答しなくなりました。',
-    blockedCliUnavailableStatus: 'このコンピュータで Happier のコマンドラインを起動できませんでした。何も変更していません。',
+        blockedCliUnavailableStatus: "このコンピューターで Happier コマンドラインを起動できませんでした。",
     blockedCliFailedStatus: 'このコンピュータのセットアップを最後まで読み取れませんでした。',
     unreachableStatus: ({ relay }: { relay: string }) => `このコンピュータはまだ ${relay} で応答していません。`,
     notConvergedStatus: ({ relay }: { relay: string }) => `このコンピュータのバックグラウンドサービスは ${relay} 向けの起動をまだ完了していません。`,

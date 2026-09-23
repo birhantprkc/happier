@@ -4418,6 +4418,18 @@ export const en = {
         installed: 'Installed',
         installLog: ({ path }: { path: string }) => `Install log: ${path}`,
         installable: {
+            downloading: "Downloading… Tap to refresh.",
+            install: "Install",
+            update: "Update",
+            reinstall: "Reinstall",
+            localEmbeddings: {
+                title: "Local embeddings runtime",
+                description: "Installs the runtime only. For offline semantic search, also load your selected local model while online.",
+            },
+            difftastic: {
+                title: "Difftastic",
+                description: "Install Difftastic for syntax-aware diffs before going offline.",
+            },
             codexResume: {
                 title: 'Codex resume server',
             },
@@ -9520,6 +9532,20 @@ settingsSession: {
     },
 
     setupSurface: {
+        acquisitionResolvingReleaseStatus: "Finding the Happier command line release.",
+        acquisitionDownloadingStatus: "Downloading the Happier command line.",
+        acquisitionVerifyingStatus: "Verifying the download.",
+        acquisitionUnpackingStatus: "Unpacking the Happier command line.",
+        acquisitionInstallingStatus: "Installing the Happier command line.",
+        acquisitionFinalizingStatus: "Finishing the command line installation.",
+        acquisitionCheckingCliStatus: "Checking the Happier command line.",
+        acquisitionCheckingDaemonStatus: "Checking the background service.",
+        acquisitionReleaseFailed: "Happier couldn’t find the command line release. Try again.",
+        acquisitionDownloadFailed: "The command line download didn’t finish. Try again.",
+        acquisitionVerificationFailed: "Happier couldn’t verify the download. Try again.",
+        acquisitionInstallFailed: "The command line installation didn’t finish. Try again.",
+        acquisitionDownloadBytes: ({ received }: { received: string }) => `${received} downloaded`,
+        acquisitionDownloadBytesTotal: ({ received, total }: { received: string; total: string }) => `${received} of ${total} downloaded`,
         checkingTitle: 'Checking this computer',
         checkingStatus: ({ relay }: { relay: string }) => `Looking at what this computer already has for ${relay}.`,
         workingTitle: 'Setting up this computer',
@@ -9535,7 +9561,7 @@ settingsSession: {
         blockedPairingIncompleteStatus: 'Connecting this computer didn’t finish.',
         blockedCliOutdatedStatus: 'The Happier command line on this computer is older than setup needs. Update Happier, then try again.',
         blockedCliUnresponsiveStatus: 'The Happier command line stopped responding.',
-        blockedCliUnavailableStatus: 'Happier couldn’t start its command line on this computer. Nothing was changed.',
+        blockedCliUnavailableStatus: "Happier couldn’t start its command line on this computer.",
         blockedCliFailedStatus: 'Happier couldn’t finish reading this computer’s setup.',
         unreachableStatus: ({ relay }: { relay: string }) => `This computer isn’t answering on ${relay} yet.`,
         notConvergedStatus: ({ relay }: { relay: string }) => `This computer’s background service hasn’t finished coming up for ${relay}.`,

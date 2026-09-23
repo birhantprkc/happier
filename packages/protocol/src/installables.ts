@@ -30,6 +30,8 @@ export const INSTALLABLE_KEYS = {
   CODEX_ACP: CODEX_INSTALLABLE_KEYS.CODEX_ACP,
   GH: GH_INSTALLABLE_KEY,
   AGY_ACP_SERVER: AGY_INSTALLABLE_KEYS.AGY_ACP_SERVER,
+  LOCAL_EMBEDDINGS: 'local-embeddings',
+  DIFFTASTIC: 'difftastic',
 } as const;
 
 export type InstallableKey = typeof INSTALLABLE_KEYS[keyof typeof INSTALLABLE_KEYS];
@@ -71,6 +73,22 @@ const DEFAULT_POLICY: InstallableDefaultPolicy = { autoInstallWhenNeeded: true, 
 const OPTIONAL_TOOL_POLICY: InstallableDefaultPolicy = { autoInstallWhenNeeded: false, autoUpdateMode: 'notify' };
 
 export const INSTALLABLES_CATALOG = [
+  {
+    key: INSTALLABLE_KEYS.LOCAL_EMBEDDINGS,
+    kind: 'dep',
+    capabilityId: 'dep.local-embeddings',
+    sourceKind: 'pinned_archive',
+    defaultPolicy: { autoInstallWhenNeeded: true, autoUpdateMode: 'off' },
+    experimental: false,
+  },
+  {
+    key: INSTALLABLE_KEYS.DIFFTASTIC,
+    kind: 'dep',
+    capabilityId: 'dep.difftastic',
+    sourceKind: 'pinned_archive',
+    defaultPolicy: { autoInstallWhenNeeded: true, autoUpdateMode: 'off' },
+    experimental: false,
+  },
   {
     key: INSTALLABLE_KEYS.CODEX_ACP,
     kind: 'dep',

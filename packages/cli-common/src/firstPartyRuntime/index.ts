@@ -135,3 +135,5 @@ export type {
   HappierCliPathExposureResult,
   HappierCliPathRemovalResult,
 } from './ensureHappierCliPathExposure.js';
+export { FirstPartyAcquisitionError, readAcquisitionFailureCause, redactAcquisitionDiagnostic } from './acquisitionProgress.js';
+export type { FirstPartyAcquisitionOptions } from './acquisitionProgress.js';

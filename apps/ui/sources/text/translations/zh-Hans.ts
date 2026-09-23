@@ -4587,6 +4587,18 @@ export const zhHans: TranslationStructure = {
     installed: "已安装",
     installLog: ({ path }: { path: string }) => `安装日志：${path}`,
     installable: {
+        downloading: "正在下载… 点击刷新。",
+        install: "安装",
+        update: "更新",
+        reinstall: "重新安装",
+        localEmbeddings: {
+            title: "本地嵌入运行时",
+            description: "仅安装运行时。要离线使用语义搜索，还需在联网时加载所选的本地模型。",
+        },
+        difftastic: {
+            title: "Difftastic",
+            description: "在离线前安装 Difftastic，以查看基于语法的代码差异。",
+        },
       codexResume: {
         title: "Codex 恢复服务器",
       },
@@ -9761,7 +9773,21 @@ settingsSession: {
       },
 
 
-  setupSurface: {
+    setupSurface: {
+        acquisitionResolvingReleaseStatus: "正在查找 Happier 命令行版本。",
+        acquisitionDownloadingStatus: "正在下载 Happier 命令行。",
+        acquisitionVerifyingStatus: "正在验证下载内容。",
+        acquisitionUnpackingStatus: "正在解压 Happier 命令行。",
+        acquisitionInstallingStatus: "正在安装 Happier 命令行。",
+        acquisitionFinalizingStatus: "正在完成命令行安装。",
+        acquisitionCheckingCliStatus: "正在检查 Happier 命令行。",
+        acquisitionCheckingDaemonStatus: "正在检查后台服务。",
+        acquisitionReleaseFailed: "Happier 未能找到命令行版本。请重试。",
+        acquisitionDownloadFailed: "命令行下载未完成。请重试。",
+        acquisitionVerificationFailed: "Happier 未能验证下载内容。请重试。",
+        acquisitionInstallFailed: "命令行安装未完成。请重试。",
+        acquisitionDownloadBytes: ({ received }: { received: string }) => `已下载 ${received}`,
+        acquisitionDownloadBytesTotal: ({ received, total }: { received: string; total: string }) => `已下载 ${received}，共 ${total}`,
     checkingTitle: '正在检查这台电脑',
     checkingStatus: ({ relay }: { relay: string }) => `正在查看这台电脑已经为 ${relay} 准备了什么。`,
     workingTitle: '正在设置这台电脑',
@@ -9777,7 +9803,7 @@ settingsSession: {
     blockedPairingIncompleteStatus: '这台电脑没有完成连接。',
     blockedCliOutdatedStatus: '这台电脑上的 Happier 命令行版本低于设置所需的版本。请更新 Happier 后再试一次。',
     blockedCliUnresponsiveStatus: 'Happier 命令行停止响应。',
-    blockedCliUnavailableStatus: 'Happier 无法在这台电脑上启动命令行。没有做任何更改。',
+        blockedCliUnavailableStatus: "Happier 无法在此电脑上启动命令行。",
     blockedCliFailedStatus: 'Happier 没能读完这台电脑的设置。',
     unreachableStatus: ({ relay }: { relay: string }) => `这台电脑还没在 ${relay} 上响应。`,
     notConvergedStatus: ({ relay }: { relay: string }) => `这台电脑的后台服务还没有为 ${relay} 完成启动。`,
