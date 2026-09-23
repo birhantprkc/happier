@@ -108,7 +108,13 @@ function unpackTools(options = {}) {
     const toolsDir = options.toolsDir || path.resolve(__dirname, '..', 'tools');
     const unpackedPath = path.join(toolsDir, 'unpacked');
     fs.mkdirSync(unpackedPath, { recursive: true });
-    fs.writeFileSync(path.join(unpackedPath, 'zellij.exe'), 'zellij fixture\\n');
+    if (!options.tools || options.tools.includes('ripgrep')) {
+        fs.writeFileSync(path.join(unpackedPath, 'rg.exe'), 'ripgrep fixture\\n');
+        fs.writeFileSync(path.join(unpackedPath, 'ripgrep.node'), 'legacy addon\\n');
+    }
+    if (!options.tools || options.tools.includes('zellij')) {
+        fs.writeFileSync(path.join(unpackedPath, 'zellij.exe'), 'zellij fixture\\n');
+    }
 }
 
 module.exports = { unpackTools };
@@ -134,6 +140,7 @@ module.exports = { unpackTools };
         await buildCliBinaryArtifactPayload({
             repoRoot,
             payloadDir,
+            target: { os: 'windows', arch: 'x64', bunTarget: 'bun-windows-x64', exeExt: '.exe' },
             ensureWorkspacePackagesBuiltByName: async (_root, packageNames) => ({
                 ok: true,
                 built: [],
@@ -152,7 +159,10 @@ module.exports = { unpackTools };
 
         await expect(readFile(join(payloadDir, 'package-dist', 'index.mjs'), 'utf8')).resolves.toBe('export const cli = "fresh";\n');
         await expect(readFile(join(cliDistDir, 'index.mjs'), 'utf8')).resolves.toBe('export const cli = "fresh";\n');
-        expect(existsSync(join(payloadDir, 'happier'))).toBe(true);
+        expect(existsSync(join(payloadDir, 'happier.exe'))).toBe(true);
+        expect(existsSync(join(payloadDir, 'tools', 'unpacked', 'rg.exe'))).toBe(true);
+        expect(existsSync(join(payloadDir, 'tools', 'unpacked', 'ripgrep.node'))).toBe(false);
+        expect(existsSync(join(payloadDir, 'tools', 'unpacked', 'zellij.exe'))).toBe(false);
         expect(existsSync(abandonedSnapshotDir)).toBe(false);
     });
 });

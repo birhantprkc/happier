@@ -21,6 +21,12 @@
       "require": "./cliDistBuildManifest.cjs",
       "default": "./cliDistBuildManifest.cjs"
     },
+    "./nodePtySpawnHelperPermissions": {
+      "types": "./nodePtySpawnHelperPermissions.d.cts",
+      "import": "./nodePtySpawnHelperPermissions.cjs",
+      "require": "./nodePtySpawnHelperPermissions.cjs",
+      "default": "./nodePtySpawnHelperPermissions.cjs"
+    },
     "./numericPlanetFrame": {
       "types": "./numericPlanetFrame.d.mts",
       "import": "./numericPlanetFrame.mjs",

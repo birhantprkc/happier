@@ -41,6 +41,22 @@ of leaving acquisition an unstated side effect. `ensureSetupCapableLocalHappierC
 same resolver plus the setup version floor, and it stays on the setup path that mutates this
 computer; the read-only inspection reports the version rather than refusing to answer.
 
+Current development source reports acquisition phases through the existing system-task events,
+including the acquisition performed by the initial status inspection. The release/download and
+installation owners report their actual work; download counters describe archive bytes received,
+with a total only when the response supplies one. They never represent overall setup completion.
+The desktop coordinator exposes the inspection's task identity so a surface appearing after the
+pre-auth warmup can read its current progress without starting another acquisition. Task snapshots
+retain phase boundaries and the latest byte sample, rather than retaining every network chunk.
+The setup ring still advances only at its existing milestones, and readiness still requires the
+runtime-convergence and machine-RPC proof.
+
+Acquisition failures carry their phase and cause; diagnostics strip URL credentials and queries.
+Retry uses the existing installed-command resolution and acquisition path. The executor's existing
+abort signal reaches release requests and extraction cleanup. Installation checks cancellation
+before promotion, then finishes pointer, shim, and marker finalization once started; this does not
+add a cancel control or promise immediate interruption during installation.
+
 Resolution order and provenance (`systemTasks/localFirstPartyCommand.ts`):
 
 | Source | Provenance | Notes |
@@ -57,6 +73,51 @@ name, and an `override` CLI fails immediately. Only `managed` is approved for pa
 `override` CLI is put to the user once, naming the resolved path. `managed` records install
 ownership, not verified publisher provenance — see
 [Managed-CLI install ownership](cli-architecture.md#managed-cli-install-ownership-silent-vs-attended-approval).
+
+## Optional CLI runtimes
+
+Current development source acquires local semantic-memory inference and Difftastic through
+the existing installables policy, capability, and first-party release owners. Capability
+enumeration does not download either runtime. Local inference acquires its runtime when enabled
+and initialized; disabled embeddings and remote embeddings do not. Difftastic acquires on its
+first RPC invocation. Development/npm installations can still use their existing package/tool
+copies. Ripgrep remains in every base CLI as the target-native `rg` executable. Zellij remains in
+macOS and Linux base CLIs; native Windows omits it because the terminal-host owner rejects zellij
+there and uses the Windows console host.
+
+`optionalRuntimeInstallables.ts` owns both explicit preinstallation from Machine Details →
+Installables and first-use acquisition. Both use the invoking CLI's exact version under the
+immutable `cli-vVERSION` release, verified signed checksums, target-specific archives, and the
+existing versioned installation/promotion layout. There is no system Node or package-manager
+requirement. The memory component's entrypoint is imported in the running CLI; Difftastic is
+spawned directly. Optional components do not expose PATH shims or independently auto-update.
+
+First use may wait for release lookup, download, verification and installation. Installation
+status reports pending acquisition and retains the install log; failed acquisition can be
+retried from Installables or on the next use. Memory initialization errors retain keyword-search
+fallback; Difftastic retains its existing RPC error response. Memory worker startup and settings
+reload expose their RPC diagnostics before heavyweight inference initialization completes;
+pending initialization must not prevent daemon RPC registration. A matching installed runtime is
+resolved without contacting the release service, including offline. Preinstalling inference
+does **not** prefetch model weights: enable and warm the selected model online before offline
+use. Local model inference does not send indexed text to the artifact or model download hosts;
+custom remote embeddings retain their configured endpoint behavior.
+
+The release producer emits separate `happier-memory-runtime` and `happier-difftastic` products
+alongside `happier`, with each product's signed checksum envelope. Artifact production and
+consumer acquisition must land together before omitting the corresponding bytes from the base
+CLI. Historical releases without these optional products remain usable with their bundled copies.
+
+The development release verifier opens each component's signed checksum envelope and extracts
+all target archives through the same first-party extractor used by acquisition. Entrypoint layout
+checks run for every target, including with `--skip-smoke`. On a matching host, the optional
+smokes run `difft --version` and import the Transformers Node entrypoint to construct an ONNX-backed
+tensor without downloading a model. `--skip-smoke` skips these optional executions; the matching
+base CLI still has to attest both binary and Node-entrypoint versions, execute packaged `rg`
+through both its version and search paths, execute packaged zellij's version path on POSIX, and run
+its isolated Claude-SDK/MCP, Sharp, and PTY runtime smoke. The smoke clears `NODE_PATH`, so repository-hoisted
+dependencies cannot hide an incomplete archive, and also checks the stable target-projection
+invariants for unused Claude native fallbacks and Windows-only PTY inputs.
 
 ## PATH exposure
 
@@ -137,6 +198,44 @@ Add dependencies to the package that imports them:
 - Do not mirror protocol-only dependencies into `apps/cli` merely because CLI bundles protocol.
 
 Bundled workspaces are copied into the host package and are not installed by npm as independent workspace packages. The bundler vendors their external runtime dependencies based on each bundled workspace's own `package.json`.
+
+The current source also corrects one upstream metadata gap in the shared vendoring owner:
+Transformers 3.8.1's Node distribution imports `onnxruntime-common` directly without declaring it.
+The vendor resolves that dependency from ONNX Runtime Node and makes it available to Transformers;
+ONNX Runtime Web retains its separately required Common version. This correction applies to both
+host dependency vendoring and explicit external-package bundles. Remove it when the supported
+Transformers distribution declares the dependency or stops importing it. Validate this closure
+outside the repository's hoisted `node_modules`, which otherwise masks the missing dependency.
+
+Binary artifact finalization projects native dependencies from the requested artifact target,
+not the build host: ONNX Runtime Node retains its target OS/architecture directory with all
+support libraries, and PTY packages retain target prebuilds plus source-built Release/Debug
+assets. POSIX artifacts omit PTY's Windows-only ConPTY, winpty, and `src/win` inputs, plus
+the Windows terminal/agent modules, console workers, and their corresponding source and tests.
+Windows omits the Unix terminal modules and tests, POSIX-only prebuild loader, and `src/unix`;
+it keeps the selected ConPTY architecture and its build inputs. Both retain shared entrypoints,
+types and helpers, including Homebridge's unconditionally imported `prebuild-file-path` module.
+The shared PTY permission owner
+repairs `spawn-helper` in both build and prebuild locations during package installation and
+artifact finalization. Foreign `ps-list` fastlist executables are omitted on non-Windows targets;
+Windows keeps them. Happier's Agent SDK runner always supplies the separately installed Claude
+Code executable, so standalone artifacts keep the SDK's JavaScript package but omit its unused
+optional native CLI fallback packages. Target-specific standalone payloads omit source maps,
+declaration files, and TypeScript build metadata because those files
+are not executable runtime inputs; the npm/workspace packages used by SDK and plugin authors are
+unchanged. The binary payload's root `package-dist` also loses its redundant CJS build because its
+runtime entrypoints use ESM. Apart from those package-specific foreign-platform inputs,
+runtime JavaScript, JSON and native assets, licenses, documentation, examples, tests, dependency
+CJS sidecars, and npm/library output remain intact. We deliberately do
+not use a generic directory-name denylist for third-party packages. A small audited set of nested
+dependency copies is removed only when the surviving ancestor is reachable from that consumer,
+the two trees are recursively byte-identical without symbolic links, and direct peer resolution is
+unchanged; missing, shadowed, divergent, peer-dependent, or linked copies are retained.
+
+The PTY provider uses `node-pty` first. On POSIX Bun it skips the Homebridge native
+fallback because that package writes through a `tty.ReadStream` that is not writable
+in Bun, then uses the existing external relay when available. Node-hosted Homebridge
+and Windows backend selection are unchanged.
 
 ## Internal dependency closure
 
