@@ -613,6 +613,9 @@ jobs:
       - name: Bundle and sign desktop updater artifacts
         env:
           CI: "true"
+          # Tauri skips the Finder layout step (background, icon positions) whenever
+          # CI=true unless this is set (tauri-bundler dmg/mod.rs, issue #592).
+          TAURI_BUNDLER_DMG_IGNORE_CI: "true"
           APP_ENV: ${{ inputs.environment }}
           BUILD_VERSION: ${{ needs.resolve_source.outputs.build_version }}
           TAURI_TARGET: ${{ matrix.tauri_target }}
