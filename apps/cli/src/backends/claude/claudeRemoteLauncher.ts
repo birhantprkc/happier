@@ -702,7 +702,7 @@ export async function claudeRemoteLauncher(
     };
     const reportClaudeSubscriptionAccessTokenRefreshCapability = (runner: ClaudeRemoteRunnerKind): void => {
         const metadata = session.client.getMetadataSnapshot?.();
-        const sessionId = session.sessionId?.trim();
+        const sessionId = session.client.sessionId?.trim();
         if (!metadata || !sessionId) return;
         void reportSessionToDaemonIfRunning({
             sessionId,
@@ -1299,6 +1299,13 @@ export async function claudeRemoteLauncher(
             return false;
         };
         while (!exitReason) {
+            if (activeRuntimeModeKind === 'agentSdk' || activeRuntimeModeKind === 'legacy') {
+                // Each owned provider launch waits for Pending before starting its observer.
+                // Publish idle after a stopped local/remote provider as well as on first entry.
+                await session.getProviderTaskRuntimeActivityAdapter()?.publishBeforeRuntimeStart(
+                    'claude-remote-provider-not-started',
+                );
+            }
             logger.debug('[remote]: launch');
             messageBuffer.addMessage('═'.repeat(40), 'status');
 
