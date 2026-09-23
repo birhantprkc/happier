@@ -80,11 +80,16 @@ test('downloadVerifiedReleaseAssetBundle downloads archive and verifies checksum
       checksumsSig: { name: `checksums-happier-server-v1.2.3-preview.1.txt.minisig`, url: sigUrl },
     };
 
+    const progress = [];
     const result = await downloadVerifiedReleaseAssetBundle({
       bundle,
       destDir: tmp,
       pubkeyFile,
+      onProgress: (sample) => progress.push(sample),
     });
+
+    assert.equal(progress.at(-1).phase, 'verifying');
+    assert.ok(progress.some((sample) => sample.phase === 'downloading' && sample.receivedBytes === archiveBytes.length && sample.totalBytes === archiveBytes.length));
 
     assert.equal(result.version, '1.2.3-preview.1');
     assert.equal(result.archiveName, archiveName);
