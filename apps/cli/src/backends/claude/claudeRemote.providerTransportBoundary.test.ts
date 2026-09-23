@@ -2,8 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { SDKMessage, SDKUserMessage } from '@/backends/claude/sdk';
 import type { EnhancedMode } from './loop';
+import { claudeRemote } from './claudeRemote';
 
-const mockQuery = vi.fn();
+const mockQuery = vi.hoisted(() => vi.fn());
 
 vi.mock('@/backends/claude/sdk', () => ({
   query: mockQuery,
@@ -69,6 +70,23 @@ describe('claudeRemote provider transport boundary', () => {
     mockQuery.mockReset();
   });
 
+  it('drains queued provider turns before requesting another Pending prompt', async () => {
+    let reachedQueuedContinuation = false;
+    const onReady = vi.fn();
+    mockQuery.mockReturnValue({
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'result', subtype: 'success', queued_turn_count: 1 };
+        reachedQueuedContinuation = true;
+        yield { type: 'result', subtype: 'success', queued_turn_count: 0 };
+      },
+    });
+
+    await claudeRemote(createOptions({ onReady }));
+
+    expect(reachedQueuedContinuation).toBe(true);
+    expect(onReady).toHaveBeenCalledOnce();
+  });
+
   it('accepts the queued prompt when the Claude query input API takes custody', async () => {
     const onPromptAcceptedByProvider = vi.fn();
 
@@ -80,7 +98,6 @@ describe('claudeRemote provider transport boundary', () => {
       };
     });
 
-    const { claudeRemote } = await import('./claudeRemote');
     await expect(claudeRemote(createOptions({
       onPromptAcceptedByProvider,
     }))).rejects.toThrow('provider failed after input admission');
@@ -104,7 +121,6 @@ describe('claudeRemote provider transport boundary', () => {
       };
     });
 
-    const { claudeRemote } = await import('./claudeRemote');
     await expect(claudeRemote(createOptions({
       onPromptAcceptedByProvider,
       onPromptTransportFailure,
@@ -125,7 +141,6 @@ describe('claudeRemote provider transport boundary', () => {
       },
     });
 
-    const { claudeRemote } = await import('./claudeRemote');
     await expect(claudeRemote(createOptions({
       onPromptAcceptedByProvider: (acceptance) => {
         acceptedLocalIds.push(acceptance.userMessageLocalIds);
@@ -148,6 +163,7 @@ describe('claudeRemote provider transport boundary', () => {
       };
     });
     const runtimeActivityAdapter = {
+      publishBeforeRuntimeStart: vi.fn(async () => {}),
       activateObservation: vi.fn(async () => { throw new Error('observer activation failed'); }),
       observeActivity: vi.fn(async () => {}),
       publishCurrent: vi.fn(async () => {}),
@@ -156,7 +172,6 @@ describe('claudeRemote provider transport boundary', () => {
     const onPromptAcceptedByProvider = vi.fn();
     const onPromptTransportFailure = vi.fn();
 
-    const { claudeRemote } = await import('./claudeRemote');
     await expect(claudeRemote(createOptions({
       runtimeActivityAdapter,
       onPromptAcceptedByProvider,

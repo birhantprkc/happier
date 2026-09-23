@@ -33,6 +33,7 @@ import type { createClaudeProviderRuntimeActivityAdapter } from './providerActiv
 import { isClaudeLegacyRequiredHookObservationFailure } from './remote/runtimeActivityEvidence';
 import { materializeClaudeMcpConfigArgsForSpawn } from './utils/materializeClaudeMcpConfigArgsForSpawn';
 import { normalizeCurrentHappierSessionId } from '@/agent/runtime/session/currentSessionIdEnv';
+import { hasClaudeQueuedUserTurns } from './remote/resultTurnBoundary';
 
 function buildClaudeEffortArgs(params: Readonly<{
     modelId: unknown;
@@ -381,6 +382,9 @@ export async function claudeRemote(opts: {
 
             // Handle result messages
             if (message.type === 'result') {
+                // The CLI already owns these sends; keep draining its result stream rather
+                // than waiting for another Pending message while that work is still running.
+                if (hasClaudeQueuedUserTurns(message)) continue;
                 updateThinking(false);
                 logger.debug('[claudeRemote] Result received, exiting claudeRemote');
 

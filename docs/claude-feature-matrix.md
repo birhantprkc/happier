@@ -39,6 +39,13 @@ tracking, and the runner restores thinking and steering state until the next
 result. Late deltas, replay, foreign-session messages, and child output alone do
 not reopen the foreground turn.
 
+Both remote runners use `remote/resultTurnBoundary.ts` to recognize a result with
+a positive integer `queued_turn_count`. That result ends one provider turn while
+another user turn remains queued, including after a nonfatal failed turn. The
+runners retain foreground ownership and continue consuming provider output until
+the terminal result; they preserve intermediate output and error diagnostics.
+Results from older providers without this field retain their existing behavior.
+
 Development-source SDK and local permission hooks share
 `utils/buildClaudePermissionHookResponse.ts` for response serialization.
 `PermissionRequest` approvals include `updatedInput` only when the arguments
