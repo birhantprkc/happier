@@ -113,7 +113,8 @@ all target archives through the same first-party extractor used by acquisition. 
 checks run for every target, including with `--skip-smoke`. On a matching host, the optional
 smokes run `difft --version` and import the Transformers Node entrypoint to construct an ONNX-backed
 tensor without downloading a model. `--skip-smoke` skips these optional executions; the matching
-base CLI still has to attest both binary and Node-entrypoint versions, execute packaged `rg`
+base CLI still has to attest both binary and Node-entrypoint versions, load the native command
+catalog through `--help`, execute packaged `rg`
 through both its version and search paths, execute packaged zellij's version path on POSIX, and run
 its isolated Claude-SDK/MCP, Sharp, and PTY runtime smoke. The smoke clears `NODE_PATH`, so repository-hoisted
 dependencies cannot hide an incomplete archive, and also checks the stable target-projection
@@ -220,11 +221,12 @@ repairs `spawn-helper` in both build and prebuild locations during package insta
 artifact finalization. Foreign `ps-list` fastlist executables are omitted on non-Windows targets;
 Windows keeps them. Happier's Agent SDK runner always supplies the separately installed Claude
 Code executable, so standalone artifacts keep the SDK's JavaScript package but omit its unused
-optional native CLI fallback packages. Target-specific standalone payloads omit source maps,
-declaration files, and TypeScript build metadata because those files
-are not executable runtime inputs; the npm/workspace packages used by SDK and plugin authors are
-unchanged. The binary payload's root `package-dist` also loses its redundant CJS build because its
-runtime entrypoints use ESM. Apart from those package-specific foreign-platform inputs,
+optional native CLI fallback packages. Target-specific standalone payloads retain executable
+source maps for Bun and Node diagnostics and dependency declarations for SDK/plugin authoring.
+They omit only dependency declaration maps and TypeScript incremental build metadata, which are
+neither compiler inputs nor runtime diagnostics. The binary payload's root `package-dist` also
+loses its redundant CJS build and declarations because its supported runtime entrypoints use ESM.
+Apart from those package-specific foreign-platform inputs,
 runtime JavaScript, JSON and native assets, licenses, documentation, examples, tests, dependency
 CJS sidecars, and npm/library output remain intact. We deliberately do
 not use a generic directory-name denylist for third-party packages. A small audited set of nested

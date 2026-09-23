@@ -703,6 +703,30 @@ test('verify-artifacts exercises the isolated runtime payload of a native base C
   }
 });
 
+test('verify-artifacts rejects a native CLI whose version works but help fails', async () => {
+  const fixture = await createComponentFixture({
+    product: 'happier',
+    files: {
+      ...createBaseCliRuntimeSmokeFixtureFiles('1.2.3'),
+      happier: `#!/usr/bin/env bash
+if [[ "\${1:-}" == '--help' ]]; then
+  printf 'native help metadata failure\\n' >&2
+  exit 1
+fi
+printf '1.2.3\\n'
+`,
+    },
+  });
+  try {
+    assert.throws(() => fixture.run(['--skip-smoke'], {
+      ...process.env,
+      HAPPIER_TEST_RUNTIME_SMOKE_MARKER: join(fixture.workspace, 'runtime-smoke-markers.txt'),
+    }), /native help metadata failure/);
+  } finally {
+    await rm(fixture.workspace, { recursive: true, force: true });
+  }
+});
+
 test('verify-artifacts rejects Claude SDK native fallback packages left in a base CLI projection', async () => {
   const fixture = await createComponentFixture({
     product: 'happier',

@@ -325,6 +325,21 @@ async function runSmokeCommand({ command, args, cwd, env, timeoutMs }) {
 
 async function runBaseCliRuntimeSmoke({ root, scratch, artifact, archivePath, env }) {
   const timeoutMs = resolveArtifactSmokeTimeoutMs({ serverBinary: false });
+  // Version dispatch can succeed before the command catalog and its packaged
+  // metadata load. Exercise that native startup path before accepting a CLI.
+  const nativeHelp = await runSmokeCommand({
+    command: join(root, artifact.os === 'windows' ? 'happier.exe' : 'happier'),
+    args: ['--help'],
+    cwd: root,
+    env,
+    timeoutMs,
+  });
+  if (nativeHelp.timedOut === true) {
+    throw new Error(`[release] native CLI help smoke timed out for ${archivePath}: ${formatSmokeOutput(nativeHelp)}`);
+  }
+  if ((nativeHelp.status ?? 1) !== 0) {
+    throw new Error(`[release] native CLI help smoke failed for ${archivePath}: ${formatSmokeOutput(nativeHelp)}`);
+  }
   await assertBaseCliProjection({ root, targetOs: artifact.os });
   const packageDistEntrypoint = join(root, 'package-dist', 'index.mjs');
   if (!await fileExists(packageDistEntrypoint)) {

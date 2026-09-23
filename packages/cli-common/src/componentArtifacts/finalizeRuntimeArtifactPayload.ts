@@ -307,10 +307,10 @@ async function projectNativePackages(directory: string, target: BinaryTarget): P
     const path = join(directory, entry.name);
     if (entry.isDirectory()) {
       await projectNativePackages(path, target);
-    } else if (entry.isFile() && /(?:\.map|\.d\.(?:ts|mts|cts)|\.tsbuildinfo)$/.test(entry.name)) {
-      // Standalone artifacts execute JavaScript and native assets. Keep npm and
-      // workspace packages intact for authors; omit only non-executable build
-      // metadata from the target-specific runtime projection.
+    } else if (entry.isFile() && /(?:\.d\.(?:ts|mts|cts)\.map|\.tsbuildinfo)$/.test(entry.name)) {
+      // Declarations remain available to SDK/plugin authors and executable
+      // source maps remain available to Bun and Node diagnostics. Only declaration
+      // navigation maps and incremental compiler state are runtime-inert.
       await rm(path);
     }
   }));
@@ -325,7 +325,7 @@ async function projectCliRuntimeFormats(directory: string): Promise<void> {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) {
       await projectCliRuntimeFormats(path);
-    } else if (entry.isFile() && /(?:\.cjs|\.map|\.d\.(?:ts|mts|cts)|\.tsbuildinfo)$/.test(entry.name)) {
+    } else if (entry.isFile() && /(?:\.cjs|\.d\.(?:ts|mts|cts)(?:\.map)?|\.tsbuildinfo)$/.test(entry.name)) {
       await rm(path);
     }
   }

@@ -57,16 +57,17 @@ describe('finalizeRuntimeArtifactPayload native target projection', () => {
 
   it.each(CLI_BINARY_TARGETS)('projects only binary runtime formats and foreign ps-list helpers for $os-$arch', async (target) => {
     const root = await fixtureRoot();
-    const removedFormats = ['index.cjs', 'index.d.mts', 'index.d.cts', 'index.mjs.map', 'mcp/bridge.cjs'];
+    const removedFormats = ['index.cjs', 'mcp/bridge.cjs', 'index.d.ts', 'index.d.mts', 'index.d.cts', 'index.d.ts.map', 'worker/entry.d.mts.map', 'cache.tsbuildinfo'];
     const removedRuntimeMetadata = [
-      'node_modules/library/dist/index.js.map',
-      'node_modules/library/dist/index.d.ts',
-      'node_modules/library/dist/index.d.mts',
-      'node_modules/library/dist/index.d.cts',
+      'node_modules/library/dist/index.d.ts.map',
+      'node_modules/library/dist/index.d.mts.map',
+      'node_modules/library/dist/index.d.cts.map',
       'node_modules/library/dist/cache.tsbuildinfo',
     ];
-    const retained = ['package-dist/index.mjs', 'package-dist/mcp/bridge.mjs',
+    const retained = ['package-dist/index.mjs', 'package-dist/mcp/bridge.mjs', 'package-dist/index.js.map', 'package-dist/index.mjs.map', 'package-dist/index.cjs.map',
       'scripts/relay.cjs', 'node_modules/library/package-dist/index.cjs', 'node_modules/library/dist/index.js',
+      'node_modules/library/dist/index.js.map', 'node_modules/library/dist/index.d.ts',
+      'node_modules/library/dist/index.d.mts', 'node_modules/library/dist/index.d.cts',
       'node_modules/library/LICENSE', 'node_modules/library/README.md'];
     for (const file of removedFormats) await put(root, `package-dist/${file}`);
     for (const file of removedRuntimeMetadata) await put(root, file);
@@ -88,7 +89,7 @@ describe('finalizeRuntimeArtifactPayload native target projection', () => {
       expect(await readdir(join(root, pkg, 'vendor'))).toEqual(target.os === 'windows'
         ? ['LICENSE', 'fastlist-0.3.0-x64.exe', 'fastlist-0.3.0-x86.exe'] : ['LICENSE']);
       await expect(readFile(join(root, pkg, 'index.js'), 'utf8')).resolves.toContain('index.js');
-      await expect(stat(join(root, pkg, 'index.d.ts'))).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(readFile(join(root, pkg, 'index.d.ts'), 'utf8')).resolves.toContain('index.d.ts');
     }
   });
 
@@ -215,7 +216,7 @@ describe('finalizeRuntimeArtifactPayload native target projection', () => {
     }
     for (const packagePath of [...onnxPackages, ...ptyPackages]) {
       await expect(readFile(join(root, packagePath, 'LICENSE'), 'utf8')).resolves.toContain('LICENSE');
-      await expect(stat(join(root, packagePath, 'dist/index.js.map'))).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(readFile(join(root, packagePath, 'dist/index.js.map'), 'utf8')).resolves.toContain('index.js.map');
     }
     for (const packageName of barePackages) {
       expect(await readdir(join(root, 'node_modules', packageName, 'prebuilds'))).toEqual([targetKey]);
