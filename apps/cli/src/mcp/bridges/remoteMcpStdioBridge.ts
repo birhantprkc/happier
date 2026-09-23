@@ -21,12 +21,10 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import { z } from 'zod';
 
 import { callMcpToolWithResolvedTimeout } from '@/mcp/mcpToolCallRequestOptions';
-import { removeConsumedMcpRuntimeConfigFile } from '@/mcp/runtime/isSafeTmpMcpConfigFilePath';
 import { bindMcpStdioBridgeLifecycle } from '@/mcp/runtime/bindMcpStdioBridgeLifecycle';
 import { withMcpTimeout } from '@/mcp/runtime/withMcpTimeout';
 import { createMcpProgressForwarder } from '@/mcp/bridges/createMcpProgressForwarder';
 
-const REMOTE_BRIDGE_CONFIG_PREFIX = 'happier-mcp-remote-bridge';
 const MCP_BRIDGE_CONNECT_TIMEOUT_MS = 60_000;
 
 const RemoteBridgeConfigSchema = z.object({
@@ -84,7 +82,6 @@ async function main(): Promise<void> {
   let config: RemoteBridgeConfig;
   try {
     const raw = await readFile(configPath, 'utf8');
-    await removeConsumedMcpRuntimeConfigFile(configPath, REMOTE_BRIDGE_CONFIG_PREFIX);
     config = RemoteBridgeConfigSchema.parse(JSON.parse(raw));
   } catch (err) {
     writeStderr(`[happier-mcp-remote-bridge] Failed to read config: ${err instanceof Error ? err.message : String(err)}`);
