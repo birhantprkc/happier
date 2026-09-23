@@ -69,9 +69,17 @@ export async function cmdMcpServersTest(
     });
 
     const config = materialized.mcpServers[server.name];
-    if (!config) throw new Error('materialize_missing_config');
+    if (!config) {
+      materialized.cleanup();
+      throw new Error('materialize_missing_config');
+    }
 
-    const tools = await deps.probeMcpStdioServerTools({ config, baseEnv: process.env });
+    let tools: Awaited<ReturnType<typeof deps.probeMcpStdioServerTools>>;
+    try {
+      tools = await deps.probeMcpStdioServerTools({ config, baseEnv: process.env });
+    } finally {
+      materialized.cleanup();
+    }
     const toolNames = tools.map((t) => t.name);
     const durationMs = Math.max(0, deps.nowMs() - startedAt);
 

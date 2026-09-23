@@ -63,6 +63,7 @@ function createExecutionRunMcpServersResolver(opts: Readonly<{
   cwd: string;
   backendTarget?: BackendTargetRefV1;
   accountSettings?: Readonly<Record<string, unknown>> | null;
+  onMaterialized: (cleanup: () => void) => void;
 }>): (context?: ExecutionRunMcpResolutionContext) => Promise<Record<string, McpServerConfig>> {
   let resolution: Promise<Record<string, McpServerConfig>> | null = null;
   return (context = {}) => {
@@ -80,12 +81,14 @@ function createExecutionRunMcpServersResolver(opts: Readonly<{
         if (!accountSettings) return {};
         const machineId = normalizeNonEmptyString((await readSettings()).machineId);
         if (!machineId) return {};
-        return (await resolveCustomHappierToolsContext({
+        const materialized = await resolveCustomHappierToolsContext({
           credentials,
           accountSettings,
           machineId,
           directory: opts.cwd,
-        })).mcpServers;
+        });
+        opts.onMaterialized(materialized.cleanup);
+        return materialized.mcpServers;
       })();
     }
     return resolution;
@@ -101,6 +104,7 @@ function createLazyConfiguredAcpExecutionRunBackend(opts: Readonly<{
   credentials?: Awaited<ReturnType<typeof readCredentials>> | null;
   accountSettings?: Readonly<Record<string, unknown>> | null;
   resolveMcpServers: (context?: ExecutionRunMcpResolutionContext) => Promise<Record<string, McpServerConfig>>;
+  cleanupMcpMaterial: () => void;
   interactivePermissionHandler?: AcpPermissionHandler;
 }>): AgentBackend {
   const configuredBackendId = opts.backendTarget.kind === 'configuredAcpBackend'
@@ -232,8 +236,11 @@ function createLazyConfiguredAcpExecutionRunBackend(opts: Readonly<{
     async dispose() {
       runPermissionScope?.dispose('Execution run disposed');
       const backend = await resolvedBackendPromise?.catch(() => null);
-      if (!backend) return;
-      await backend.dispose();
+      try {
+        await backend?.dispose();
+      } finally {
+        opts.cleanupMcpMaterial();
+      }
     },
   };
 }
@@ -269,6 +276,12 @@ export function createExecutionRunBackend(opts: Readonly<{
   interactivePermissionHandler?: AcpPermissionHandler;
 }>): AgentBackend {
   const connectedServicesCleanup = opts.connectedServicesCleanup ?? null;
+  const mcpMaterialCleanups: Array<() => void> = [];
+  let mcpMaterialDisposed = false;
+  const cleanupMcpMaterial = () => {
+    mcpMaterialDisposed = true;
+    for (const cleanup of mcpMaterialCleanups.splice(0)) cleanup();
+  };
   let acquiredIsolationCleanup: (() => void | Promise<void>) | null = null;
   try {
     const backendId = String(opts.backendId ?? '').trim();
@@ -280,6 +293,10 @@ export function createExecutionRunBackend(opts: Readonly<{
       cwd: opts.cwd,
       ...(opts.backendTarget ? { backendTarget: opts.backendTarget } : {}),
       accountSettings,
+      onMaterialized: (cleanup) => {
+        if (mcpMaterialDisposed) cleanup();
+        else mcpMaterialCleanups.push(cleanup);
+      },
     });
     if (accountSettings && opts.backendTarget?.kind === 'builtInAgent') {
       assertBackendEnabledByAccountSettings({
@@ -305,6 +322,7 @@ export function createExecutionRunBackend(opts: Readonly<{
         credentials: null,
         accountSettings,
         resolveMcpServers,
+        cleanupMcpMaterial,
         interactivePermissionHandler: opts.interactivePermissionHandler,
       });
     }
@@ -388,15 +406,17 @@ export function createExecutionRunBackend(opts: Readonly<{
       ...(bundle ? { isolation: { env: bundle.env, settingsPath: bundle.settingsPath } } : {}),
     });
 
-    if (shouldCleanupBundleOnDispose || connectedServicesCleanup || runPermissionScope) {
-      const originalDispose = backend.dispose.bind(backend);
-      let disposal: Promise<void> | null = null;
-      backend.dispose = () => {
-        if (!disposal) {
-          disposal = (async () => {
-            runPermissionScope?.dispose('Execution run disposed');
+    const originalDispose = backend.dispose.bind(backend);
+    let disposal: Promise<void> | null = null;
+    backend.dispose = () => {
+      if (!disposal) {
+        disposal = (async () => {
+          runPermissionScope?.dispose('Execution run disposed');
+          try {
+            await originalDispose();
+          } finally {
             try {
-              await originalDispose();
+              cleanupMcpMaterial();
             } finally {
               try {
                 if (shouldCleanupBundleOnDispose) {
@@ -407,11 +427,11 @@ export function createExecutionRunBackend(opts: Readonly<{
                 await connectedServicesCleanup?.();
               }
             }
-          })();
-        }
-        return disposal;
-      };
-    }
+          }
+        })();
+      }
+      return disposal;
+    };
 
     return backend;
   } catch (error) {
