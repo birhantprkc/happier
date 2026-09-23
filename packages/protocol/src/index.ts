@@ -2729,6 +2729,16 @@ export {
 } from './systemTasks/index.js';
 
 export {
+  CLI_ACQUISITION_PROGRESS_EVENT,
+  CliAcquisitionPhaseSchema,
+  CliAcquisitionProgressSchema,
+  parseCliAcquisitionProgress,
+  readCliAcquisitionFailurePhase,
+  type CliAcquisitionPhase,
+  type CliAcquisitionProgress,
+} from './systemTasks/acquisitionProgress.js';
+
+export {
   LlmTaskRunnerConfigV1Schema,
   type LlmTaskRunnerConfigV1,
 } from './llmTasks/llmTaskRunnerConfigV1.js';

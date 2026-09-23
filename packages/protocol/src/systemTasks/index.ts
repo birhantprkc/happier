@@ -41,3 +41,12 @@ export {
   type SetupPairingRequirement,
   type SetupServiceConsentPromptPayload,
 } from './setupThisComputerTaskContract.js';
+export {
+  CLI_ACQUISITION_PROGRESS_EVENT,
+  CliAcquisitionPhaseSchema,
+  CliAcquisitionProgressSchema,
+  parseCliAcquisitionProgress,
+  readCliAcquisitionFailurePhase,
+  type CliAcquisitionPhase,
+  type CliAcquisitionProgress,
+} from './acquisitionProgress.js';
