@@ -8,7 +8,9 @@
 
   **The way orchestrating agents should feel.<br />From your phone, desktop and browser.**
 
-  Claude Code, Codex, OpenCode, Pi and more, working together and in parallel on your own machines.<br />Sessions can spawn subagents across agents: e.g. Claude asking Codex for a review, or Codex delegating to Claude subagents.<br />Switch agents mid-session. Approve, steer, review and commit from wherever you are.
+  Claude Code, Codex, OpenCode, Pi and more, working together and in parallel on your own machines.
+  
+  Sessions can spawn subagents across agents: e.g. Claude asking Codex for a review, or Codex delegating work to Claude subagents. Switch agents mid-session. Approve, steer, review and commit from wherever you are.
 
   **Open source · Self-hostable · End-to-end encrypted**
 
