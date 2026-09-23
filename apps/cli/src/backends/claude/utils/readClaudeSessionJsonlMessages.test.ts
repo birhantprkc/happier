@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { logger } from '@/ui/logger';
+import { readClaudeSessionJsonlMessages } from './readClaudeSessionJsonlMessages';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -37,7 +38,6 @@ describe('readClaudeSessionJsonlMessages', () => {
 
     await writeFile(sessionFilePath, `${line1}\n${line2}\n${line3}\n`, 'utf8');
 
-    const { readClaudeSessionJsonlMessages } = await import('./readClaudeSessionJsonlMessages');
     const messages = await readClaudeSessionJsonlMessages({
       sessionFilePath,
       logLabel: 'TEST',
@@ -63,7 +63,6 @@ describe('readClaudeSessionJsonlMessages', () => {
 
     await writeFile(sessionFilePath, `${line1}\n${line2}\n${line3}\n`, 'utf8');
 
-    const { readClaudeSessionJsonlMessages } = await import('./readClaudeSessionJsonlMessages');
     const messages = await readClaudeSessionJsonlMessages({
       sessionFilePath,
       logLabel: 'TEST',
@@ -88,14 +87,17 @@ describe('readClaudeSessionJsonlMessages', () => {
         sessionId: 's1',
         attachment: { type: 'hook_success', hookEvent: 'SessionStart' },
       }),
+      JSON.stringify({ type: 'command_lifecycle', command_uuid: 'command-1', session_id: 's1', state: 'completed', uuid: 'lifecycle-1' }),
+      JSON.stringify({ type: 'queue-operation', operation: 'enqueue', content: 'task notification', sessionId: 's1' }),
       JSON.stringify({ type: 'assistant', uuid: 'u1', message: {} }),
     ];
 
     await writeFile(sessionFilePath, `${lines.join('\n')}\n`, 'utf8');
 
-    const { readClaudeSessionJsonlMessages } = await import('./readClaudeSessionJsonlMessages');
-    const messages = await readClaudeSessionJsonlMessages({ sessionFilePath, logLabel: 'TEST' });
+    const observed: unknown[] = [];
+    const messages = await readClaudeSessionJsonlMessages({ sessionFilePath, logLabel: 'TEST', onJsonValue: (value) => observed.push(value) });
 
     expect(messages.map((m) => m.type)).toEqual(['assistant']);
+    expect(observed).toEqual(lines.map((line) => JSON.parse(line)));
   });
 });

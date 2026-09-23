@@ -7,7 +7,7 @@
  * `attachment` records carry context injections (hook output, reminders, tool/skill listings,
  * file snapshots) rather than conversation content, so they belong here too.
  */
-export const INTERNAL_CLAUDE_EVENT_TYPES = new Set<string>([
+const INTERNAL_CLAUDE_EVENT_TYPES = new Set<string>([
   'file-history-snapshot',
   'change',
   'queue-operation',
@@ -17,4 +17,11 @@ export const INTERNAL_CLAUDE_EVENT_TYPES = new Set<string>([
   'mode',
   'pr-link',
   'tool_progress',
+  // Claude Agent SDK 0.3.206+: per-command queue/execution state, not conversation output.
+  'command_lifecycle',
 ]);
+
+/** Classify transcript-only exclusions; raw lifecycle observers must still receive these events. */
+export function isClaudeInternalEventType(type: unknown): boolean {
+  return typeof type === 'string' && INTERNAL_CLAUDE_EVENT_TYPES.has(type);
+}

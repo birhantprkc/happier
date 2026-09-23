@@ -16,7 +16,7 @@ import { createEventShapeLoggerForLog } from '@/diagnostics/eventShapeForLog';
 import { buildClaudeJsonlMessageKey } from './claudeJsonlMessageKey';
 import { createJsonlFollowController, type JsonlFollowController } from '@/agent/localControl/jsonlFollowController';
 import type { JsonlFollowerMetricEvent } from '@/agent/localControl/jsonlFollowMetrics';
-import { INTERNAL_CLAUDE_EVENT_TYPES } from './internalClaudeEventTypes';
+import { providers } from '@happier-dev/agents';
 import { parseRawJsonLinesObject } from './parseRawJsonLines';
 import { isClaudeInternalTranscriptMessage } from './isClaudeInternalTranscriptMessage';
 import {
@@ -528,7 +528,7 @@ export async function createSessionScanner(opts: {
 
     function parseClaudeJsonlValue(value: unknown): RawJSONLines | null {
         const type = typeof (value as any)?.type === 'string' ? String((value as any).type) : '';
-        if (type && INTERNAL_CLAUDE_EVENT_TYPES.has(type)) return null;
+        if (providers.claude.isClaudeInternalEventType(type)) return null;
         const parsed = parseRawJsonLinesObject(value);
         return parsed ? normalizeClaudeToolUseNamesInRawJsonLines(parsed) : null;
     }

@@ -2,7 +2,7 @@ import { logger } from '@/ui/logger';
 import { tryReadTextFileTail } from '@/agent/runtime/readTextFileTail';
 
 import type { RawJSONLines } from '../types';
-import { INTERNAL_CLAUDE_EVENT_TYPES } from './internalClaudeEventTypes';
+import { providers } from '@happier-dev/agents';
 import { parseRawJsonLinesObject } from './parseRawJsonLines';
 
 /**
@@ -47,7 +47,7 @@ export async function readClaudeSessionJsonlMessages(params: Readonly<{
         logger.debug(`[${params.logLabel}] Error observing raw message: ${observerError}`);
       }
 
-      if (raw?.type && INTERNAL_CLAUDE_EVENT_TYPES.has(String(raw.type))) {
+      if (providers.claude.isClaudeInternalEventType(raw?.type)) {
         continue;
       }
 
