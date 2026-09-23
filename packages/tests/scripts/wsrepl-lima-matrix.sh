@@ -675,7 +675,7 @@ capture_vm_connectivity_to_host_direct_peer_port_best_effort() {
   local out_file="${REPORT_ROOT}/vm.host-direct-peer.tcp.txt"
   local enabled="${WSREPL_QA_HOST_DIRECT_PEER_VM_CONNECTIVITY_CHECK:-1}"
   local host_port="${1:-}"
-  if [[ -z "${host_port}" && "${enabled}" == "0" ]]; then
+  if [[ "${enabled}" == "0" ]]; then
     printf "%s\n" "(skipped: WSREPL_QA_HOST_DIRECT_PEER_VM_CONNECTIVITY_CHECK=0)" > "${out_file}"
     return 0
   fi
