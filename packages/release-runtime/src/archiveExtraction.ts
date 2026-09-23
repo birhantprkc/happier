@@ -774,6 +774,11 @@ async function extractTarArchiveToDirectory(params: Readonly<{
     filter: (_path, entry) => 'meta' in entry ? validateEntry.accept(entry) : true,
     maxDecompressionRatio: params.limits.maxCompressionRatio,
     maxMetaEntrySize: MAX_TAR_METADATA_ENTRY_BYTES,
+    // Every accepted path and entry type has already passed the canonical
+    // archive validator, and extraction targets a fresh private staging tree.
+    // Let node-tar use recursive mkdir instead of re-statting every parent for
+    // every file; link entries never reach the filesystem.
+    preservePaths: true,
     preserveOwner: false,
     strict: true,
   };
