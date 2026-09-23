@@ -1,4 +1,9 @@
 import { looksLikeFreeformQuestionHintLabel } from '@/agent/questions/structuredQuestionAnswerText';
+import {
+    STRUCTURED_QUESTION_LIMITS,
+    StructuredQuestionAnswersV1Schema,
+    normalizeStructuredQuestionDescriptors,
+} from '@happier-dev/protocol';
 
 type RecordLike = Record<string, unknown>;
 
@@ -8,6 +13,7 @@ type AskUserQuestionOption = Readonly<{
 }>;
 
 type AskUserQuestionEntry = Readonly<{
+    id?: string;
     header: string;
     question: string;
     options: ReadonlyArray<AskUserQuestionOption>;
@@ -18,6 +24,18 @@ type AskUserQuestionEntry = Readonly<{
     }>;
 }>;
 
+type CodexAsyncUserInputQuestion = Readonly<{
+    title: string;
+    responseKey: string;
+    options: readonly string[];
+    questionItemId: string;
+}>;
+
+const CODEX_ASYNC_MAX_SUGGESTED_OPTIONS = 32;
+const CODEX_ASYNC_MAX_OPTION_UTF8_BYTES = 512;
+const CODEX_ASYNC_QUESTION_MARKER_KEY = 'codexAsyncQuestionV1';
+const CODEX_ASYNC_QUESTION_DELIVERY_KEY = 'codexAsyncQuestionDeliveryV1';
+
 function asRecord(value: unknown): RecordLike | null {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
     return value as RecordLike;
@@ -25,6 +43,157 @@ function asRecord(value: unknown): RecordLike | null {
 
 function normalizeString(value: unknown): string {
     return typeof value === 'string' ? value.trim() : '';
+}
+
+function buildCodexAsyncQuestionItemId(itemId: string, index: number): string {
+    // Codex questions have no provider question id. This identifier is Happier-local and exists
+    // only to correlate duplicate question titles in the shared structured-answer UI.
+    return JSON.stringify(['happier-codex-async-question', itemId, index]);
+}
+
+function normalizeCodexAsyncQuestions(params: Readonly<{
+    itemId: string;
+    questions: unknown;
+}>): CodexAsyncUserInputQuestion[] {
+    if (
+        !Array.isArray(params.questions)
+        || params.questions.length > STRUCTURED_QUESTION_LIMITS.maxQuestions
+    ) return [];
+    const output: CodexAsyncUserInputQuestion[] = [];
+    const titleOccurrences = new Map<string, number>();
+    for (const [index, rawQuestion] of params.questions.entries()) {
+        const question = asRecord(rawQuestion);
+        const title = normalizeString(question?.title);
+        if (!title) continue;
+        const options = Array.isArray(question?.options)
+            ? question.options
+                .slice(0, CODEX_ASYNC_MAX_SUGGESTED_OPTIONS)
+                .map((option) => normalizeString(option))
+                .filter((option) => (
+                    option.length > 0
+                    && Buffer.byteLength(option, 'utf8') <= CODEX_ASYNC_MAX_OPTION_UTF8_BYTES
+                ))
+            : [];
+        const occurrence = (titleOccurrences.get(title) ?? 0) + 1;
+        titleOccurrences.set(title, occurrence);
+        output.push({
+            title,
+            responseKey: occurrence === 1 ? title : `${title} (${occurrence})`,
+            options,
+            questionItemId: buildCodexAsyncQuestionItemId(params.itemId, index),
+        });
+    }
+    return output;
+}
+
+export function normalizeCodexAsyncUserInputQuestionsToAskUserQuestionInput(params: Readonly<{
+    itemId: string;
+    questions: unknown;
+}>): Readonly<{ questions: ReadonlyArray<AskUserQuestionEntry> }> {
+    const questions = normalizeCodexAsyncQuestions(params);
+    const input = {
+        [CODEX_ASYNC_QUESTION_MARKER_KEY]: { v: 1, itemId: params.itemId, questions: params.questions },
+        questions: questions.map((question, index) => ({
+            id: question.questionItemId,
+            header: `Question ${index + 1}`,
+            question: question.responseKey,
+            options: question.options.map((option) => ({ label: option, description: '' })),
+            multiSelect: false,
+            freeform: {},
+        })),
+    };
+    return normalizeStructuredQuestionDescriptors(input.questions).ok
+        ? input
+        : { questions: [] };
+}
+
+export type CodexAsyncQuestionDelivery = Readonly<{
+    itemId: string;
+    questions: unknown;
+    answersByKey: Readonly<Record<string, readonly string[]>>;
+}>;
+
+export function readPendingCodexAsyncQuestionDelivery(value: unknown): CodexAsyncQuestionDelivery | null {
+    const completed = asRecord(value);
+    if (!completed || completed.tool !== 'AskUserQuestion') return null;
+    const input = asRecord(completed.arguments);
+    const marker = asRecord(input?.[CODEX_ASYNC_QUESTION_MARKER_KEY]);
+    if (marker?.v !== 1 || typeof marker.itemId !== 'string' || marker.itemId.trim().length === 0) return null;
+    const delivery = asRecord(completed[CODEX_ASYNC_QUESTION_DELIVERY_KEY]);
+    if (delivery?.status === 'delivered') return null;
+    const answers = StructuredQuestionAnswersV1Schema.safeParse(completed.structuredAnswersV1);
+    if (!answers.success || !Array.isArray(marker.questions)) return null;
+    return {
+        itemId: marker.itemId,
+        questions: marker.questions,
+        answersByKey: answers.data,
+    };
+}
+
+export function isCodexAsyncQuestionDeliveryCompleted(value: unknown, itemId: string): boolean {
+    const completed = asRecord(value);
+    const input = asRecord(completed?.arguments);
+    const marker = asRecord(input?.[CODEX_ASYNC_QUESTION_MARKER_KEY]);
+    const delivery = asRecord(completed?.[CODEX_ASYNC_QUESTION_DELIVERY_KEY]);
+    return marker?.v === 1 && marker.itemId === itemId && delivery?.status === 'delivered';
+}
+
+export function markCodexAsyncQuestionDeliveryCompleted(value: unknown, itemId: string): unknown {
+    const completed = asRecord(value);
+    const input = asRecord(completed?.arguments);
+    const marker = asRecord(input?.[CODEX_ASYNC_QUESTION_MARKER_KEY]);
+    if (!completed || marker?.v !== 1 || marker.itemId !== itemId) return value;
+    return {
+        ...completed,
+        [CODEX_ASYNC_QUESTION_DELIVERY_KEY]: { v: 1, status: 'delivered' },
+    };
+}
+
+function truncateUtf8AtCharacterBoundary(value: string, maxBytes: number): string {
+    if (Buffer.byteLength(value, 'utf8') <= maxBytes) return value;
+    let output = '';
+    let bytes = 0;
+    for (const character of value) {
+        const characterBytes = Buffer.byteLength(character, 'utf8');
+        if (bytes + characterBytes > maxBytes) break;
+        output += character;
+        bytes += characterBytes;
+    }
+    return output;
+}
+
+function readCodexAsyncAnswer(
+    question: CodexAsyncUserInputQuestion,
+    answersByKey: Readonly<Record<string, readonly string[]>>,
+): string | null {
+    const candidates = [
+        answersByKey[question.questionItemId],
+        answersByKey[question.responseKey],
+        answersByKey[question.title],
+    ];
+    for (const candidate of candidates) {
+        if (!Array.isArray(candidate)) continue;
+        const answer = candidate.map((entry) => normalizeString(entry)).find(Boolean);
+        if (answer) return answer;
+    }
+    return null;
+}
+
+export function buildCodexAsyncUserInputReply(params: Readonly<{
+    itemId: string;
+    questions: unknown;
+    answersByKey: Readonly<Record<string, readonly string[]>>;
+}>): ReadonlyArray<Readonly<{ questionIndex: number; text: string }>> {
+    const replies: Array<Readonly<{ questionIndex: number; text: string }>> = [];
+    for (const [questionIndex, question] of normalizeCodexAsyncQuestions(params).entries()) {
+        const answer = readCodexAsyncAnswer(question, params.answersByKey);
+        if (!answer) continue;
+        // Match Codex's own async-question client framing: a bounded quoted question followed by
+        // the ordinary user answer. No provider RPC or reply envelope exists for this feature.
+        const boundedQuestion = truncateUtf8AtCharacterBoundary(question.title, 512).replace(/[\n\r]/g, ' ');
+        replies.push({ questionIndex, text: `> ${boundedQuestion}\n\n${answer}` });
+    }
+    return replies;
 }
 
 function readQuestionOptions(question: RecordLike): ReadonlyArray<RecordLike> {

@@ -1494,6 +1494,15 @@ async function writeFakeCodexAppServerScript(params: Readonly<{
         '            }, 14);',
         '            continue;',
         '        }',
+        '        if (text === "bridge-async-user-action") {',
+        '            setTimeout(() => {',
+        '                process.stdout.write(JSON.stringify({ method: "item/completed", params: { threadId: msg.params?.threadId ?? null, turnId, item: { id: "async_question_1", type: "agentMessage", delivery: "async", text: "Choose an environment\\n- Staging\\n- Production\\n\\nAdd release context", questions: [{ title: "Choose an environment", options: ["Staging", "Production"] }, { title: "Add release context" }] } } }) + "\\n");',
+        '            }, 6);',
+        '            setTimeout(() => {',
+        '                process.stdout.write(JSON.stringify({ method: "turn/completed", params: { threadId: msg.params?.threadId ?? null, turn: { id: turnId } } }) + "\\n");',
+        '            }, 14);',
+        '            continue;',
+        '        }',
         '        if (text === "cancel-no-active") {',
         '            continue;',
         '        }',
@@ -7434,6 +7443,205 @@ describe('createCodexAppServerRuntime', () => {
                 }),
             ]),
         );
+    });
+
+    it('routes async Codex questions through AskUserQuestion and the canonical session input queue', async () => {
+        const { root } = await createRuntimeFixture('happier-codex-app-server-runtime-bridge-async-user-action-');
+        const answers = {
+            'Choose an environment': ['Production'],
+            'Add release context': ['Ship after tests'],
+        };
+        let agentState: any = { requests: {}, completedRequests: {} };
+        const permissionHandler = {
+            handleToolCall: vi.fn(async (itemId: string, _toolName: string, input: unknown) => {
+                agentState = {
+                    ...agentState,
+                    completedRequests: {
+                        ...agentState.completedRequests,
+                        [itemId]: {
+                            tool: 'AskUserQuestion',
+                            arguments: input,
+                            createdAt: 1,
+                            completedAt: 2,
+                            status: 'approved',
+                            decision: 'approved',
+                            structuredAnswersV1: answers,
+                        },
+                    },
+                };
+                return { decision: 'approved', answers };
+            }),
+        };
+        const enqueueSessionUserMessage = vi.fn(async (_request: unknown) => {});
+        const sendCodexMessage = vi.fn();
+        const sendCodexMessageCommitted = vi.fn(async (_body: unknown, _options: unknown) => ({ seq: 1 }));
+        const sendAgentMessageCommitted = vi.fn(async (_provider: string, _body: unknown) => {});
+        const runtime = createCodexAppServerRuntime({
+            directory: root,
+            onThinkingChange: vi.fn(),
+            session: {
+                updateMetadata: vi.fn(),
+                enqueueSessionUserMessage,
+                sendAgentMessageCommitted,
+                sendCodexMessage,
+                sendCodexMessageCommitted,
+                getAgentStateSnapshot: () => agentState,
+                updateAgentState: vi.fn(async (updater: (current: typeof agentState) => typeof agentState) => {
+                    agentState = updater(agentState);
+                }),
+            } as any,
+            permissionHandler: permissionHandler as any,
+        } as any);
+
+        await runtime.startOrLoad({});
+        await runtime.sendPrompt('bridge-async-user-action');
+
+        await waitForCondition(() => enqueueSessionUserMessage.mock.calls.length === 2, {
+            timeoutMs: 500,
+            intervalMs: 10,
+            label: 'Codex async question reply admission',
+        });
+        expect(permissionHandler.handleToolCall).toHaveBeenCalledWith(
+            'async_question_1',
+            'AskUserQuestion',
+            {
+                codexAsyncQuestionV1: {
+                    v: 1,
+                    itemId: 'async_question_1',
+                    questions: [
+                        { title: 'Choose an environment', options: ['Staging', 'Production'] },
+                        { title: 'Add release context' },
+                    ],
+                },
+                questions: [
+                    expect.objectContaining({
+                        id: '["happier-codex-async-question","async_question_1",0]',
+                        question: 'Choose an environment',
+                    }),
+                    expect.objectContaining({
+                        id: '["happier-codex-async-question","async_question_1",1]',
+                        question: 'Add release context',
+                    }),
+                ],
+            },
+        );
+        expect(enqueueSessionUserMessage.mock.calls.map(([request]) => request)).toEqual([
+            {
+                text: '> Choose an environment\n\nProduction',
+                localId: 'codex-async-question:async_question_1:0',
+                meta: {
+                    source: 'codex-async-question',
+                    displayText: '> Choose an environment\n\nProduction',
+                    happier: { kind: 'tool-answer-delivery.v1', payload: { toolCallId: 'async_question_1' } },
+                },
+                inputOrigin: 'session_generated',
+                requestedAction: { v: 1, kind: 'steer_if_active' },
+            },
+            {
+                text: '> Add release context\n\nShip after tests',
+                localId: 'codex-async-question:async_question_1:1',
+                meta: {
+                    source: 'codex-async-question',
+                    displayText: '> Add release context\n\nShip after tests',
+                    happier: { kind: 'tool-answer-delivery.v1', payload: { toolCallId: 'async_question_1' } },
+                },
+                inputOrigin: 'session_generated',
+                requestedAction: { v: 1, kind: 'steer_if_active' },
+            },
+        ]);
+        expect(sendCodexMessageCommitted).toHaveBeenCalledWith(expect.objectContaining({
+            type: 'tool-call',
+            callId: 'async_question_1',
+            name: 'AskUserQuestion',
+            id: 'codex-async-question-request:async_question_1',
+        }), {
+            localId: 'codex-async-question-request:async_question_1',
+        });
+        expect(sendCodexMessageCommitted).toHaveBeenCalledWith(expect.objectContaining({
+            type: 'tool-call-result',
+            callId: 'async_question_1',
+            output: { status: 'answered', answers },
+            id: 'codex-async-question-result:async_question_1',
+        }), {
+            localId: 'codex-async-question-result:async_question_1',
+        });
+        const assistantBodies = sendAgentMessageCommitted.mock.calls.map((call) => call[1]);
+        expect(assistantBodies).not.toEqual(expect.arrayContaining([
+            expect.objectContaining({ message: expect.stringContaining('Choose an environment') }),
+        ]));
+    });
+
+    it('recovers a persisted async Codex answer through the canonical session input queue after restart', async () => {
+        const { root } = await createRuntimeFixture('happier-codex-app-server-runtime-recover-async-user-action-');
+        let agentState: any = {
+            requests: {},
+            completedRequests: {
+                async_question_recovery: {
+                    tool: 'AskUserQuestion',
+                    arguments: {
+                        codexAsyncQuestionV1: {
+                            v: 1,
+                            itemId: 'async_question_recovery',
+                            questions: [{ title: 'Choose an environment', options: ['Production'] }],
+                        },
+                        questions: [{
+                            id: '["happier-codex-async-question","async_question_recovery",0]',
+                            header: 'Question 1',
+                            question: 'Choose an environment',
+                            options: [{ label: 'Production', description: '' }],
+                            multiSelect: false,
+                            freeform: {},
+                        }],
+                    },
+                    createdAt: 1,
+                    completedAt: 2,
+                    status: 'approved',
+                    decision: 'approved',
+                    structuredAnswersV1: {
+                        '["happier-codex-async-question","async_question_recovery",0]': ['Production'],
+                    },
+                },
+            },
+        };
+        const enqueueSessionUserMessage = vi.fn(async () => {});
+        const sendCodexMessageCommitted = vi.fn(async () => ({ seq: 1 }));
+        const updateAgentState = vi.fn(async (updater: (current: typeof agentState) => typeof agentState) => {
+            agentState = updater(agentState);
+        });
+        const runtime = createCodexAppServerRuntime({
+            directory: root,
+            onThinkingChange: vi.fn(),
+            session: {
+                updateMetadata: vi.fn(),
+                enqueueSessionUserMessage,
+                sendCodexMessage: vi.fn(),
+                sendCodexMessageCommitted,
+                getAgentStateSnapshot: () => agentState,
+                updateAgentState,
+            } as any,
+        } as any);
+
+        await runtime.startOrLoad({});
+
+        await waitForCondition(() => enqueueSessionUserMessage.mock.calls.length === 1, {
+            timeoutMs: 500,
+            intervalMs: 10,
+            label: 'persisted Codex async question reply recovery',
+        });
+        expect(enqueueSessionUserMessage).toHaveBeenCalledWith(expect.objectContaining({
+            text: '> Choose an environment\n\nProduction',
+            localId: 'codex-async-question:async_question_recovery:0',
+        }));
+        expect(sendCodexMessageCommitted).toHaveBeenCalledWith(expect.objectContaining({
+            type: 'tool-call-result',
+            callId: 'async_question_recovery',
+            id: 'codex-async-question-result:async_question_recovery',
+        }), {
+            localId: 'codex-async-question-result:async_question_recovery',
+        });
+        expect(agentState.completedRequests.async_question_recovery).toMatchObject({
+            codexAsyncQuestionDeliveryV1: { v: 1, status: 'delivered' },
+        });
     });
 
     it('applies session mode, model, reasoning, and Fast overrides through app-server requests and republishes metadata', async () => {

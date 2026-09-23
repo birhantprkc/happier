@@ -1951,10 +1951,12 @@ export {
 export {
   SessionMessageMetaSchema,
   SESSION_USER_MESSAGE_DELIVERY_INTENT_META_KEY,
+  SESSION_TOOL_ANSWER_DELIVERY_KIND,
   type SessionMessageMeta,
   type SessionUserMessageDeliveryIntentV1,
   createSessionMessageMetaSchema,
   readSessionUserMessageDeliveryIntentMeta,
+  isSessionToolAnswerDeliveryMeta,
   withSessionUserMessageDeliveryIntentMeta,
 } from './sessionMessages/sessionMessageMeta.js';
 export {

@@ -4,6 +4,16 @@ import { normalizeRawMessage } from './normalize';
 import { RawRecordSchema } from './schemas';
 
 describe('typesRaw progress record handling', () => {
+  it('keeps a tool answer delivery out of the visible transcript', () => {
+    const raw = {
+      role: 'user',
+      content: { type: 'text', text: '> Choose an environment\n\nProduction' },
+      meta: { happier: { kind: 'tool-answer-delivery.v1', payload: { toolCallId: 'question-1' } } },
+    };
+
+    expect(normalizeRawMessage('reply-message', 'reply-1', 1000, raw)).toBeNull();
+  });
+
   it.each(['completed', 'refused'])('hides a stored Claude command lifecycle frame in state %s while preserving conversation neighbors', (state) => {
     // Raw stream-json shape observed with newer Claude runtimes. SDK 0.3.206 added this
     // frame; 0.3.238 added refused. Older Happier writers stored it as output data.

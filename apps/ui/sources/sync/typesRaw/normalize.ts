@@ -11,6 +11,7 @@ import {
 import { markUnsupportedContentMeta } from '../domains/messages/unsupportedContentMeta';
 import { hasSessionMediaRenderItems } from '../domains/sessionMedia/sessionMediaMessageMeta';
 import { rawRecordSchema, type AgentEvent, type RawAgentContent, type RawRecord, type UsageData } from './schemas';
+import { isSessionToolAnswerDeliveryMeta } from '@happier-dev/protocol';
 import { buildUsageDataFromTokenCountMessage } from './tokenCountUsage';
 
 // Normalized types
@@ -355,6 +356,7 @@ export function normalizeRawMessage(
             };
     }
     const raw = parsed.data as RawRecord;
+    if (raw.role === 'user' && isSessionToolAnswerDeliveryMeta(raw.meta)) return null;
 
     const toolResultContentToText = (content: unknown): string => {
         if (content === null || content === undefined) return '';

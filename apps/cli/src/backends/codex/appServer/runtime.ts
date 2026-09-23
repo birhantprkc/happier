@@ -3,7 +3,7 @@ import type { PermissionResult } from '@/agent/permissions/permissionResult';
 
 import type { ApiSessionClient } from '@/api/session/sessionClient';
 import type { ACPMessageData } from '@/api/session/sessionMessageTypes';
-import type { Metadata, PermissionMode } from '@/api/types';
+import type { AgentState, Metadata, PermissionMode } from '@/api/types';
 import { createKeyedStreamedTranscriptBridge } from '@/api/session/createKeyedStreamedTranscriptBridge';
 import type { StreamedTranscriptWriterSession } from '@/api/session/streamedTranscriptWriter';
 import { configuration } from '@/configuration';
@@ -12,6 +12,7 @@ import {
     type SessionRollbackRpcResult,
     SESSION_MEDIA_MESSAGE_MAX_ENTRIES_V1,
     SESSION_MEDIA_MESSAGE_META_KIND_V1,
+    SESSION_TOOL_ANSWER_DELIVERY_KIND,
     ReviewStartInputSchema,
     type SessionMediaItemV1,
     type SessionMediaUnavailableV1,
@@ -58,7 +59,13 @@ import { publishCodexSessionIdMetadata } from '../utils/codexSessionIdMetadata';
 import { resolveApprovalChoiceLabel } from '../runtime/codexRequestUserInputBridge';
 import {
     buildCodexRequestUserInputAnswers,
+    buildCodexAsyncUserInputReply,
+    isCodexAsyncQuestionDeliveryCompleted,
     looksLikeCodexApprovalRequestUserInput,
+    markCodexAsyncQuestionDeliveryCompleted,
+    normalizeCodexAsyncUserInputQuestionsToAskUserQuestionInput,
+    readPendingCodexAsyncQuestionDelivery,
+    type CodexAsyncQuestionDelivery,
     normalizeCodexRequestUserInputQuestionsToAskUserQuestionInput,
 } from '../runtime/codexRequestUserInputQuestions';
 import { canonicalizeCodexMcpToolName } from '../utils/canonicalizeCodexMcpToolName';
@@ -1677,6 +1684,7 @@ export function createCodexAppServerRuntime(params: Readonly<{
         }
     };
     const normalizedAssistantFinalItemKeys = new Set<string>();
+    const handledAsyncQuestionItemKeys = new Set<string>();
     const nativeReviewCompletionTextByStreamScope = new Map<string, string>();
     const rawAssistantFinalByItemKey = new Map<string, PendingRawAssistantFinal>();
     const persistedMediaDedupeKeys = new Set<string>();
@@ -2177,22 +2185,101 @@ export function createCodexAppServerRuntime(params: Readonly<{
         return await next;
     };
 
+    const reportDetachedProviderProjectionFailure = (method: string, error: unknown): void => {
+        const details = { method, errorName: error instanceof Error ? error.name : typeof error };
+        if (method === 'async-user-input-request' || method === 'async-user-input-recovery') {
+            logger.warn('[codex-app-server] Async question reply delivery failed', details);
+        } else {
+            logger.debug('[codex-app-server] Detached provider projection failed (non-fatal)', details);
+        }
+    };
+
     const startDetachedProviderProjection = (
         method: string,
         work: () => void | Promise<void>,
     ): void => {
         try {
             void Promise.resolve(work()).catch((error) => {
-                logger.debug('[codex-app-server] Detached provider projection failed (non-fatal)', {
-                    method,
-                    errorName: error instanceof Error ? error.name : typeof error,
-                });
+                reportDetachedProviderProjectionFailure(method, error);
             });
         } catch (error) {
-            logger.debug('[codex-app-server] Detached provider projection failed (non-fatal)', {
-                method,
-                errorName: error instanceof Error ? error.name : typeof error,
+            reportDetachedProviderProjectionFailure(method, error);
+        }
+    };
+
+    const commitCodexAsyncQuestionRecord = async (
+        itemId: string,
+        recordKind: 'request' | 'result',
+        body: Record<string, unknown>,
+    ): Promise<void> => {
+        const localId = `codex-async-question-${recordKind}:${itemId}`;
+        await params.session.sendCodexMessageCommitted({ ...body, id: localId }, { localId });
+    };
+
+    const markCodexAsyncQuestionDelivered = async (itemId: string): Promise<void> => {
+        await params.session.updateAgentState((current) => {
+            const completed = current.completedRequests?.[itemId];
+            const marked = markCodexAsyncQuestionDeliveryCompleted(completed, itemId);
+            if (marked === completed) return current;
+            return {
+                ...current,
+                completedRequests: {
+                    ...current.completedRequests,
+                    [itemId]: marked as NonNullable<AgentState['completedRequests']>[string],
+                },
+            };
+        });
+    };
+
+    const deliverCodexAsyncQuestionAnswers = async (
+        delivery: CodexAsyncQuestionDelivery,
+    ): Promise<boolean> => {
+        const replies = buildCodexAsyncUserInputReply(delivery);
+        if (replies.length === 0) return false;
+        for (const reply of replies) {
+            await params.session.enqueueSessionUserMessage({
+                text: reply.text,
+                localId: `codex-async-question:${delivery.itemId}:${reply.questionIndex}`,
+                meta: {
+                    source: 'codex-async-question',
+                    displayText: reply.text,
+                    happier: { kind: SESSION_TOOL_ANSWER_DELIVERY_KIND, payload: { toolCallId: delivery.itemId } },
+                },
+                inputOrigin: 'session_generated',
+                requestedAction: { v: 1, kind: 'steer_if_active' },
             });
+        }
+        await commitCodexAsyncQuestionRecord(delivery.itemId, 'result', {
+            type: 'tool-call-result',
+            callId: delivery.itemId,
+            output: { status: 'answered', answers: delivery.answersByKey },
+        });
+        await markCodexAsyncQuestionDelivered(delivery.itemId);
+        return true;
+    };
+
+    const recoverPersistedCodexAsyncQuestionAnswers = async (): Promise<void> => {
+        if (typeof params.session.getAgentStateSnapshot !== 'function') return;
+        const completedRequests = params.session.getAgentStateSnapshot()?.completedRequests;
+        if (!completedRequests) return;
+        for (const completed of Object.values(completedRequests)) {
+            const delivery = readPendingCodexAsyncQuestionDelivery(completed);
+            if (!delivery) continue;
+            try {
+                const input = (completed as { arguments?: unknown }).arguments;
+                await commitCodexAsyncQuestionRecord(delivery.itemId, 'request', {
+                    type: 'tool-call',
+                    callId: delivery.itemId,
+                    name: 'AskUserQuestion',
+                    input,
+                });
+                await deliverCodexAsyncQuestionAnswers(delivery);
+            } catch (error) {
+                logger.warn('[codex-app-server] Persisted async question reply recovery failed', {
+                    itemId: delivery.itemId,
+                    errorName: error instanceof Error ? error.name : typeof error,
+                });
+            }
         }
     };
 
@@ -2395,6 +2482,77 @@ export function createCodexAppServerRuntime(params: Readonly<{
             await params.session.sendUserTextMessageCommitted(update.text, {
                 localId: `codex-app-server-user:${context.streamScopeId}:${update.itemId}`,
                 meta: { importedFrom: 'codex-app-server' },
+            });
+            return;
+        }
+
+        if (update.type === 'async-user-input-request') {
+            if (context.sidechainId || !params.permissionHandler) {
+                await applyStreamUpdate({
+                    type: 'assistant-text-final',
+                    itemId: update.itemId,
+                    text: update.text,
+                }, context);
+                return;
+            }
+
+            const toolInput = normalizeCodexAsyncUserInputQuestionsToAskUserQuestionInput({
+                itemId: update.itemId,
+                questions: update.questions,
+            });
+            if (toolInput.questions.length === 0) {
+                await applyStreamUpdate({
+                    type: 'assistant-text-final',
+                    itemId: update.itemId,
+                    text: update.text,
+                }, context);
+                return;
+            }
+            const completedRequest = params.session.getAgentStateSnapshot()?.completedRequests?.[update.itemId];
+            if (isCodexAsyncQuestionDeliveryCompleted(completedRequest, update.itemId)) return;
+            const persistedDelivery = readPendingCodexAsyncQuestionDelivery(completedRequest);
+            const itemKey = buildItemStateKey(context.streamScopeId, update.itemId);
+            if (handledAsyncQuestionItemKeys.has(itemKey)) return;
+            handledAsyncQuestionItemKeys.add(itemKey);
+
+            startDetachedProviderProjection('async-user-input-request', async () => {
+                try {
+                    await commitCodexAsyncQuestionRecord(update.itemId, 'request', {
+                        type: 'tool-call',
+                        callId: update.itemId,
+                        name: 'AskUserQuestion',
+                        input: toolInput,
+                    });
+                    if (persistedDelivery) {
+                        await deliverCodexAsyncQuestionAnswers(persistedDelivery);
+                        return;
+                    }
+                    const result = await params.permissionHandler!.handleToolCall(
+                        update.itemId,
+                        'AskUserQuestion',
+                        toolInput,
+                    );
+                    const delivered = result.answers
+                        ? await deliverCodexAsyncQuestionAnswers({
+                            itemId: update.itemId,
+                            questions: update.questions,
+                            answersByKey: result.answers,
+                        })
+                        : false;
+                    if (!delivered) {
+                        await commitCodexAsyncQuestionRecord(update.itemId, 'result', {
+                            type: 'tool-call-result',
+                            callId: update.itemId,
+                            output: { status: result.decision === 'abort' ? 'cancelled' : 'declined' },
+                        });
+                        await markCodexAsyncQuestionDelivered(update.itemId);
+                    }
+                } catch (error) {
+                    // A repeated provider notification may safely retry deterministic transcript and
+                    // pending-input identities after a transient failure.
+                    handledAsyncQuestionItemKeys.delete(itemKey);
+                    throw error;
+                }
             });
             return;
         }
@@ -2682,6 +2840,7 @@ export function createCodexAppServerRuntime(params: Readonly<{
         reasoningTextByItemId.clear();
         latestAssistantItemIdByStreamScope.clear();
         normalizedAssistantFinalItemKeys.clear();
+        handledAsyncQuestionItemKeys.clear();
         nativeReviewCompletionTextByStreamScope.clear();
         rawAssistantFinalByItemKey.clear();
         pendingHappierTitleToolNamesByCallId.clear();
@@ -4489,6 +4648,7 @@ export function createCodexAppServerRuntime(params: Readonly<{
                 reason: 'startOrLoad',
             });
         }
+        startDetachedProviderProjection('async-user-input-recovery', recoverPersistedCodexAsyncQuestionAnswers);
     };
 
     const compactActiveThread = async (activeThreadId: string): Promise<void> => {

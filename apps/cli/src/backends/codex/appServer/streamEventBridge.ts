@@ -29,6 +29,7 @@ export type CodexAppServerStreamUpdate =
     | Readonly<{ type: 'provider-user-text'; itemId: string; clientId: string | null; text: string }>
     | Readonly<{ type: 'assistant-text-delta'; itemId: string; text: string }>
     | Readonly<{ type: 'assistant-text-final'; itemId: string; text: string }>
+    | Readonly<{ type: 'async-user-input-request'; itemId: string; text: string; questions: unknown[] }>
     | Readonly<{ type: 'assistant-raw-final'; itemId: string | null; text: string }>
     | Readonly<{ type: 'session-media'; itemId: string; media: SessionMediaSource[] }>
     | Readonly<{ type: 'reasoning-delta'; itemId: string; text: string }>
@@ -309,6 +310,10 @@ export function createCodexAppServerStreamEventBridge(): Readonly<{
 
             if (itemType === 'agentmessage' || itemType === 'plan') {
                 const text = readText(item, ['text', 'message']) ?? readCodexMessageContentText(item.content);
+                const questions = readQuestions(item);
+                if (itemType === 'agentmessage' && item.delivery === 'async' && questions && questions.length > 0) {
+                    return text ? [{ type: 'async-user-input-request', itemId, text, questions }] : [];
+                }
                 return text ? [{ type: 'assistant-text-final', itemId, text }] : [];
             }
 

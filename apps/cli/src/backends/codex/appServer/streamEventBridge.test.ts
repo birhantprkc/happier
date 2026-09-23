@@ -90,6 +90,26 @@ describe('createCodexAppServerStreamEventBridge', () => {
 
         expect(
             bridge.onNotification({
+                method: 'item/completed',
+                params: {
+                    item: {
+                        id: 'async_question_1',
+                        type: 'agentMessage',
+                        text: 'Choose an environment\n- Staging\n- Production',
+                        delivery: 'async',
+                        questions: [{ title: 'Choose an environment', options: ['Staging', 'Production'] }],
+                    },
+                },
+            }),
+        ).toEqual([{
+            type: 'async-user-input-request',
+            itemId: 'async_question_1',
+            text: 'Choose an environment\n- Staging\n- Production',
+            questions: [{ title: 'Choose an environment', options: ['Staging', 'Production'] }],
+        }]);
+
+        expect(
+            bridge.onNotification({
                 method: 'rawResponseItem/completed',
                 params: {
                     item: {
