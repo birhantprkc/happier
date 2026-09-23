@@ -421,6 +421,11 @@ function SetupSurfaceContent(props: SetupSurfaceProps & Readonly<{
                         </Animated.View>
                     </Animated.View>
                 </View>
+                {model.downloadProgress ? (
+                    <Text style={styles.status} testID={`${testID}:download-progress`}>
+                        {model.downloadProgress}
+                    </Text>
+                ) : null}
                 <View style={styles.actions} testID={`${testID}:actions`}>
                     {blocked && props.onRetry ? (
                         <RoundButton

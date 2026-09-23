@@ -2,6 +2,7 @@ import { systemTasks } from '@happier-dev/cli-common';
 import type { PublicReleaseRingId } from '@happier-dev/release-runtime/releaseRings';
 
 import { resolveVersionedLocalHappierCli } from '../happierCli.js';
+import { reportCliAcquisitionProgress } from '../cliAcquisitionProgress.js';
 import {
   controlDaemonService,
   type DaemonServiceAutostartMode,
@@ -80,10 +81,14 @@ function assertDaemonServiceStartable(status: DaemonStatusSnapshot): void {
 export function createDaemonServiceStatusHandler() {
   return async function* (
     params: unknown,
-    _context: Readonly<{ signal: AbortSignal }>,
+    context: Readonly<{ signal: AbortSignal; emit?: (event: unknown) => void }>,
   ): AsyncGenerator<never, DaemonServiceTaskResult, void> {
     const parsed = parseDaemonServiceParams(params);
-    const status = await readDaemonStatus(parsed.releaseRing);
+    const onProgress = context.emit ? reportCliAcquisitionProgress(context.emit) : undefined;
+    const cli = await resolveVersionedLocalHappierCli({ releaseRing: parsed.releaseRing, signal: context.signal, onProgress });
+    context.signal.throwIfAborted();
+    onProgress?.({ phase: 'checkingDaemon' });
+    const status = await readDaemonStatus(parsed.releaseRing, cli);
     return toDaemonServiceResult(status);
   };
 }

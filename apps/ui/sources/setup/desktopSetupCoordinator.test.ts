@@ -97,6 +97,37 @@ async function importCoordinator() {
 }
 
 describe('desktopSetupCoordinator', () => {
+    it('exposes the shared ambient task to late readers and preserves settled readiness during a refresh', async () => {
+        const { createSystemTaskRunner } = await import('@/components/systemTasks/createSystemTaskRunner');
+        const { createDesktopSetupCoordinator } = await importCoordinator();
+        const callbacks = new Map<string, import('@/components/systemTasks/types').SystemTaskBridgeListenerSet>();
+        let counter = 0;
+        const runner = createSystemTaskRunner({ bridge: {
+            start: async () => `ambient_${++counter}`,
+            subscribe: async (id, listeners) => { callbacks.set(id, listeners); return () => callbacks.delete(id); },
+            cancel: async () => {}, respond: async () => {},
+        } });
+        const coordinator = createDesktopSetupCoordinator({ runner: () => runner });
+        const pending = coordinator.inspect();
+        await vi.waitFor(() => expect(callbacks.has('ambient_1')).toBe(true));
+        callbacks.get('ambient_1')!.onEvent({ protocolVersion: 1, taskId: 'ambient_1', tsMs: 1,
+            type: 'cli.acquisition.progress', stepId: 'setup.thisComputer.ensureCli', data: { phase: 'downloading', receivedBytes: 8192 } });
+        const taskId = coordinator.readInspectionTaskId();
+        expect(taskId).toBe('ambient_1');
+        expect(runner.getSnapshot(taskId!)?.events[0]?.data).toEqual({ phase: 'downloading', receivedBytes: 8192 });
+        expect(coordinator.readInspectionSnapshot()).toEqual({ status: 'pending' });
+        callbacks.get('ambient_1')!.onResult({ ...AMBIENT_RESULT, taskId: 'ambient_1' });
+        await pending;
+        const settled = coordinator.readInspectionSnapshot();
+        const refreshing = coordinator.inspect({ fresh: true });
+        expect(coordinator.readInspectionTaskId()).toBeNull();
+        expect(coordinator.readInspectionSnapshot()).toBe(settled);
+        await vi.waitFor(() => expect(callbacks.has('ambient_2')).toBe(true));
+        expect(coordinator.readInspectionTaskId()).toBe('ambient_2');
+        callbacks.get('ambient_2')!.onResult({ ...AMBIENT_RESULT, taskId: 'ambient_2' });
+        await refreshing;
+    });
+
     beforeEach(() => {
         vi.resetModules();
         mocks.runner.start.mockClear();
@@ -153,19 +184,19 @@ describe('desktopSetupCoordinator', () => {
             await desktopSetupCoordinator.inspect();
 
             expect(desktopSetupCoordinator.readInspectionSnapshot()).toMatchObject({ status: 'resolved' });
-            // Both edges are published: the read starting, and the facts it settled on.
-            expect(seen).toEqual(['pending', 'resolved']);
+            // Start, task availability, and settlement are published; byte samples stay in the runner.
+            expect(seen).toEqual(['pending', 'pending', 'resolved']);
             // Referentially stable, so `useSyncExternalStore` readers do not re-render on a read.
             expect(desktopSetupCoordinator.readInspectionSnapshot()).toBe(desktopSetupCoordinator.readInspectionSnapshot());
 
             await desktopSetupCoordinator.inspect({ fresh: true });
-            expect(seen).toEqual(['pending', 'resolved', 'resolved', 'resolved']);
+            expect(seen).toEqual(['pending', 'pending', 'resolved', 'resolved', 'resolved', 'resolved']);
         } finally {
             unsubscribe();
         }
 
         await desktopSetupCoordinator.inspect({ fresh: true });
-        expect(seen).toHaveLength(4);
+        expect(seen).toHaveLength(6);
     });
 
     it('keeps the last settled facts while a fresh read is in flight (last-known-good)', async () => {

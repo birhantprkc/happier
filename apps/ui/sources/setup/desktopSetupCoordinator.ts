@@ -94,6 +94,8 @@ export type DesktopSetupCoordinator = Readonly<{
      * while every other reader keeps rendering the facts above.
      */
     readInspectionRefreshing: () => boolean;
+    /** Existing task owner for a surface that needs progress; facts above stay unchanged. */
+    readInspectionTaskId: () => string | null;
     /**
      * What the app expected of this computer when the current facts were read — or, when the read
      * was warmed before sign-in, what the first signed-in reader expected of it. UD5 compares the
@@ -275,6 +277,7 @@ export function createDesktopSetupCoordinator(deps: Readonly<{
     let observedExpectation: DesktopSetupObservedExpectation | null = null;
     let snapshot: DesktopLocalInspection = PENDING_INSPECTION;
     let refreshing = false;
+    let inspectionTaskId: string | null = null;
     const listeners = new Set<() => void>();
 
     const notify = (): void => {
@@ -296,6 +299,8 @@ export function createDesktopSetupCoordinator(deps: Readonly<{
         try {
             runner = deps.runner();
             taskId = await runner.start(buildLocalDaemonServiceSystemTaskSpec('daemon.service.status.v1'));
+            inspectionTaskId = taskId;
+            notify();
         } catch (error) {
             return {
                 status: 'failed',
@@ -313,6 +318,7 @@ export function createDesktopSetupCoordinator(deps: Readonly<{
             // The facts stand until they are replaced: readers keep the last established ones and
             // learn separately that a read is running.
             refreshing = true;
+            inspectionTaskId = null;
             notify();
             inspection = runInspection().then((result) => {
                 if (result.status === 'failed') {
@@ -400,6 +406,7 @@ export function createDesktopSetupCoordinator(deps: Readonly<{
         },
         readInspectionSnapshot: () => snapshot,
         readInspectionRefreshing: () => refreshing,
+        readInspectionTaskId: () => inspectionTaskId,
         readObservedExpectation: () => observedExpectation,
         verifyCurrentTarget,
         startSetup,

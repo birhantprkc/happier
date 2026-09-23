@@ -119,6 +119,14 @@ sequenceDiagram
 same dependency defaults, exposed interactively for streamed prompts and through the registry for
 callers that supply prompt resolutions up front. No other kind appears in both.
 
+Registry handlers can emit live callback progress through their execution context while awaiting
+work; these callbacks use the same event validation, redaction, task identity, and timestamps as
+yielded events. In current development source, desktop status inspection and explicit setup share
+the acquisition producers and the `cli.acquisition.progress` payload owned by
+`packages/protocol/src/systemTasks/acquisitionProgress.ts`. See
+[Desktop-initiated CLI acquisition](binary-runtime.md#desktop-initiated-cli-acquisition) for its
+progress, retry, and cancellation boundaries.
+
 The prompt payloads are one wire contract, not a per-side transcription:
 `packages/protocol/src/systemTasks/setupThisComputerTaskContract.ts` owns the shapes, the builders
 the executor constructs with, and the parsers the app reads with. Prompt event data is redacted by

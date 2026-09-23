@@ -55,6 +55,32 @@ function runState(overrides: Partial<SystemTaskRunState> = {}): SystemTaskRunSta
 const FRACTION_STEPS = SETUP_STAGES.map((_, index) => index / SETUP_STAGES.length);
 
 describe('deriveSetupStageModel (INV3 — milestone-quantised)', () => {
+    it('shows only reported transfer bytes and clears them when the download phase ends', () => {
+        const event = { ...progress('setup.thisComputer.ensureCli', 1), type: 'cli.acquisition.progress' };
+        const model = (data: SystemTaskEvent['data']) => deriveSetupStageModel(runState({ events: [{ ...event, data }] }), facts());
+        expect(model({ phase: 'downloading', receivedBytes: 1024 }).downloadProgress).toEqual({
+            key: 'setupSurface.acquisitionDownloadBytes', params: { received: '1.0 KB' },
+        });
+        expect(model({ phase: 'downloading', receivedBytes: 1024, totalBytes: 2048 }).downloadProgress).toEqual({
+            key: 'setupSurface.acquisitionDownloadBytesTotal', params: { received: '1.0 KB', total: '2.0 KB' },
+        });
+        const invalidOrLater: SystemTaskEvent['data'][] = [{ phase: 'unpacking' }, { phase: 'future', receivedBytes: 1024 }, { phase: 'downloading', receivedBytes: -1 }];
+        for (const data of invalidOrLater) {
+            expect(model(data).downloadProgress).toBeUndefined();
+            expect(model(data).completedFraction).toBe(0);
+        }
+    });
+
+    it('shows acquisition work during inspection without treating inspection success as setup success', () => {
+        const events: SystemTaskEvent[] = [{ ...progress('setup.thisComputer.ensureCli', 1), type: 'cli.acquisition.progress', data: { phase: 'unpacking' } }];
+        const active = deriveSetupStageModel(runState({ events }), facts({ entry: 'checking' }));
+        expect(active.statusSentence).toBe('setupSurface.acquisitionUnpackingStatus');
+        expect(active.completedFraction).toBe(0);
+        const settled = deriveSetupStageModel(runState({ events, status: 'succeeded', result: { protocolVersion: 1, taskId: 'task_1', ok: true } }), facts({ entry: 'checking' }));
+        expect(settled.currentIndex).toBe(0);
+        expect(settled.phase).toBe('checking');
+    });
+
     it('advances the fraction only when a later stage is first observed, never within a stage', () => {
         const withinPrepare = deriveSetupStageModel(runState({
             events: [progress('setup.thisComputer.ensureCli', 30)],
@@ -241,7 +267,15 @@ describe('deriveSetupStageModel (INV3 — milestone-quantised)', () => {
             cli_override_below_setup_floor: 'setupSurface.blockedCliOutdatedStatus',
             cli_command_timeout: 'setupSurface.blockedCliUnresponsiveStatus',
             cli_spawn_failed: 'setupSurface.blockedCliUnavailableStatus',
-            first_party_component_install_failed: 'setupSurface.blockedCliUnavailableStatus',
+            first_party_component_install_failed: 'setupSurface.acquisitionInstallFailed',
+            cli_acquisition_resolvingRelease_failed: 'setupSurface.acquisitionReleaseFailed',
+            cli_acquisition_downloading_failed: 'setupSurface.acquisitionDownloadFailed',
+            cli_acquisition_verifying_failed: 'setupSurface.acquisitionVerificationFailed',
+            cli_acquisition_unpacking_failed: 'setupSurface.acquisitionInstallFailed',
+            cli_acquisition_installing_failed: 'setupSurface.acquisitionInstallFailed',
+            cli_acquisition_finalizing_failed: 'setupSurface.acquisitionInstallFailed',
+            cli_acquisition_checkingCli_failed: 'setupSurface.blockedCliUnavailableStatus',
+            cli_acquisition_checkingDaemon_failed: 'setupSurface.blockedCliFailedStatus',
             system_task_start_failed: 'setupSurface.blockedCliUnavailableStatus',
             cli_command_failed: 'setupSurface.blockedCliFailedStatus',
             invalid_cli_response: 'setupSurface.blockedCliFailedStatus',

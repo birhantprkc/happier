@@ -3,12 +3,16 @@ import { dirname, join, resolve } from 'node:path';
 
 import {
   installVersionedPayload,
+  FirstPartyAcquisitionError,
+  readAcquisitionFailureCause,
+  redactAcquisitionDiagnostic,
   prepareFirstPartyComponentPayloadFromGitHubRelease,
   readInstalledVersionMarkersSync,
   resolveFirstPartyInstallLayout,
   resolveInstalledFirstPartyComponentPaths,
   type FirstPartyComponentId,
   type PreparedFirstPartyComponentPayload,
+  type FirstPartyAcquisitionOptions,
 } from '@happier-dev/cli-common/firstPartyRuntime';
 import { SystemTaskExecutionError } from '@happier-dev/cli-common/systemTasks';
 import type { PublicReleaseRingId } from '@happier-dev/release-runtime/releaseRings';
@@ -47,7 +51,7 @@ export type ResolvedLocalFirstPartyCommand = Readonly<{
   provenance: LocalFirstPartyCommandProvenance;
 }>;
 
-export type LocalFirstPartyCommandParams = Readonly<{
+export type LocalFirstPartyCommandParams = FirstPartyAcquisitionOptions & Readonly<{
   componentId: FirstPartyComponentId;
   releaseRing: PublicReleaseRingId;
   processEnv?: NodeJS.ProcessEnv;
@@ -183,7 +187,7 @@ function resolveRepoRootForFirstPartyComponent(processEnv: NodeJS.ProcessEnv): s
 type PreparedPayload = Pick<PreparedFirstPartyComponentPayload, 'versionId' | 'payloadRoot' | 'cleanup'>;
 
 export type LocalFirstPartyCommandAcquisitionDeps = Readonly<{
-  preparePayload: (params: Readonly<{
+  preparePayload: (params: FirstPartyAcquisitionOptions & Readonly<{
     componentId: FirstPartyComponentId;
     channel: PublicReleaseRingId;
   }>) => Promise<PreparedPayload>;
@@ -214,10 +218,18 @@ export async function acquireManagedLocalFirstPartyComponentCommand(
   };
 
   let prepared: PreparedPayload | null = null;
+  let phase: Parameters<NonNullable<FirstPartyAcquisitionOptions['onProgress']>>[0]['phase'] = 'resolvingRelease';
+  const onProgress: NonNullable<FirstPartyAcquisitionOptions['onProgress']> = (progress) => {
+    phase = progress.phase;
+    if (!params.signal?.aborted) params.onProgress?.(progress);
+  };
   try {
+    params.signal?.throwIfAborted();
     prepared = await deps.preparePayload({
       componentId: params.componentId,
       channel: params.releaseRing,
+      signal: params.signal,
+      onProgress,
     });
     params.assertAcceptableVersion?.(prepared.versionId);
 
@@ -227,8 +239,11 @@ export async function acquireManagedLocalFirstPartyComponentCommand(
       releaseRing: params.releaseRing,
       versionId: prepared.versionId,
       payloadRoot: prepared.payloadRoot,
+      signal: params.signal,
+      onProgress,
     });
   } catch (error) {
+    params.signal?.throwIfAborted();
     // A named task failure — the version refusal above, or one raised inside a dep — keeps its own
     // code: relabelling it as an install failure would hide why the acquisition was refused.
     if (error instanceof SystemTaskExecutionError) {
@@ -237,12 +252,17 @@ export async function acquireManagedLocalFirstPartyComponentCommand(
     const message = error instanceof Error && error.message.trim()
       ? error.message.trim()
       : `Failed to acquire ${params.componentId}.`;
-    throw new SystemTaskExecutionError('first_party_component_install_failed', message);
+    const failurePhase = error instanceof FirstPartyAcquisitionError ? error.phase : phase;
+    const failureCause = error instanceof FirstPartyAcquisitionError ? error.failureCause : readAcquisitionFailureCause(error);
+    onProgress({ phase: failurePhase, failure: { cause: failureCause } });
+    throw new SystemTaskExecutionError(`cli_acquisition_${failurePhase}_failed`, redactAcquisitionDiagnostic(message));
   } finally {
     if (prepared) {
       await prepared.cleanup().catch(() => undefined);
     }
   }
+
+  params.signal?.throwIfAborted();
 
   const installedCommand = resolveExplicitOrInstalledLocalFirstPartyCommand({
     componentId: params.componentId,
@@ -253,8 +273,9 @@ export async function acquireManagedLocalFirstPartyComponentCommand(
     return installedCommand;
   }
 
+  onProgress({ phase: 'finalizing', failure: { cause: 'managed_command_unavailable' } });
   throw new SystemTaskExecutionError(
-    'first_party_component_install_failed',
+    'cli_acquisition_finalizing_failed',
     `Installed ${params.componentId}, but its managed command path is still unavailable.`,
   );
 }

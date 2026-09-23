@@ -39,6 +39,7 @@ export type DesktopSetupVerification =
 export type DesktopLocalSetupGate = Readonly<{
     snapshot: DesktopLocalSetupSnapshot;
     inspection: DesktopLocalInspection;
+    inspectionTaskId: string | null;
     verification: DesktopSetupVerification;
     setupTask: ReturnType<typeof useThisComputerSetupTask>;
     /** Re-runs a failed inspection, or a failed setup, visibly. */
@@ -105,6 +106,11 @@ export function useDesktopLocalSetupGate(options: Readonly<{ enabled: boolean }>
         desktopSetupCoordinator.subscribe,
         desktopSetupCoordinator.readInspectionRefreshing,
         desktopSetupCoordinator.readInspectionRefreshing,
+    );
+    const inspectionTaskId = React.useSyncExternalStore(
+        desktopSetupCoordinator.subscribe,
+        desktopSetupCoordinator.readInspectionTaskId,
+        desktopSetupCoordinator.readInspectionTaskId,
     );
     // The coordinator keeps the last established facts while it reads again, because a surface
     // already showing true facts must not flash an empty state (`apps/ui/AGENTS.md`). This gate is
@@ -399,6 +405,7 @@ export function useDesktopLocalSetupGate(options: Readonly<{ enabled: boolean }>
         snapshot,
         inspection,
         verification,
+        inspectionTaskId,
         setupTask,
         retry,
     };

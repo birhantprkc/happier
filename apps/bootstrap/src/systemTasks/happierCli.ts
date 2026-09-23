@@ -1,6 +1,7 @@
 import { systemTasks } from '@happier-dev/cli-common';
 import { compareVersions, normalizeSemverBase } from '@happier-dev/cli-common/update';
 import type { PublicReleaseRingId } from '@happier-dev/release-runtime/releaseRings';
+import type { FirstPartyAcquisitionOptions } from '@happier-dev/cli-common/firstPartyRuntime';
 
 import {
   acquireManagedLocalFirstPartyComponentCommand,
@@ -31,7 +32,7 @@ export type SetupCapableLocalHappierCli = ResolvedLocalFirstPartyCommand & Reado
   version: string;
 }>;
 
-function resolveHappierCliParams(params: Readonly<{
+function resolveHappierCliParams(params: FirstPartyAcquisitionOptions & Readonly<{
   releaseRing: PublicReleaseRingId;
   processEnv: NodeJS.ProcessEnv;
 }>) {
@@ -40,6 +41,8 @@ function resolveHappierCliParams(params: Readonly<{
     releaseRing: params.releaseRing,
     processEnv: params.processEnv,
     envVarNames: DEFAULT_ENV_VAR_NAMES,
+    signal: params.signal,
+    onProgress: params.onProgress,
   };
 }
 
@@ -159,17 +162,19 @@ export type LocalHappierCliResolutionOverrides = Partial<LocalFirstPartyCommandA
  * from a second reader.
  */
 export async function resolveVersionedLocalHappierCli(
-  params: Readonly<{
+  params: FirstPartyAcquisitionOptions & Readonly<{
     releaseRing: PublicReleaseRingId;
     processEnv?: NodeJS.ProcessEnv;
   }>,
   overrides: LocalHappierCliResolutionOverrides = {},
 ): Promise<SetupCapableLocalHappierCli> {
   const processEnv = params.processEnv ?? process.env;
-  const cliParams = resolveHappierCliParams({ releaseRing: params.releaseRing, processEnv });
+  const cliParams = resolveHappierCliParams({ ...params, processEnv });
   const readVersion = overrides.readVersion ?? readLocalHappierCliVersion;
   const resolved = resolveExplicitOrInstalledLocalFirstPartyCommand(cliParams)
     ?? await acquireManagedLocalFirstPartyComponentCommand(cliParams, overrides);
+  params.signal?.throwIfAborted();
+  params.onProgress?.({ phase: 'checkingCli' });
   return { ...resolved, version: await readVersion({ command: resolved.command, processEnv }) };
 }
 
@@ -179,14 +184,14 @@ export async function resolveVersionedLocalHappierCli(
  * release path; an override is development-only and is never reacquired.
  */
 export async function ensureSetupCapableLocalHappierCli(
-  params: Readonly<{
+  params: FirstPartyAcquisitionOptions & Readonly<{
     releaseRing: PublicReleaseRingId;
     processEnv?: NodeJS.ProcessEnv;
   }>,
   overrides: LocalHappierCliResolutionOverrides = {},
 ): Promise<SetupCapableLocalHappierCli> {
   const processEnv = params.processEnv ?? process.env;
-  const cliParams = resolveHappierCliParams({ releaseRing: params.releaseRing, processEnv });
+  const cliParams = resolveHappierCliParams({ ...params, processEnv });
   const readVersion = overrides.readVersion ?? readLocalHappierCliVersion;
 
   const resolved = await resolveVersionedLocalHappierCli(params, overrides);
@@ -215,6 +220,8 @@ export async function ensureSetupCapableLocalHappierCli(
       }
     },
   }, overrides);
+  params.signal?.throwIfAborted();
+  params.onProgress?.({ phase: 'checkingCli' });
   const reacquiredVersion = await readVersion({ command: reacquired.command, processEnv });
   if (meetsSetupVersionFloor(reacquiredVersion)) {
     return { ...reacquired, version: reacquiredVersion };

@@ -6,7 +6,8 @@ import { MainView } from '@/components/navigation/shell/MainView';
 import { getActiveServerSnapshot } from '@/sync/domains/server/serverRuntime';
 import { toRelayHostDisplay } from '@/sync/domains/server/url/serverUrlDisplay';
 
-import { SetupSurface, type SetupSurfaceMaterial } from './SetupSurface';
+import { type SetupSurfaceMaterial } from './SetupSurface';
+import { DesktopSetupTaskSurface } from './DesktopSetupTaskSurface';
 import type { SetupLocalFacts, SetupStartFailure } from './setupStageModel';
 import { useDesktopLocalSetupGate, type DesktopLocalSetupGate as DesktopLocalSetupGateState } from './useDesktopLocalSetupGate';
 
@@ -72,11 +73,8 @@ export function DesktopLocalSetupGate(): React.ReactElement {
     const presentation = gate.snapshot.presentation;
     const surface = useDepartingSurface(presentation === 'shell' ? null : presentation);
 
-    // While the inspection is pending there is nothing true to report about a run: a Retry press
-    // must return the surface to "checking" on the next frame rather than leaving the failure that
-    // is being retried on screen (`DESIGN.md`: acknowledge input immediately). The same expression
-    // covers the start of a run — a started setup with no task reported yet is still a check, not
-    // work to announce.
+    // Retry drops the previous setup failure immediately. The leaf can still show actual
+    // acquisition work from the inspection task, whose success never means setup succeeded.
     const run = gate.inspection.status === 'pending' ? null : gate.setupTask.activeTaskSnapshot;
     const facts: SetupLocalFacts = {
         relayDisplayName,
@@ -96,7 +94,8 @@ export function DesktopLocalSetupGate(): React.ReactElement {
             {/* D9 — the shell is never pre-mounted under the first-run ground. */}
             {presentation === 'ground' ? null : <MainView variant="phone" />}
             {surface.material != null ? (
-                <SetupSurface
+                <DesktopSetupTaskSurface
+                    inspectionTaskId={gate.inspection.status !== 'resolved' ? gate.inspectionTaskId ?? null : null}
                     run={run}
                     facts={facts}
                     material={surface.material}

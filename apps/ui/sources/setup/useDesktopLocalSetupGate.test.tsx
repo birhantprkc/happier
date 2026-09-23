@@ -210,6 +210,7 @@ vi.mock('./desktopSetupCoordinator', () => ({
         },
         readInspectionSnapshot: () => inspectionStore.value,
         readInspectionRefreshing: () => inspectionStore.refreshing,
+        readInspectionTaskId: () => null,
         readObservedExpectation: () => state.observed,
         verifyCurrentTarget: (...args: unknown[]) => spies.verifyCurrentTarget(...(args as [])),
         startSetup: (...args: unknown[]) => spies.startSetup(...(args as [])),

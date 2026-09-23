@@ -28,8 +28,18 @@ vi.mock('@/hooks/ui/useReduceTransparency', () => ({
     useReduceTransparency: () => reduceTransparencyState.enabled,
 }));
 
+const taskIpc = vi.hoisted(() => ({ listeners: new Map<string, (payload: unknown) => void>() }));
 vi.mock('@/utils/platform/tauri', () => ({
     isTauriDesktop: () => false,
+    invokeTauri: async (command: string) => {
+        if (command === 'start_system_task') return { taskId: 'warmup' };
+        if (command === 'get_system_task_snapshot') return { events: [], result: null };
+        throw new Error(`Unexpected desktop command: ${command}`);
+    },
+    listenTauriEvent: async (name: string, callback: (payload: unknown) => void) => {
+        taskIpc.listeners.set(name, callback);
+        return () => taskIpc.listeners.delete(name);
+    },
 }));
 
 vi.mock('@/components/navigation/shell/desktopChrome/useResolvedDesktopWindowControls', () => ({
@@ -108,6 +118,54 @@ beforeEach(() => {
 });
 
 describe('SetupSurface actions (R7)', () => {
+    it('replays warmup bytes in the mounted leaf without rerendering its host or completing setup', async () => {
+        vi.stubEnv('EXPO_PUBLIC_SYSTEM_TASKS_RUNNER_MODE', 'tauri');
+        reducedMotionState.enabled = true;
+        const { getSystemTasksRunner } = await import('@/components/systemTasks/systemTasksRuntime');
+        const { DesktopSetupTaskSurface } = await import('./DesktopSetupTaskSurface');
+        const runner = getSystemTasksRunner();
+        const taskId = await runner.start({ protocolVersion: 1, kind: 'daemon.service.status.v1', params: {} });
+        const emit = (tsMs: number, data: SystemTaskEvent['data']) => taskIpc.listeners.get(`systemTasks://task/${taskId}/event`)?.({
+            protocolVersion: 1, taskId, tsMs, type: 'cli.acquisition.progress', stepId: 'setup.thisComputer.ensureCli', data,
+        });
+        emit(1, { phase: 'downloading', receivedBytes: 1024 });
+        let hostRenders = 0;
+        function Host() {
+            hostRenders++;
+            return <DesktopSetupTaskSurface inspectionTaskId={taskId} run={null} facts={facts({ entry: 'checking' })} material="ground" />;
+        }
+        try {
+            const screen = await renderScreen(<Host />);
+            expect(textOf(screen.findByTestId('setup-surface:download-progress'))).toContain('"received":"1.0 KB"');
+            const initialRenders = hostRenders;
+            await act(async () => { emit(2, { phase: 'downloading', receivedBytes: 2048, totalBytes: 4096 }); });
+            expect(textOf(screen.findByTestId('setup-surface:download-progress'))).toContain('"total":"4.0 KB"');
+            expect(hostRenders).toBe(initialRenders);
+            await act(async () => { emit(3, { phase: 'unpacking' }); });
+            expect(screen.findByTestId('setup-surface:download-progress')).toBeNull();
+            expect(textOf(screen.findByTestId('setup-surface:status'))).toBe('setupSurface.acquisitionUnpackingStatus');
+            await act(async () => {
+                taskIpc.listeners.get(`systemTasks://task/${taskId}/result`)?.({ protocolVersion: 1, taskId, ok: true });
+            });
+            expect(screen.findByTestId('setup-surface:checking')).not.toBeNull();
+            expect(screen.findByTestId('setup-surface:mark')?.props.accessibilityLabel).toContain('"step":1');
+        } finally {
+            vi.unstubAllEnvs();
+        }
+    });
+
+    it('shows real transfer bytes separately from phase announcements and clears them after failure', async () => {
+        reducedMotionState.enabled = true;
+        const active = runState({ events: [{ ...progress('setup.thisComputer.ensureCli', 1), type: 'cli.acquisition.progress', data: { phase: 'downloading', receivedBytes: 1024 } }] });
+        const screen = await renderScreen(<SetupSurface run={active} facts={facts({ entry: 'checking' })} material="ground" />);
+        expect(textOf(screen.findByTestId('setup-surface:status'))).toBe('setupSurface.acquisitionDownloadingStatus');
+        expect(textOf(screen.findByTestId('setup-surface:download-progress'))).toContain('"received":"1.0 KB"');
+        expect(screen.findByTestId('setup-surface:live')?.findAllByProps({ testID: 'setup-surface:download-progress' })).toHaveLength(0);
+        await screen.update(<SetupSurface run={{ ...active, status: 'failed', result: { protocolVersion: 1, taskId: 'task_1', ok: false, error: { code: 'cli_acquisition_downloading_failed', message: 'connection interrupted' } } }} facts={facts({ entry: 'checking' })} material="ground" />);
+        expect(screen.findByTestId('setup-surface:download-progress')).toBeNull();
+        expect(screen.findByTestId('setup-surface:blocked')).not.toBeNull();
+    });
+
     it('renders no action in ordinary progress states', async () => {
         for (const stepId of ['setup.thisComputer.ensureCli', 'setup.thisComputer.configureRelay', 'setup.thisComputer.installService', 'setup.thisComputer.restartService']) {
             const screen = await renderScreen(

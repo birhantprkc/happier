@@ -1,5 +1,7 @@
+import { CLI_ACQUISITION_PROGRESS_EVENT, parseCliAcquisitionProgress, readCliAcquisitionFailurePhase, type CliAcquisitionPhase } from '@happier-dev/protocol';
 import type { SystemTaskRunState } from '@/components/systemTasks/types';
 import { t, type TranslationKeyNoParams } from '@/text';
+import { formatByteSize } from '@/utils/files/formatByteSize';
 
 /**
  * The ONE setup-stage derivation (plan INV3 / INV6 / D10).
@@ -62,6 +64,8 @@ export type SetupStageModel = Readonly<{
     blocked: SetupBlockedFacts | null;
     title: string;
     statusSentence: string;
+    /** Transfer bytes only; separate from phase announcements and the milestone ring. */
+    downloadProgress?: string;
     /** "Step N of M" for assistive tech. Never a percentage. */
     stepAnnouncement: string;
 }>;
@@ -94,6 +98,28 @@ const STAGE_STATUS_KEY = {
     verify: 'setupSurface.stageVerifyStatus',
 } as const satisfies Record<SetupStageId, string>;
 
+const ACQUISITION_STATUS_KEY = {
+    resolvingRelease: 'setupSurface.acquisitionResolvingReleaseStatus',
+    downloading: 'setupSurface.acquisitionDownloadingStatus',
+    verifying: 'setupSurface.acquisitionVerifyingStatus',
+    unpacking: 'setupSurface.acquisitionUnpackingStatus',
+    installing: 'setupSurface.acquisitionInstallingStatus',
+    finalizing: 'setupSurface.acquisitionFinalizingStatus',
+    checkingCli: 'setupSurface.acquisitionCheckingCliStatus',
+    checkingDaemon: 'setupSurface.acquisitionCheckingDaemonStatus',
+} as const satisfies Record<CliAcquisitionPhase, TranslationKeyNoParams>;
+
+const ACQUISITION_FAILURE_KEY = {
+    resolvingRelease: 'setupSurface.acquisitionReleaseFailed',
+    downloading: 'setupSurface.acquisitionDownloadFailed',
+    verifying: 'setupSurface.acquisitionVerificationFailed',
+    unpacking: 'setupSurface.acquisitionInstallFailed',
+    installing: 'setupSurface.acquisitionInstallFailed',
+    finalizing: 'setupSurface.acquisitionInstallFailed',
+    checkingCli: 'setupSurface.blockedCliUnavailableStatus',
+    checkingDaemon: 'setupSurface.blockedCliFailedStatus',
+} as const satisfies Record<CliAcquisitionPhase, TranslationKeyNoParams>;
+
 /**
  * Failure code → the sentence the person reads.
  *
@@ -112,7 +138,7 @@ const BLOCKED_STATUS_KEY: Readonly<Record<string, TranslationKeyNoParams>> = {
     cli_override_below_setup_floor: 'setupSurface.blockedCliOutdatedStatus',
     cli_command_timeout: 'setupSurface.blockedCliUnresponsiveStatus',
     cli_spawn_failed: 'setupSurface.blockedCliUnavailableStatus',
-    first_party_component_install_failed: 'setupSurface.blockedCliUnavailableStatus',
+    first_party_component_install_failed: 'setupSurface.acquisitionInstallFailed',
     system_task_start_failed: 'setupSurface.blockedCliUnavailableStatus',
     cli_command_failed: 'setupSurface.blockedCliFailedStatus',
     invalid_cli_response: 'setupSurface.blockedCliFailedStatus',
@@ -144,6 +170,8 @@ function resolveBlocked(run: SystemTaskRunState | null, facts: SetupLocalFacts):
 }
 
 function blockedStatus(code: string): string {
+    const phase = readCliAcquisitionFailurePhase(code);
+    if (phase) return t(ACQUISITION_FAILURE_KEY[phase]);
     return t(BLOCKED_STATUS_KEY[code] ?? 'setupSurface.blockedStatusFallback');
 }
 
@@ -163,7 +191,7 @@ function stageStatus(stage: SetupStageId, relay: string): string {
 export function deriveSetupStageModel(run: SystemTaskRunState | null, facts: SetupLocalFacts): SetupStageModel {
     const total = SETUP_STAGES.length;
     const blocked = resolveBlocked(run, facts);
-    const succeeded = run?.result?.ok === true;
+    const succeeded = facts.entry === 'setup' && run?.result?.ok === true;
     // The executor's success opens the last stage; the host's own re-read closes the surface.
     const currentIndex = succeeded ? total - 1 : resolveReachedIndex(run);
     const completedFraction = currentIndex / total;
@@ -198,7 +226,16 @@ export function deriveSetupStageModel(run: SystemTaskRunState | null, facts: Set
         };
     }
 
-    if (!run && facts.entry === 'checking') {
+    // Inspection can acquire the CLI, but its result establishes no completed setup stage.
+    const latest = run?.events.at(-1);
+    const acquisition = !run?.result && latest?.type === CLI_ACQUISITION_PROGRESS_EVENT
+        ? parseCliAcquisitionProgress(latest.data) : null;
+    const downloadProgress = acquisition?.phase === 'downloading' && acquisition.receivedBytes !== undefined
+        ? (acquisition.totalBytes !== undefined
+            ? t('setupSurface.acquisitionDownloadBytesTotal', { received: formatByteSize(acquisition.receivedBytes), total: formatByteSize(acquisition.totalBytes) })
+            : t('setupSurface.acquisitionDownloadBytes', { received: formatByteSize(acquisition.receivedBytes) }))
+        : undefined;
+    if (facts.entry === 'checking') {
         return {
             phase: 'checking',
             stages: SETUP_STAGES,
@@ -206,7 +243,8 @@ export function deriveSetupStageModel(run: SystemTaskRunState | null, facts: Set
             completedFraction,
             blocked: null,
             title: t('setupSurface.checkingTitle'),
-            statusSentence: t('setupSurface.checkingStatus', { relay }),
+            statusSentence: acquisition ? t(ACQUISITION_STATUS_KEY[acquisition.phase]) : t('setupSurface.checkingStatus', { relay }),
+            downloadProgress,
             stepAnnouncement,
         };
     }
@@ -218,7 +256,8 @@ export function deriveSetupStageModel(run: SystemTaskRunState | null, facts: Set
         completedFraction,
         blocked: null,
         title: t('setupSurface.workingTitle'),
-        statusSentence: stageStatus(SETUP_STAGES[currentIndex] ?? 'prepare', relay),
+        statusSentence: acquisition && currentIndex === 0 ? t(ACQUISITION_STATUS_KEY[acquisition.phase]) : stageStatus(SETUP_STAGES[currentIndex] ?? 'prepare', relay),
+        downloadProgress,
         stepAnnouncement,
     };
 }

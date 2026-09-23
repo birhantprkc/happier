@@ -1,4 +1,6 @@
 import { systemTasks } from '@happier-dev/cli-common';
+import type { FirstPartyAcquisitionOptions } from '@happier-dev/cli-common/firstPartyRuntime';
+import { reportCliAcquisitionProgress } from '../cliAcquisitionProgress.js';
 import {
   createSetupPairingPromptData,
   createSetupServiceConsentPromptData,
@@ -76,7 +78,7 @@ type PathExposureOutcome = Readonly<{
  * the commands that write credentials and install the service.
  */
 export type SetupThisComputerDeps = Readonly<{
-  ensureCli: (params: Readonly<{ releaseRing: PublicReleaseRingId }>) => Promise<SetupCapableLocalHappierCli>;
+  ensureCli: (params: FirstPartyAcquisitionOptions & Readonly<{ releaseRing: PublicReleaseRingId }>) => Promise<SetupCapableLocalHappierCli>;
   previewServiceInstall: (
     releaseRing: PublicReleaseRingId,
     cli: SetupCapableLocalHappierCli,
@@ -203,7 +205,7 @@ export function createSetupThisComputerKind(
       const ring = params.releaseRing;
 
       ctx.emit({ type: 'progress', stepId: STEP.ensureCli, message: 'Preparing the Happier command line' });
-      const cli = await deps.ensureCli({ releaseRing: ring });
+      const cli = await deps.ensureCli({ releaseRing: ring, signal: ctx.signal, onProgress: reportCliAcquisitionProgress(ctx.emit) });
       throwIfCancelled(ctx.signal);
 
       ctx.emit({ type: 'progress', stepId: STEP.inspectService, message: 'Checking the background service' });
