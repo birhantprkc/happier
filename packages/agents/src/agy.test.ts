@@ -35,12 +35,12 @@ describe('agy shared agent facts (EU-3)', () => {
     });
   });
 
-  it('exposes agy local-control terminal auth surface', () => {
+  it('authenticates the managed ACP server from the local login terminal', () => {
     const localCli = AGENT_LOCAL_CLI_CONFIG['agy' as keyof typeof AGENT_LOCAL_CLI_CONFIG] as unknown as Record<string, unknown> | undefined;
     expect(localCli).toMatchObject({
       agentId: 'agy',
       authSupport: 'login_terminal',
-      authLaunches: [{ kind: 'primary', command: 'agy', args: [] }],
+      authLaunches: [{ kind: 'primary', target: 'happier_cli', args: ['agy', 'auth', 'login'] }],
     });
   });
 
