@@ -4,11 +4,11 @@
     <img src=".github/logotype-black.svg" alt="Happier" width="340" />
   </picture>
 
-  ### One control room for all your coding agents.
+  ### The multi-device control room to run teams of 100x coding agents
 
   **The way orchestrating agents should feel.<br />From your phone, desktop and browser.**
 
-  Claude Code, Codex, OpenCode, Pi and more, working together and in parallel on your own machines. Sessions can spawn subagents across agents: e.g. Claude asking Codex for a review, or Codex delegating to Claude subagents. Switch agents mid-session. Approve, steer, review and commit from wherever you are.
+  Claude Code, Codex, OpenCode, Pi and more, working together and in parallel on your own machines.<br />Sessions can spawn subagents across agents: e.g. Claude asking Codex for a review, or Codex delegating to Claude subagents.<br />Switch agents mid-session. Approve, steer, review and commit from wherever you are.
 
   **Open source · Self-hostable · End-to-end encrypted**
 
@@ -30,8 +30,7 @@
   <a href="https://github.com/happier-dev/happier/discussions/226"><strong>Latest Happier project update</strong></a>
 
   <p>Happier is free and open source.<br />
-    Your agents keep using the subscriptions and API keys you already have:<br />
-    Claude Pro/Max, ChatGPT/Codex, API keys, or local models.</p>
+    You use your existing subscriptions and coding agents.</p>
 
   <p>
     <img src=".github/desktop-2000.png" alt="Happier desktop app: sessions, diffs and terminal in one window" width="100%" />
