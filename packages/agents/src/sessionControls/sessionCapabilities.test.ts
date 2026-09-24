@@ -41,8 +41,8 @@ describe('sessionCapabilities', () => {
     expect(AGENTS_CORE.opencode.sessionCapabilities).toEqual({
       sessionListing: 'supported',
       sessionFork: {
-        conversation: 'unsupported',
-        fromMessage: 'unsupported',
+        conversation: 'supported',
+        fromMessage: 'supported',
       },
       sessionRollback: {
         conversation: 'unsupported',
@@ -94,7 +94,7 @@ describe('sessionCapabilities', () => {
   });
 
   it('provides a boolean helper for supported session capabilities', () => {
-    expect(isAgentSessionCapabilitySupported('opencode', 'sessionFork.fromMessage')).toBe(false);
+    expect(isAgentSessionCapabilitySupported('opencode', 'sessionFork.fromMessage')).toBe(true);
     expect(isAgentSessionCapabilitySupported('claude', 'sessionRollback.conversation')).toBe(false);
     expect(isAgentSessionCapabilitySupported('opencode', 'usageLimitRecovery.checkNow')).toBe(true);
     expect(isAgentSessionCapabilitySupported('pi', 'usageLimitRecovery.checkNow')).toBe(true);
@@ -144,7 +144,7 @@ describe('sessionCapabilities', () => {
     ).toBe('supported');
   });
 
-  it('keeps ACP conversation fork scoped while server fork fails closed', () => {
+  it('keeps ACP limited to conversation forks while server-native forks stay available', () => {
     expect(
       evaluateAgentSessionCapabilitySupport({
         agentId: 'opencode',
@@ -167,7 +167,7 @@ describe('sessionCapabilities', () => {
         capability: 'sessionFork.conversation',
         metadata: { opencodeBackendMode: 'server' },
       }),
-    ).toBe('unsupported');
+    ).toBe('supported');
   });
 
   it('downgrades opencode usage-limit recovery check-now to server-only sessions', () => {
@@ -202,6 +202,6 @@ describe('sessionCapabilities', () => {
           opencodeBackendMode: 'acp',
         },
       }),
-    ).toBe('unsupported');
+    ).toBe('supported');
   });
 });

@@ -90,6 +90,40 @@ async function createNodeShebangExecutable(name: string): Promise<{ commandPath:
 }
 
 describe('createOpenCodeTuiSupervisor', () => {
+  it('attaches a released OpenCode 2 managed server through the root dialect with its retained credential', async () => {
+    const proc = createSpawnedProcessHarness();
+    const spawnProcess = vi.fn(() => proc.child as any);
+    const commandPath = await createFakeExecutable('opencode');
+    const supervisor = createOpenCodeTuiSupervisor({
+      spawnProcess,
+      env: { HAPPIER_OPENCODE_PATH: commandPath } as NodeJS.ProcessEnv,
+      resolveDialectFn: async () => 'v2',
+      readManagedServerStateFn: async () => ({
+        baseUrl: 'http://127.0.0.1:4096',
+        pid: 321,
+        startedAtMs: 1,
+        authPassword: 'retained-secret',
+      } as never),
+    });
+
+    await expect(supervisor.attach({
+      baseUrl: 'http://127.0.0.1:4096',
+      directory: '/tmp/workspace',
+      sessionId: 'session-1',
+    })).resolves.toBe(true);
+
+    expect(spawnProcess).toHaveBeenCalledWith(
+      commandPath,
+      ['--server', 'http://127.0.0.1:4096', '--session', 'session-1', '/tmp/workspace'],
+      expect.objectContaining({
+        stdio: 'inherit',
+        env: expect.objectContaining({ OPENCODE_PASSWORD: 'retained-secret' }),
+      }),
+    );
+
+    proc.emitExit();
+  });
+
   it('spawns the resolved opencode attach command with inherited stdio and tracks attachment state', async () => {
     const proc = createSpawnedProcessHarness();
     const spawnProcess = vi.fn(() => proc.child as any);
@@ -97,6 +131,8 @@ describe('createOpenCodeTuiSupervisor', () => {
     const supervisor = createOpenCodeTuiSupervisor({
       spawnProcess,
       env: { HAPPIER_OPENCODE_PATH: commandPath } as NodeJS.ProcessEnv,
+      resolveDialectFn: async () => 'v1',
+      readManagedServerStateFn: async () => null,
     });
 
     await expect(supervisor.attach({
@@ -126,6 +162,8 @@ describe('createOpenCodeTuiSupervisor', () => {
       spawnProcess,
       onExit,
       env: { HAPPIER_OPENCODE_PATH: commandPath } as NodeJS.ProcessEnv,
+      resolveDialectFn: async () => 'v1',
+      readManagedServerStateFn: async () => null,
     });
 
     await supervisor.attach({
@@ -145,11 +183,18 @@ describe('createOpenCodeTuiSupervisor', () => {
 
   it('fails closed when the attach process errors before startup completes', async () => {
     const proc = createSpawnedProcessHarness();
-    const spawnProcess = vi.fn(() => proc.child as any);
+    // Resolving the invocation (target dialect + per-target credential env) is asynchronous, so the
+    // "before startup completes" window is entered from the spawn itself.
+    const spawnProcess = vi.fn(() => {
+      setImmediate(() => proc.emitError(new Error('ENOENT')));
+      return proc.child as any;
+    });
     const commandPath = await createFakeExecutable('opencode');
     const supervisor = createOpenCodeTuiSupervisor({
       spawnProcess,
       env: { HAPPIER_OPENCODE_PATH: commandPath } as NodeJS.ProcessEnv,
+      resolveDialectFn: async () => 'v1',
+      readManagedServerStateFn: async () => null,
     });
 
     const attachPromise = supervisor.attach({
@@ -157,8 +202,6 @@ describe('createOpenCodeTuiSupervisor', () => {
       directory: '/tmp/workspace',
       sessionId: 'session-1',
     });
-    proc.emitError(new Error('ENOENT'));
-
     await expect(attachPromise).resolves.toBe(false);
     expect(supervisor.isAttached()).toBe(false);
   });
@@ -172,6 +215,8 @@ describe('createOpenCodeTuiSupervisor', () => {
       spawnProcess,
       onExit,
       env: { HAPPIER_OPENCODE_PATH: commandPath } as NodeJS.ProcessEnv,
+      resolveDialectFn: async () => 'v1',
+      readManagedServerStateFn: async () => null,
     });
 
     await expect(supervisor.attach({
@@ -197,6 +242,8 @@ describe('createOpenCodeTuiSupervisor', () => {
         HAPPIER_OPENCODE_PATH: commandPath,
         HAPPIER_JS_RUNTIME_PATH: runtimePath,
       } as NodeJS.ProcessEnv,
+      resolveDialectFn: async () => 'v1',
+      readManagedServerStateFn: async () => null,
     });
 
     await expect(supervisor.attach({
@@ -231,6 +278,8 @@ describe('createOpenCodeTuiSupervisor', () => {
         USERPROFILE: isolatedHome,
       } as NodeJS.ProcessEnv,
       command: 'C:\\Users\\natan\\AppData\\Roaming\\npm\\opencode.CMD',
+      resolveDialectFn: async () => 'v1',
+      readManagedServerStateFn: async () => null,
     });
 
     await expect(supervisor.attach({

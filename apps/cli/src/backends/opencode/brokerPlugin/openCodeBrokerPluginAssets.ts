@@ -6,10 +6,14 @@ import { writeGeneratedTextAtomicallyIfChanged } from '@/utils/fs/writeGenerated
 
 import {
   OPEN_CODE_BROKER_PROVIDERS,
+  OPEN_CODE_BROKER_SELECTION_IDENTITY_ENV,
+  OPEN_CODE_BROKER_SELECTIONS_ENV,
+  parseOpenCodeBrokerSelections,
   type OpenCodeBrokerProvider,
 } from './openCodeBrokerPluginEnv';
 import {
   buildOpenCodeBrokerPluginSource,
+  buildOpenCodeBrokerV2PluginSource,
 } from './openCodeBrokerPluginSource';
 
 /**
@@ -53,9 +57,51 @@ export function resolveOpenCodeV2BrokerPluginPath(
   provider: OpenCodeBrokerProvider,
   happyHomeDir: string = configuration.happyHomeDir,
 ): string {
-  // V2 receives this path through the explicit `plugins` config. Keep it outside V2's automatic
-  // plugin directories so one generated module cannot be installed twice in the same process.
-  return join(resolveOpenCodeConnectedConfigHomeDir(happyHomeDir), 'happier-v2-plugins', `happier-broker-${provider}.js`);
+  // Released V2 accepts configured local plugins as directories (a configured absolute file is
+  // rejected by its ConfigPluginSource owner). Keep each entrypoint in its own directory outside
+  // automatic discovery so one generated module cannot be installed twice in the same process.
+  return join(resolveOpenCodeConnectedConfigHomeDir(happyHomeDir), 'happier-v2-plugins', `happier-broker-${provider}`);
+}
+
+export function resolveOpenCodeV2BrokerPluginSourcePath(
+  provider: OpenCodeBrokerProvider,
+  happyHomeDir: string = configuration.happyHomeDir,
+): string {
+  return join(resolveOpenCodeV2BrokerPluginPath(provider, happyHomeDir), 'index.js');
+}
+
+export function buildOpenCodeV2BrokerConfigContent(
+  providers: readonly OpenCodeBrokerProvider[],
+  baseContent?: string,
+  happyHomeDir: string = configuration.happyHomeDir,
+): string {
+  const parsed = typeof baseContent === 'string' && baseContent.trim().length > 0
+    ? JSON.parse(baseContent) as unknown
+    : {};
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('OpenCode config content must be a JSON object');
+  }
+  const config = { ...(parsed as Record<string, unknown>) };
+  const legacyPlugins = Array.isArray(config.plugin) ? config.plugin : [];
+  const nativePlugins = Array.isArray(config.plugins) ? config.plugins : [];
+  const configuredProviders = config.providers && typeof config.providers === 'object' && !Array.isArray(config.providers)
+    ? config.providers as Record<string, unknown>
+    : {};
+  delete config.plugin;
+  return JSON.stringify({
+    ...config,
+    providers: {
+      ...configuredProviders,
+      ...Object.fromEntries(providers
+        .filter((provider) => configuredProviders[provider] === undefined)
+        .map((provider) => [provider, {}])),
+    },
+    plugins: [
+      ...legacyPlugins,
+      ...nativePlugins,
+      ...providers.map((provider) => resolveOpenCodeV2BrokerPluginPath(provider, happyHomeDir)),
+    ],
+  });
 }
 
 const VERSIONED_OPEN_CODE_BROKER_PLUGIN_PATTERN =
@@ -99,13 +145,56 @@ export async function ensureOpenCodeBrokerPluginAssets(params: Readonly<{
     await mkdir(join(resolveOpenCodeConnectedConfigHomeDir(happyHomeDir), 'happier-v2-plugins'), { recursive: true });
   }
   await Promise.all(providers.map(async (provider) => {
-    const path = params.apiGeneration === 'v2'
-      ? resolveOpenCodeV2BrokerPluginPath(provider, happyHomeDir)
+    const isV2 = params.apiGeneration === 'v2';
+    const path = isV2
+      ? resolveOpenCodeV2BrokerPluginSourcePath(provider, happyHomeDir)
       : resolveOpenCodeBrokerPluginPath(provider, happyHomeDir);
+    if (isV2) await mkdir(resolveOpenCodeV2BrokerPluginPath(provider, happyHomeDir), { recursive: true });
     await writeGeneratedTextAtomicallyIfChanged({
       path,
-      contents: buildOpenCodeBrokerPluginSource(provider),
+      contents: isV2
+        ? buildOpenCodeBrokerV2PluginSource(provider)
+        : buildOpenCodeBrokerPluginSource(provider),
       mode: 0o600,
     });
   }));
+}
+
+/**
+ * Canonical preparation boundary shared by every process that launches OpenCode with connected
+ * auth (managed server and catalog preflight). It writes only selected broker providers and
+ * composes their V2 registrations over the already-materialized direct-provider config.
+ */
+export async function prepareOpenCodeConnectedAuthAssets(params: Readonly<{
+  env: NodeJS.ProcessEnv;
+  apiGeneration: 'auto' | 'v2';
+  happyHomeDir?: string;
+}>): Promise<Readonly<{
+  providers: readonly OpenCodeBrokerProvider[];
+  openCodeConfigContent?: string;
+}>> {
+  if (typeof params.env[OPEN_CODE_BROKER_SELECTION_IDENTITY_ENV] !== 'string') {
+    return { providers: [] };
+  }
+  const selections = parseOpenCodeBrokerSelections(params.env[OPEN_CODE_BROKER_SELECTIONS_ENV]);
+  const providers = OPEN_CODE_BROKER_PROVIDERS.filter((provider) => selections[provider]);
+  const happyHomeDir = params.happyHomeDir ?? configuration.happyHomeDir;
+  if (params.apiGeneration === 'auto') {
+    await Promise.all([
+      ensureOpenCodeBrokerPluginAssets({ providers, apiGeneration: 'v1', happyHomeDir }),
+      ensureOpenCodeBrokerPluginAssets({ providers, apiGeneration: 'v2', happyHomeDir }),
+    ]);
+  } else {
+    await ensureOpenCodeBrokerPluginAssets({ providers, apiGeneration: 'v2', happyHomeDir });
+  }
+  return {
+    providers,
+    ...(providers.length > 0 ? {
+      openCodeConfigContent: buildOpenCodeV2BrokerConfigContent(
+        providers,
+        params.env.OPENCODE_CONFIG_CONTENT,
+        happyHomeDir,
+      ),
+    } : {}),
+  };
 }

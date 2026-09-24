@@ -2,425 +2,338 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createOpenCodeServerRuntimeClient } from './client';
 
-// OpenCode V2 wire fixtures are pinned to upstream commit
-// 70a24697ea0028e19f22712fd63059538cb4bee7.
-describe('OpenCodeServerRuntimeClient V2 contract', () => {
+/**
+ * Wire fixtures are pinned to released OpenCode v2.0.15
+ * (github.com/anomalyco/opencode @ 6f3639d82ed0760091792189b78f8eeb44f699b1), derived from
+ * `packages/protocol/openapi.json`, `packages/schema/src/**` and frames captured from the real
+ * binary. Anything the release does not publish must not appear on the wire here.
+ */
+type Call = { path: string; method: string; search: string; body?: unknown };
+
+function stubReleasedV2Server(
+  handle: (call: Call, url: URL) => Response | undefined,
+): { calls: Call[] } {
+  const calls: Call[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(String(input));
+    const call: Call = {
+      path: url.pathname,
+      method: init?.method ?? 'GET',
+      search: url.search,
+      ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}),
+    };
+    calls.push(call);
+    // The release exposes `/api/info`; `/api/health` and `/global/health` do not exist.
+    if (url.pathname === '/api/info') {
+      return Response.json({ version: '2.0.15', pid: 4242, urls: ['http://127.0.0.1:9999'], paths: { tmp: '/tmp' } });
+    }
+    if (url.pathname === '/api/health' || url.pathname === '/global/health' || url.pathname === '/mcp') {
+      return new Response('{}', { status: 404 });
+    }
+    return handle(call, url) ?? new Response(null, { status: 204 });
+  }));
+  return { calls };
+}
+
+async function makeReleasedV2Client(env: NodeJS.ProcessEnv = {}) {
+  return await createOpenCodeServerRuntimeClient({
+    directory: '/repo',
+    messageBuffer: { push: () => {} } as never,
+    env: { HAPPIER_OPENCODE_SERVER_URL: 'http://127.0.0.1:9999', ...env },
+  });
+}
+
+describe('OpenCodeServerRuntimeClient released V2 contract', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it('resumes an owned session from the exact durable sequence without duplicate handoff delivery', async () => {
-    vi.useFakeTimers();
-    const calls: string[] = [];
-    const encoder = new TextEncoder();
-    const fetchMock = vi.fn(async (input: string | URL | Request) => {
-      const url = new URL(String(input));
-      calls.push(`${url.pathname}${url.search}`);
-      if (url.pathname === '/api/health') return new Response(JSON.stringify({ healthy: true }));
-      if (url.pathname === '/global/health') return new Response('{}', { status: 404 });
-      if (url.pathname === '/api/session/ses%2Fowned/history') {
-        const after = url.searchParams.get('after');
-        return new Response(JSON.stringify({
-          data: [{ durable: { aggregateID: 'ses/owned', seq: after === null ? 40 : 41, version: 1 } }],
-          hasMore: after === null,
-        }));
+  it('drives the released session lifecycle with released routes, payloads and envelopes', async () => {
+    const session = { id: 'ses_1', location: { directory: '/repo' }, title: 'first' };
+    const { calls } = stubReleasedV2Server((call, url) => {
+      if (call.path === '/api/session' && call.method === 'POST') return Response.json({ data: session });
+      if (call.path === '/api/session' && call.method === 'GET') {
+        return url.searchParams.get('cursor') === 'page-2'
+          ? Response.json({ data: [{ id: 'ses_2', location: { directory: '/repo' } }], cursor: {} })
+          : Response.json({ data: [session], cursor: { next: 'page-2' } });
       }
-      if (url.pathname === '/api/session/ses%2Fowned/event') {
-        const after = url.searchParams.get('after');
-        const frames = after === '41'
-          ? [{ id: 'evt_42', type: 'session.next.text.ended', durable: { aggregateID: 'ses/owned', seq: 42, version: 1 }, data: { sessionID: 'ses/owned', assistantMessageID: 'msg_1', textID: 'txt_1', text: 'first' } }]
-          : [
-              { id: 'evt_42', type: 'session.next.text.ended', durable: { aggregateID: 'ses/owned', seq: 42, version: 1 }, data: { sessionID: 'ses/owned', assistantMessageID: 'msg_1', textID: 'txt_1', text: 'first' } },
-              { id: 'evt_43', type: 'session.next.step.ended', durable: { aggregateID: 'ses/owned', seq: 43, version: 2 }, data: { sessionID: 'ses/owned', assistantMessageID: 'msg_1', finish: 'stop' } },
-            ];
-        return new Response(new ReadableStream({
-          start(stream) {
-            stream.enqueue(encoder.encode(frames.map((frame) => `data: ${JSON.stringify(frame)}\n\n`).join('')));
-            stream.close();
-          },
-        }), { headers: { 'content-type': 'text/event-stream' } });
-      }
-      if (url.pathname === '/api/event') {
-        const frames = [
-          { id: 'live_0', type: 'server.connected', data: {} },
-          { id: 'live_1', type: 'session.next.text.delta', data: { sessionID: 'ses/owned', assistantMessageID: 'msg_1', textID: 'txt_1', delta: 'live' }, location: { directory: '/repo' } },
-          { id: 'live_2', type: 'permission.v2.asked', data: { id: 'per_1', sessionID: 'ses/owned', action: 'bash', resources: ['git status'], source: { messageID: 'msg_1', callID: 'call_1' } }, location: { directory: '/repo' } },
-          { id: 'evt_42', type: 'session.next.text.ended', durable: { aggregateID: 'ses/owned', seq: 42, version: 1 }, data: { sessionID: 'ses/owned', assistantMessageID: 'msg_1', textID: 'txt_1', text: 'first' }, location: { directory: '/repo' } },
-        ];
-        return new Response(new ReadableStream({
-          start(stream) {
-            stream.enqueue(encoder.encode(frames.map((frame) => `data: ${JSON.stringify(frame)}\n\n`).join('')));
-          },
-        }), { headers: { 'content-type': 'text/event-stream' } });
-      }
-      return new Response('{}');
-    });
-    vi.stubGlobal('fetch', fetchMock);
-    const client = await createOpenCodeServerRuntimeClient({
-      directory: '/repo',
-      messageBuffer: { push: () => {} } as never,
-      env: {
-        HAPPIER_OPENCODE_SERVER_URL: 'http://127.0.0.1:9999',
-        HAPPIER_OPENCODE_SSE_RECONNECT_BASE_DELAY_MS: '5',
-        HAPPIER_OPENCODE_SSE_RECONNECT_MAX_DELAY_MS: '5',
-      },
-    });
-    const controller = new AbortController();
-    const events: Array<{ event: any; provenance: string }> = [];
-
-    await client.subscribeGlobalEvents({
-      sessionId: 'ses/owned',
-      signal: controller.signal,
-      onEvent: (event, delivery) => {
-        if (delivery.provenance !== 'connection-boundary') events.push({ event, provenance: delivery.provenance });
-        if (event.payload.type === 'session.next.step.ended') controller.abort();
-      },
-    });
-    await vi.advanceTimersByTimeAsync(10);
-
-    expect(calls).toContain('/api/session/ses%2Fowned/history');
-    expect(calls).toContain('/api/session/ses%2Fowned/history?after=40');
-    expect(calls).toContain('/api/session/ses%2Fowned/event?after=41');
-    expect(calls).toContain('/api/session/ses%2Fowned/event?after=42');
-    expect(calls).toContain('/api/event');
-    expect(events).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        provenance: 'untrusted-observation',
-        event: expect.objectContaining({ payload: expect.objectContaining({
-          type: 'message.part.delta',
-          properties: expect.objectContaining({ messageID: 'msg_1', partID: 'txt_1', delta: 'live' }),
-        }) }),
-      }),
-      expect.objectContaining({
-        provenance: 'untrusted-observation',
-        event: expect.objectContaining({ payload: expect.objectContaining({
-          type: 'permission.asked',
-          properties: expect.objectContaining({ id: 'per_1', tool: { messageID: 'msg_1', callID: 'call_1' } }),
-        }) }),
-      }),
-      expect.objectContaining({ provenance: 'accepted-live', event: expect.objectContaining({ payload: expect.objectContaining({ type: 'session.next.text.ended' }) }) }),
-      expect.objectContaining({ provenance: 'accepted-live', event: expect.objectContaining({ payload: expect.objectContaining({ type: 'session.next.step.ended' }) }) }),
-    ]));
-    // The fixture replays its live-only frames when either half of the mux reconnects.
-    // Those frames are observation/wakeup signals and may repeat; durable lifecycle must not.
-    expect(events.filter(({ event }) => event.payload.type === 'message.part.delta')).toHaveLength(2);
-    expect(events.filter(({ event }) => event.payload.type === 'permission.asked')).toHaveLength(2);
-    expect(events.filter(({ event }) => event.payload.type === 'session.next.text.ended')).toHaveLength(1);
-    expect(events.filter(({ event }) => event.payload.type === 'session.next.step.ended')).toHaveLength(1);
-    await client.dispose();
-    vi.useRealTimers();
-  });
-
-  it('selects authenticated V2 and normalizes wrapped sessions, messages, prompt, and events', async () => {
-    const calls: Array<{ path: string; method: string; authorization?: string; body?: unknown }> = [];
-    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-      const url = new URL(String(input));
-      calls.push({
-        path: url.pathname,
-        method: init?.method ?? 'GET',
-        authorization: new Headers(init?.headers).get('authorization') ?? undefined,
-        body: init?.body ? JSON.parse(String(init.body)) : undefined,
-      });
-      const body = url.pathname === '/api/health' ? { healthy: true }
-        : url.pathname === '/global/health' ? { error: 'not found' }
-        : url.pathname === '/api/session' && init?.body ? { data: { id: 's1', location: { directory: '/repo' } } }
-        : url.pathname === '/api/session' ? { data: [{ id: 's1', location: { directory: '/repo' } }] }
-        : url.pathname === '/api/session/s1' ? { data: { id: 's1', location: { directory: '/repo' } } }
-        : url.pathname === '/api/session/s1/message' ? { data: [
-          { id: 'u1', type: 'user', time: { created: 1 }, text: 'hello' },
-          { id: 'a1', type: 'assistant', time: { created: 2 }, agent: 'build', model: { providerID: 'p', id: 'm', variant: 'high' }, content: [{ type: 'text', id: 'prt_1', text: 'hi' }] },
-        ], cursor: null }
-        : url.pathname === '/api/session/s1/prompt' ? { data: { id: 'u2', type: 'user', time: { created: 3 }, text: 'next' } }
-        : url.pathname.includes('/permission/') || url.pathname.includes('/question/') ? { data: true }
-        : {};
-      if (url.pathname === '/api/event') {
-        const encoder = new TextEncoder();
-        const frames = [
-          { id: 'e1', type: 'server.connected', data: {} },
-          {
-            id: 'e2',
-            type: 'session.next.text.ended',
-            data: { timestamp: 3, sessionID: 's1', assistantMessageID: 'a1', textID: 'prt_1', text: 'hi' },
-            durable: { aggregateID: 's1', seq: 2, version: 1 },
-            location: { directory: '/repo' },
-          },
-          { id: 'e3', type: 'permission.v2.asked', data: { id: 'per_1', sessionID: 's1', action: 'bash', resources: ['git status'], save: ['git *'], metadata: {} }, location: { directory: '/repo' } },
-          { id: 'e4', type: 'question.v2.asked', data: { id: 'que_1', sessionID: 's1', questions: [] }, location: { directory: '/repo' } },
-          { id: 'e5', type: 'todo.updated', data: { sessionID: 's1', todos: [{ id: 'todo-1', content: 'ship it', status: 'pending', priority: 'high' }] }, durable: { aggregateID: 's1', seq: 5, version: 1 }, location: { directory: '/repo' } },
-          { id: 'e6', type: 'session.next.execution.settled', data: { timestamp: 4, sessionID: 's1', outcome: 'success' }, durable: { aggregateID: 's1', seq: 6, version: 1 }, location: { directory: '/repo' } },
-        ];
-        return new Response(new ReadableStream({
-          start(controller) {
-            controller.enqueue(encoder.encode(frames.map((frame) => `data: ${JSON.stringify(frame)}\n\n`).join('')));
-            controller.close();
-          },
-        }), { status: 200, headers: { 'content-type': 'text/event-stream' } });
-      }
-      const noContent = /\/(?:permission|question)\/[^/]+\/(?:reply|reject)$/u.test(url.pathname);
-      return new Response(noContent ? null : JSON.stringify(body), {
-        status: noContent ? 204 : url.pathname === '/global/health' ? 404 : 200,
-        headers: noContent ? undefined : { 'content-type': 'application/json' },
-      });
-    });
-    vi.stubGlobal('fetch', fetchMock);
-
-    const client = await createOpenCodeServerRuntimeClient({
-      directory: '/repo',
-      messageBuffer: { push: () => {} } as never,
-      env: {
-        HAPPIER_OPENCODE_SERVER_URL: 'http://127.0.0.1:9999',
-        OPENCODE_SERVER_USERNAME: 'alice',
-        OPENCODE_SERVER_PASSWORD: 'secret',
-      },
+      if (call.path === '/api/session/ses_1' && call.method === 'GET') return Response.json({ data: session });
+      if (call.path === '/api/session/ses_1' && call.method === 'PATCH') return new Response(null, { status: 204 });
+      if (call.path === '/api/session/ses_1/diff') return Response.json({ data: [{ file: 'a.ts', patch: '@@', additions: 1, deletions: 0, status: 'modified' }] });
+      if (call.path === '/api/session/ses_1/fork') return Response.json({ data: { id: 'ses_forked', location: { directory: '/repo' } } });
+      if (call.path === '/api/session/ses_1/compact') return Response.json({ data: { id: 'inb_1', type: 'compaction' } });
+      if (call.path === '/api/session/ses_1/interrupt') return Response.json({ interrupted: true });
+      if (call.path === '/api/model/default') return Response.json({ location: { directory: '/repo' }, data: { id: 'gpt-5', modelID: 'gpt-5', providerID: 'openai' } });
+      return undefined;
     });
 
-    expect(client.supportsInFlightSteer()).toBe(true);
+    const client = await makeReleasedV2Client();
+    const ruleset = [{ permission: 'bash', pattern: '*', action: 'ask' }];
 
-    await expect(client.sessionList()).resolves.toEqual([{ id: 's1', directory: '/repo' }]);
-    await expect(client.sessionCreate({ permission: [{ permission: 'read', action: 'allow' }] })).resolves.toEqual({ id: 's1', directory: '/repo' });
-    expect(calls).toContainEqual(expect.objectContaining({ path: '/api/session', method: 'POST', body: { location: { directory: '/repo' } } }));
-    await expect(client.sessionUpdate({ sessionId: 's1', permission: [{ permission: 'read', action: 'allow' }] })).resolves.toEqual({ id: 's1', directory: '/repo' });
-    await expect(client.sessionMessagesList({ sessionId: 's1' })).resolves.toEqual([
-      { info: { id: 'u1', role: 'user', sessionID: 's1', time: { created: 1 } }, parts: [{ type: 'text', text: 'hello' }] },
-      { info: { id: 'a1', role: 'assistant', sessionID: 's1', time: { created: 2 }, agent: 'build', model: { providerID: 'p', modelID: 'm', variant: 'high' } }, parts: [{ type: 'text', id: 'prt_1', text: 'hi', sessionID: 's1', messageID: 'a1' }] },
+    await expect(client.sessionCreate({ permission: ruleset })).resolves.toEqual({ id: 'ses_1', directory: '/repo', title: 'first' });
+    // `Permission.Rule` is `{ action, resource, effect }`; Happier's V1 ruleset shape is renamed here.
+    expect(calls.find((c) => c.path === '/api/session' && c.method === 'POST')?.body).toEqual({
+      location: { directory: '/repo' },
+      permissions: [{ action: 'bash', resource: '*', effect: 'ask' }],
+    });
+
+    // `GET /api/session` returns the newest 50 by default, so every page must be followed.
+    await expect(client.sessionList()).resolves.toEqual([
+      { id: 'ses_1', directory: '/repo', title: 'first' },
+      { id: 'ses_2', directory: '/repo' },
     ]);
-    await client.sessionPromptAsync({ sessionId: 's1', messageId: 'u2', parts: [
-      { type: 'text', text: 'next' },
-      { type: 'file', url: 'file:///repo/a.png', mime: 'image/png', filename: 'a.png' },
-    ] });
-    expect(calls.find((call) => call.path === '/api/session/s1/prompt')?.body).toEqual({
-      id: 'u2', prompt: { text: 'next', files: [{ uri: 'file:///repo/a.png', name: 'a.png' }] },
-    });
-    expect(calls.every((call) => call.authorization === `Basic ${Buffer.from('alice:secret').toString('base64')}`)).toBe(true);
+    const listCalls = calls.filter((c) => c.path === '/api/session' && c.method === 'GET');
+    expect(listCalls.map((c) => c.search)).toEqual(['?directory=%2Frepo&order=asc', '?cursor=page-2']);
 
-    const abort = new AbortController();
-    const received: unknown[] = [];
-    await client.subscribeGlobalEvents({ signal: abort.signal, onEvent: (event, delivery) => {
-      received.push({ event, delivery });
-      if (event.payload.type === 'session.idle') abort.abort();
-    } });
-    await vi.waitFor(() => expect(received).toHaveLength(6));
-    expect(received[1]).toEqual({
-      event: { directory: '/repo', payload: { type: 'session.next.text.ended', properties: { timestamp: 3, sessionID: 's1', assistantMessageID: 'a1', textID: 'prt_1', text: 'hi' } } },
-      delivery: { provenance: 'accepted-live', connectionGeneration: 1 },
+    await client.sessionUpdate({ sessionId: 'ses_1', title: 'renamed', permission: ruleset });
+    expect(calls.find((c) => c.path === '/api/session/ses_1' && c.method === 'PATCH')?.body).toEqual({
+      title: 'renamed',
+      permissions: [{ action: 'bash', resource: '*', effect: 'ask' }],
     });
-    expect(received[2]).toEqual({
-      event: { directory: '/repo', payload: { type: 'permission.asked', properties: { id: 'per_1', sessionID: 's1', permission: 'bash', patterns: ['git status'], always: ['git *'], metadata: {} } } },
-      delivery: { provenance: 'accepted-live', connectionGeneration: 1 },
-    });
-    expect(received[5]).toEqual({
-      event: { directory: '/repo', payload: { type: 'session.idle', properties: { sessionID: 's1' } } },
-      delivery: { provenance: 'accepted-live', connectionGeneration: 1 },
-    });
-    await expect(client.permissionReply({ requestId: 'per_1', reply: 'once' })).resolves.toBe(true);
-    await expect(client.questionReply({ requestId: 'que_1', answers: [[]] })).resolves.toBe(true);
-    await expect(client.sessionTodo({ sessionId: 's1' })).resolves.toEqual([{ id: 'todo-1', content: 'ship it', status: 'pending', priority: 'high' }]);
+
+    await expect(client.sessionDiff({ sessionId: 'ses_1', messageId: 'msg_u1' })).resolves.toHaveLength(1);
+    expect(calls.find((c) => c.path === '/api/session/ses_1/diff')?.search).toBe('?from=msg_u1');
+
+    await expect(client.sessionFork({ sessionId: 'ses_1', messageId: 'msg_u1' })).resolves.toEqual({ id: 'ses_forked', directory: '/repo' });
+    expect(calls.find((c) => c.path === '/api/session/ses_1/fork')?.body).toEqual({ before: 'msg_u1' });
+
+    // Manual compaction exists in the release; it is not "unavailable".
+    await client.sessionSummarize({ sessionId: 'ses_1', model: { providerID: 'openai', modelID: 'gpt-5' }, auto: false });
+    expect(calls.find((c) => c.path === '/api/session/ses_1/compact')?.body).toEqual({ delivery: 'steer' });
+
+    await client.sessionAbort({ sessionId: 'ses_1' });
+    // `session.interrupt` declares no payload and parses strictly.
+    expect(calls.find((c) => c.path === '/api/session/ses_1/interrupt')?.body).toBeUndefined();
+
+    await expect(client.globalConfigGet()).resolves.toEqual({ model: 'openai/gpt-5' });
+
+    expect(calls.map((c) => c.path)).not.toContain('/api/session/ses_1/history');
+    expect(calls.map((c) => c.path)).not.toContain('/session/ses_1/diff');
+    expect(calls.map((c) => c.path)).not.toContain('/session/ses_1/fork');
     await client.dispose();
   });
 
-  it('keeps every V2 route and envelope adaptation inside the client boundary', async () => {
-    const calls: Array<{ path: string; method: string; body?: unknown }> = [];
-    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-      const url = new URL(String(input));
-      const method = init?.method ?? 'GET';
-      calls.push({ path: url.pathname, method, body: init?.body ? JSON.parse(String(init.body)) : undefined });
-      const body = url.pathname === '/api/health' ? { healthy: true, version: '0.0.0-beta-18050' }
-        : url.pathname === '/global/health' ? { healthy: true, version: '1.1.0-beta.7' }
-        : url.pathname === '/api/session/s1' ? { data: { id: 's1', location: { directory: '/repo' } } }
-        : url.pathname === '/session/s1/diff' ? [{ file: 'a.ts', before: '', after: 'x' }]
-        : url.pathname === '/api/session/active' ? { data: { s1: { type: 'running' } }, watermarks: {} }
-        : url.pathname === '/api/agent' ? { location: { directory: '/repo' }, data: [{ name: 'build' }] }
-        : url.pathname === '/api/skill' ? { location: { directory: '/repo' }, data: [{ name: 'review' }] }
-        : url.pathname === '/api/provider' ? { location: { directory: '/repo' }, data: [{ id: 'openai', models: {} }] }
-        : url.pathname === '/api/model' ? { location: { directory: '/repo' }, data: [] }
-        : url.pathname === '/api/permission/request' ? { location: { directory: '/repo' }, data: [{ id: 'per_1', sessionID: 's1', action: 'bash', resources: ['git status'], save: ['git *'], metadata: {} }] }
-        : url.pathname === '/api/question/request' ? { location: { directory: '/repo' }, data: [{ id: 'que_1', sessionID: 's1', questions: [] }] }
-        : url.pathname === '/session/s1/fork' ? { id: 's2', directory: '/repo' }
-        : { data: true };
-      const noContent = /\/(?:permission|question)\/[^/]+\/(?:reply|reject)$/u.test(url.pathname);
-      return new Response(noContent ? null : JSON.stringify(body), {
-        status: noContent ? 204 : 200,
-        headers: noContent ? undefined : { 'content-type': 'application/json' },
-      });
-    }));
-
-    const client = await createOpenCodeServerRuntimeClient({
-      directory: '/repo', messageBuffer: { push: () => {} } as never,
-      env: { HAPPIER_OPENCODE_SERVER_URL: 'http://127.0.0.1:9999' },
+  it('sends a flat released prompt payload and pages messages into anchored turns', async () => {
+    const { calls } = stubReleasedV2Server((call, url) => {
+      if (call.path === '/api/session/ses_1/message') {
+        return url.searchParams.get('cursor') === 'next'
+          ? Response.json({
+            data: [{ id: 'msg_a1', type: 'assistant', time: { created: 3 }, agent: 'build', content: [{ type: 'text', id: 'prt_1', text: 'hi' }] }],
+            cursor: {},
+          })
+          : Response.json({
+            data: [{ id: 'msg_u1', type: 'user', time: { created: 1 }, text: 'hello' }],
+            cursor: { next: 'next' },
+          });
+      }
+      if (call.path === '/api/session/ses_1/prompt') return Response.json({ data: { id: 'msg_u2', type: 'user' } });
+      return undefined;
     });
 
-    await expect(client.sessionGet({ sessionId: 's1' })).resolves.toEqual({ id: 's1', directory: '/repo' });
-    await expect(client.sessionTodo({ sessionId: 's1' })).resolves.toEqual([]);
-    await expect(client.sessionDiff({ sessionId: 's1' })).resolves.toHaveLength(1);
-    await expect(client.sessionStatusList()).resolves.toEqual({ s1: { type: 'running' } });
-    await expect(client.globalConfigGet()).resolves.toEqual({});
-    await expect(client.agentsList()).resolves.toEqual([{ name: 'build' }]);
-    await expect(client.appSkills()).resolves.toEqual([{ name: 'review' }]);
-    await expect(client.providersList()).resolves.toEqual([{ id: 'openai', models: {} }]);
-    await expect(client.permissionList()).resolves.toEqual([{ id: 'per_1', sessionID: 's1', permission: 'bash', patterns: ['git status'], always: ['git *'], metadata: {} }]);
-    await expect(client.questionList()).resolves.toEqual([{ id: 'que_1', sessionID: 's1', questions: [] }]);
-    await expect(client.permissionReply({ requestId: 'per_1', reply: 'once' })).resolves.toBe(true);
-    await expect(client.questionReply({ requestId: 'que_1', answers: [[]] })).resolves.toBe(true);
-    await expect(client.questionReject({ requestId: 'que_1' })).resolves.toBe(true);
-    await expect(client.sessionFork({ sessionId: 's1', messageId: 'a1' })).resolves.toEqual({ id: 's2', directory: '/repo' });
-    await expect(client.sessionSummarize({
-      sessionId: 's1',
-      model: { providerID: 'openai', modelID: 'gpt-5' },
-    })).rejects.toThrow('manual compaction is unavailable');
-    await client.sessionAbort({ sessionId: 's1' });
-
-    expect(calls).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: '/session/s1/diff', method: 'GET' }),
-      expect.objectContaining({ path: '/api/session/active', method: 'GET' }),
-      expect.objectContaining({ path: '/api/session/s1/permission/per_1/reply', method: 'POST', body: { reply: 'once' } }),
-      expect.objectContaining({ path: '/api/session/s1/question/que_1/reply', method: 'POST', body: { answers: [[]] } }),
-      expect.objectContaining({ path: '/api/session/s1/question/que_1/reject', method: 'POST' }),
-      expect.objectContaining({ path: '/api/session/s1/interrupt', method: 'POST' }),
-    ]));
-    expect(calls).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: '/api/session/s1/compact' }),
-    ]));
-  });
-
-  it('maps V2 model refs and prompt delivery to the current wire contract', async () => {
-    const calls: Array<{ path: string; body?: unknown }> = [];
-    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-      const url = new URL(String(input));
-      calls.push({ path: url.pathname, body: init?.body ? JSON.parse(String(init.body)) : undefined });
-      const body = url.pathname === '/api/health' ? { healthy: true }
-        : url.pathname === '/global/health' ? { error: 'not found' }
-        : { data: true };
-      return new Response(JSON.stringify(body), {
-        status: url.pathname === '/global/health' ? 404 : 200,
-        headers: { 'content-type': 'application/json' },
-      });
-    }));
-
-    const client = await createOpenCodeServerRuntimeClient({
-      directory: '/repo', messageBuffer: { push: () => {} } as never,
-      env: { HAPPIER_OPENCODE_SERVER_URL: 'http://127.0.0.1:9999' },
-    });
+    const client = await makeReleasedV2Client();
 
     await client.sessionPromptAsync({
-      sessionId: 's1',
-      parts: [{ type: 'text', text: 'adjust course' }],
+      sessionId: 'ses_1',
+      messageId: 'msg_u2',
+      parts: [
+        { type: 'text', text: 'ship it' },
+        { type: 'file', url: 'file:///repo/a.png', mime: 'image/png', filename: 'a.png' },
+      ],
       model: { providerID: 'openai', modelID: 'gpt-5' },
       variant: 'high',
+      agent: 'build',
       delivery: 'steer',
     });
 
-    expect(calls).toEqual(expect.arrayContaining([
-      { path: '/api/session/s1/model', body: { model: { id: 'gpt-5', providerID: 'openai', variant: 'high' } } },
-      { path: '/api/session/s1/prompt', body: { prompt: { text: 'adjust course' }, delivery: 'steer' } },
-    ]));
-  });
-
-  it('rejects manual compaction before sending a V2 network request', async () => {
-    const calls: string[] = [];
-    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
-      const url = new URL(String(input));
-      calls.push(url.pathname);
-      if (url.pathname === '/global/health') return new Response('{}', { status: 404 });
-      if (url.pathname === '/api/health') return new Response(JSON.stringify({ healthy: true }));
-      return new Response('{}');
-    }));
-    const client = await createOpenCodeServerRuntimeClient({
-      directory: '/repo',
-      messageBuffer: { push: () => {} } as never,
-      env: { HAPPIER_OPENCODE_SERVER_URL: 'http://127.0.0.1:9999' },
+    // `PromptInput` is flat: nesting it under `prompt` is rejected by the released schema.
+    expect(calls.find((c) => c.path === '/api/session/ses_1/prompt')?.body).toEqual({
+      id: 'msg_u2',
+      text: 'ship it',
+      files: [{ uri: 'file:///repo/a.png', name: 'a.png' }],
+      delivery: 'steer',
+    });
+    expect(calls.find((c) => c.path === '/api/session/ses_1/agent')?.body).toEqual({ agent: 'build' });
+    expect(calls.find((c) => c.path === '/api/session/ses_1/model')?.body).toEqual({
+      model: { id: 'gpt-5', providerID: 'openai', variant: 'high' },
     });
 
-    await expect(client.sessionSummarize({
-      sessionId: 's1',
-      model: { providerID: 'openai', modelID: 'gpt-5.2' },
-      auto: false,
-    })).rejects.toThrow('manual compaction is unavailable');
-    expect(calls).not.toContain('/api/session/s1/compact');
+    // Released assistant messages carry no parentID; the turn anchor is inferred across pages.
+    const messages = await client.sessionMessagesList({ sessionId: 'ses_1' }) as Array<{ info: Record<string, unknown> }>;
+    expect(messages.map((m) => m.info.id)).toEqual(['msg_u1', 'msg_a1']);
+    expect(messages[1]!.info.parentID).toBe('msg_u1');
     await client.dispose();
   });
 
-  it('joins the V2 provider and model inventories at the client boundary', async () => {
-    const paths: string[] = [];
-    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
-      const url = new URL(String(input));
-      paths.push(url.pathname);
-      const body = url.pathname === '/api/health' ? { healthy: true }
-        : url.pathname === '/global/health' ? { error: 'not found' }
-        : url.pathname === '/api/provider' ? { location: { directory: '/repo' }, data: [{ id: 'openai', name: 'OpenAI' }] }
-        : url.pathname === '/api/model' ? { location: { directory: '/repo' }, data: [
-          { id: 'gpt-5', providerID: 'openai', name: 'GPT-5', status: 'active', capabilities: { toolcall: true } },
-        ] }
-        : {};
-      return new Response(JSON.stringify(body), {
-        status: url.pathname === '/global/health' ? 404 : 200,
-        headers: { 'content-type': 'application/json' },
-      });
-    }));
-
-    const client = await createOpenCodeServerRuntimeClient({
-      directory: '/repo', messageBuffer: { push: () => {} } as never,
-      env: { HAPPIER_OPENCODE_SERVER_URL: 'http://127.0.0.1:9999' },
-    });
-
-    await expect(client.providersList()).resolves.toEqual([
-      {
-        id: 'openai',
-        name: 'OpenAI',
-        models: {
-          'gpt-5': { id: 'gpt-5', providerID: 'openai', name: 'GPT-5', status: 'active', capabilities: { toolcall: true } },
-        },
-      },
-    ]);
-    expect(paths).toContain('/api/model');
-  });
-
-  it('reads every V2 message page in chronological order', async () => {
-    const queries: string[] = [];
-    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
-      const url = new URL(String(input));
-      if (url.pathname === '/api/health') return Response.json({ healthy: true });
-      if (url.pathname === '/global/health') return Response.json({ error: 'not found' }, { status: 404 });
-      if (url.pathname === '/api/session/s1/message') {
-        queries.push(url.search);
-        return url.searchParams.get('cursor') === ' next-page '
-          ? Response.json({ data: [{ id: 'u2', type: 'user', text: 'second' }], cursor: {} })
-          : Response.json({ data: [{ id: 'u1', type: 'user', text: 'first' }], cursor: { next: ' next-page ' } });
-      }
-      return Response.json({});
-    }));
-
-    const client = await createOpenCodeServerRuntimeClient({
-      directory: '/repo', messageBuffer: { push: () => {} } as never,
-      env: { HAPPIER_OPENCODE_SERVER_URL: 'http://127.0.0.1:9999' },
-    });
-
-    await expect(client.sessionMessagesList({ sessionId: 's1' })).resolves.toEqual([
-      { info: { id: 'u1', role: 'user', sessionID: 's1' }, parts: [{ type: 'text', text: 'first' }] },
-      { info: { id: 'u2', role: 'user', sessionID: 's1' }, parts: [{ type: 'text', text: 'second' }] },
-    ]);
-    expect(queries).toEqual(['?order=asc', '?cursor=+next-page+']);
-  });
-
-  it('fails loudly for dynamic MCP on pure V2 and permits an exact dual-surface beta', async () => {
-    const makeClient = async (legacyHealth: unknown, legacyStatus = 200) => {
-      vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
-        const path = new URL(String(input)).pathname;
-        const body = path === '/api/health' ? { healthy: true }
-          : path === '/global/health' ? legacyHealth
-          : { bridge: { status: 'connected' } };
-        return new Response(JSON.stringify(body), { status: path === '/global/health' ? legacyStatus : 200 });
-      }));
-      return await createOpenCodeServerRuntimeClient({
-        directory: '/repo', messageBuffer: { push: () => {} } as never,
-        env: { HAPPIER_OPENCODE_SERVER_URL: 'http://127.0.0.1:9999' },
-      });
+  it('answers permissions and forms through the released routes and payloads', async () => {
+    const form = {
+      id: 'frm_1',
+      sessionID: 'ses_1',
+      title: 'Configure',
+      fields: [
+        { key: 'region', type: 'string', title: 'Region', options: [{ value: 'eu-west', label: 'Europe' }] },
+        { key: 'tags', type: 'multiselect', title: 'Tags', options: [{ value: 't1', label: 'One' }, { value: 't2', label: 'Two' }] },
+        { key: 'telemetry', type: 'boolean', title: 'Telemetry', default: true, hidden: true },
+      ],
     };
+    const { calls } = stubReleasedV2Server((call) => {
+      if (call.path === '/api/form') return Response.json({ location: { directory: '/repo' }, data: [form] });
+      if (call.path === '/api/permission/request') {
+        return Response.json({
+          location: { directory: '/repo' },
+          data: [{ id: 'per_1', sessionID: 'ses_1', action: 'bash', resources: ['git status'], save: ['git *'], source: { type: 'tool', messageID: 'msg_a1', id: 'call_1' } }],
+        });
+      }
+      return undefined;
+    });
 
-    const pureV2 = await makeClient({ healthy: true }, 404);
-    await expect(pureV2.mcpAdd({ name: 'bridge', config: {} })).rejects.toThrow(/V2.*MCP.*unavailable/i);
-    await expect(pureV2.sessionDiff({ sessionId: 's1' })).rejects.toThrow(/V2.*diff.*unavailable/i);
-    await expect(pureV2.sessionFork({ sessionId: 's1' })).rejects.toThrow(/V2.*fork.*unavailable/i);
-    await expect(pureV2.sessionUpdate({ sessionId: 's1', title: 'renamed' })).rejects.toThrow(/V2.*title.*unavailable/i);
+    const client = await makeReleasedV2Client();
 
-    const beta = await makeClient({ healthy: true, version: '1.1.0-beta.7' });
-    await expect(beta.mcpAdd({ name: 'bridge', config: {} })).resolves.toEqual({ status: 'connected' });
+    // `Permission.Request` renames every field Happier reads, and its tool source uses `id`.
+    await expect(client.permissionList()).resolves.toEqual([{
+      id: 'per_1',
+      sessionID: 'ses_1',
+      permission: 'bash',
+      patterns: ['git status'],
+      always: ['git *'],
+      metadata: {},
+      tool: { messageID: 'msg_a1', callID: 'call_1' },
+    }]);
+
+    await expect(client.permissionReply({ requestId: 'per_1', reply: 'once' })).resolves.toBe(true);
+    expect(calls.find((c) => c.path === '/api/session/ses_1/permission/per_1/reply')?.body).toEqual({ decision: 'once' });
+
+    // Questions became forms: `/api/question/request` does not exist in the release.
+    const questions = await client.questionList() as Array<{ id: string; questions: Array<Record<string, unknown>> }>;
+    expect(calls.map((c) => c.path)).toContain('/api/form');
+    expect(calls.map((c) => c.path)).not.toContain('/api/question/request');
+    expect(questions[0]!.id).toBe('frm_1');
+    // The hidden field is not asked; it still contributes its default to the reply.
+    expect(questions[0]!.questions.map((q) => q.header)).toEqual(['Region', 'Tags']);
+
+    await expect(client.questionReply({ requestId: 'frm_1', answers: [['Europe'], ['One', 'Two']] })).resolves.toBe(true);
+    expect(calls.find((c) => c.path === '/api/session/ses_1/form/frm_1/reply')?.body).toEqual({
+      answer: { telemetry: true, region: 'eu-west', tags: ['t1', 't2'] },
+    });
+
+    await expect(client.questionReject({ requestId: 'frm_1' })).resolves.toBe(true);
+    // Cancelling is a DELETE; there is no `/reject` route.
+    expect(calls).toContainEqual(expect.objectContaining({ path: '/api/session/ses_1/form/frm_1', method: 'DELETE' }));
+    await client.dispose();
+  });
+
+  it('registers dynamic MCP through the released experimental route and reports real readiness', async () => {
+    let status: Record<string, unknown> = { status: 'pending' };
+    const { calls } = stubReleasedV2Server((call) => {
+      if (call.path === '/api/experimental/mcp/happier') return new Response(null, { status: 204 });
+      if (call.path === '/api/mcp') {
+        const body = Response.json({ location: { directory: '/repo' }, data: [{ name: 'happier', status }] });
+        status = { status: 'connected' };
+        return body;
+      }
+      return undefined;
+    });
+
+    const client = await makeReleasedV2Client();
+    // Dynamic MCP exists on a pure released V2 server; it must not be declared unavailable.
+    await expect(client.mcpAdd({
+      name: 'happier',
+      config: { type: 'local', enabled: true, command: ['happier', 'mcp'], environment: { A: 'b' } },
+    })).resolves.toEqual({ status: 'connected' });
+
+    const put = calls.find((c) => c.path === '/api/experimental/mcp/happier');
+    expect(put?.method).toBe('PUT');
+    expect(put?.search).toBe('?location%5Bdirectory%5D=%2Frepo');
+    // `Mcp.LocalConfig` has no `enabled`; a strict parse rejects the unknown key.
+    expect(put?.body).toEqual({ config: { type: 'local', command: ['happier', 'mcp'], environment: { A: 'b' } } });
+    await client.mcpDisconnect({ directory: '/repo/other', name: 'happier' });
+    expect(calls).toContainEqual(expect.objectContaining({
+      path: '/api/experimental/mcp/happier',
+      method: 'DELETE',
+      search: '?location%5Bdirectory%5D=%2Frepo%2Fother',
+    }));
+    expect(calls.map((c) => c.path)).not.toContain('/mcp');
+    await client.dispose();
+  });
+
+  it('surfaces a released MCP failure status truthfully instead of reporting readiness', async () => {
+    stubReleasedV2Server((call) => {
+      if (call.path === '/api/experimental/mcp/happier') return new Response(null, { status: 204 });
+      if (call.path === '/api/mcp') {
+        return Response.json({ location: { directory: '/repo' }, data: [{ name: 'happier', status: { status: 'failed', error: 'spawn ENOENT' } }] });
+      }
+      return undefined;
+    });
+
+    const client = await makeReleasedV2Client();
+    await expect(client.mcpAdd({ name: 'happier', config: { type: 'local', command: ['nope'] } }))
+      .resolves.toEqual({ status: 'failed', error: 'spawn ENOENT' });
+    await client.dispose();
+  });
+
+  it('translates the released global event vocabulary into the runtime vocabulary', async () => {
+    // Frames captured from the real v2.0.15 binary. Durable-definition frames arrive here too:
+    // `Bus` defaults to `persist: false`, so the durable log holds nothing and dropping frames
+    // that carry `durable` would discard every terminal, text and tool event.
+    const frames = [
+      { id: 'evt_0', type: 'server.connected', data: {} },
+      { id: 'evt_1', type: 'session.execution.started', durable: { aggregateID: 'ses_1', seq: 1, version: 1 }, data: { sessionID: 'ses_1' } },
+      { id: 'evt_2', type: 'session.text.started', durable: { aggregateID: 'ses_1', seq: 2, version: 1 }, data: { sessionID: 'ses_1', assistantMessageID: 'msg_a1', ordinal: 0 }, location: { directory: '/repo' } },
+      { id: 'evt_3', type: 'session.text.delta', data: { sessionID: 'ses_1', assistantMessageID: 'msg_a1', ordinal: 0, delta: 'hel' }, location: { directory: '/repo' } },
+      { id: 'evt_4', type: 'session.reasoning.delta', data: { sessionID: 'ses_1', assistantMessageID: 'msg_a1', ordinal: 1, delta: 'thinking' }, location: { directory: '/repo' } },
+      { id: 'evt_5', type: 'session.tool.success', durable: { aggregateID: 'ses_1', seq: 3, version: 2 }, data: { sessionID: 'ses_1', assistantMessageID: 'msg_a1', id: 'call_1', executed: true, content: [{ type: 'text', text: 'ok' }] }, location: { directory: '/repo' } },
+      { id: 'evt_6', type: 'permission.asked', data: { id: 'per_1', sessionID: 'ses_1', action: 'bash', resources: ['git status'] }, location: { directory: '/repo' } },
+      { id: 'evt_7', type: 'form.created', data: { form: { id: 'frm_1', sessionID: 'ses_1', title: 'Pick', fields: [{ key: 'k', type: 'string', title: 'K' }] } }, location: { directory: '/repo' } },
+      { id: 'evt_8', type: 'session.execution.succeeded', durable: { aggregateID: 'ses_1', seq: 4, version: 1 }, data: { sessionID: 'ses_1' } },
+    ];
+    const { calls } = stubReleasedV2Server((call) => {
+      if (call.path !== '/api/event') return undefined;
+      const encoder = new TextEncoder();
+      return new Response(new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(frames.map((f) => `data: ${JSON.stringify(f)}\n\n`).join('')));
+          controller.close();
+        },
+      }), { headers: { 'content-type': 'text/event-stream' } });
+    });
+
+    const client = await makeReleasedV2Client();
+    const abort = new AbortController();
+    const received: Array<{ type: string; properties: any; provenance: string }> = [];
+    await client.subscribeGlobalEvents({
+      sessionId: 'ses_1',
+      signal: abort.signal,
+      onEvent: (event, delivery) => {
+        received.push({ type: event.payload.type, properties: event.payload.properties, provenance: delivery.provenance });
+        if (event.payload.type === 'session.idle') abort.abort();
+      },
+    });
+    await vi.waitFor(() => expect(received.map((e) => e.type)).toContain('session.idle'), { timeout: 8_000 });
+
+    // The release has no per-session durable stream worth reading, and no `/history` page.
+    expect(calls.map((c) => c.path)).toContain('/api/event');
+    expect(calls.map((c) => c.path).some((p) => p.includes('/log'))).toBe(false);
+    expect(calls.map((c) => c.path).some((p) => p.includes('/history'))).toBe(false);
+
+    expect(received.map((e) => e.type)).toEqual([
+      'server.connected',
+      'session.status',
+      'session.next.text.started',
+      'message.part.delta',
+      'message.part.delta',
+      'session.next.tool.success',
+      'permission.asked',
+      'question.asked',
+      'session.idle',
+    ]);
+    expect(received[0]!.provenance).toBe('connection-boundary');
+    expect(received.slice(1).every((e) => e.provenance === 'accepted-live')).toBe(true);
+
+    // V2 identifies a streamed part by (assistantMessageID, ordinal) and states the part kind so a
+    // live delta never depends on the `*.started` frame having arrived first.
+    expect(received[3]!.properties).toEqual({ sessionID: 'ses_1', messageID: 'msg_a1', partID: 'msg_a1:text:0', delta: 'hel', partType: 'text' });
+    expect(received[4]!.properties).toEqual({ sessionID: 'ses_1', messageID: 'msg_a1', partID: 'msg_a1:reasoning:1', delta: 'thinking', partType: 'reasoning' });
+    expect(received[1]!.properties).toEqual({ sessionID: 'ses_1', status: { type: 'busy' } });
+    expect(received[5]!.properties).toMatchObject({ id: 'call_1', assistantMessageID: 'msg_a1' });
+    expect(received[6]!.properties).toMatchObject({ id: 'per_1', permission: 'bash', patterns: ['git status'] });
+    expect(received[7]!.properties).toMatchObject({ id: 'frm_1', sessionID: 'ses_1' });
+    await client.dispose();
   });
 });

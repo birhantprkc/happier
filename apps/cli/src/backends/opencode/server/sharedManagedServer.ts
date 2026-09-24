@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
@@ -28,6 +28,12 @@ import {
 } from './openCodeServerProcessState';
 import { withOpenCodeServerFileLock } from './openCodeServerFileLock';
 import { startManagedOpenCodeServer } from './openCodeManagedServer';
+import {
+  isOpenCodeManagedServerStateTarget,
+  resolveOpenCodeManagedServerStateCredential,
+} from './openCodeManagedServerCredential';
+import { resolveOpenCodeServerAuthHeaders, type OpenCodeServerAuthCredential } from './openCodeServerAuth';
+import { waitForOpenCodeServerHealth } from './waitForOpenCodeServerHealth';
 import { resolveOpenCodeManagedServerLaunchFingerprint } from './openCodeManagedServerEnv';
 import {
   terminateManagedOpenCodeServerPidBestEffort,
@@ -53,6 +59,13 @@ export type SharedManagedOpenCodeServerState = Readonly<{
   brokerLoadNonce?: string;
   /** Launch-owned HTTP surface. Missing legacy state retains probe-based detection. */
   apiGeneration?: 'auto' | 'v2';
+  /**
+   * Password this managed child is protected with (released OpenCode 2 password-protects every
+   * `serve`). Retained here — under the managed-server lock, in the private state file — so any later
+   * reader of THIS server (reuse probe, restarted daemon, attaching terminal) can authenticate to it.
+   * Absent for legacy states and for servers started from an operator-configured environment password.
+   */
+  authPassword?: string;
   /**
    * Bounded proof that the exact broker plugin generation activated inside this exact managed
    * child. It carries no broker capability or credential authority; those are always reread from
@@ -85,7 +98,16 @@ type ResolveDeps = Readonly<{
   readState: () => Promise<SharedManagedOpenCodeServerState | null>;
   writeState: (state: SharedManagedOpenCodeServerState) => Promise<void>;
   isPidAlive: (pid: number) => boolean;
-  probeHealth: (baseUrl: string, apiGeneration?: 'auto' | 'v2') => Promise<boolean>;
+  /**
+   * `auth` carries the credential the CANDIDATE server is protected with (from its retained state):
+   * released OpenCode 2 answers 401 to an unauthenticated probe, so a reuse probe without it would
+   * report every healthy server as unusable and churn a replacement.
+   */
+  probeHealth: (
+    baseUrl: string,
+    apiGeneration?: 'auto' | 'v2',
+    auth?: OpenCodeServerAuthCredential | null,
+  ) => Promise<boolean>;
   getProcessInfo?: (pid: number) => Promise<ManagedServerProcessInfo | null>;
   resolveLaunchSpec?: () => ManagedServerLaunchSpec | null;
   killPid?: (pid: number) => Promise<boolean> | boolean;
@@ -104,6 +126,7 @@ type ResolveDeps = Readonly<{
       logPath?: string;
       brokerLoadNonce?: string;
       apiGeneration?: 'auto' | 'v2';
+      authPassword?: string;
     }>) => void | Promise<void>;
   }) => Promise<{
     baseUrl: string;
@@ -111,6 +134,7 @@ type ResolveDeps = Readonly<{
     logPath?: string;
     brokerLoadNonce?: string;
     apiGeneration?: 'auto' | 'v2';
+    authPassword?: string;
   }>;
   nowMs?: () => number;
 }>;
@@ -845,11 +869,13 @@ export async function resolveSharedManagedOpenCodeServerBaseUrl(
     );
     if (state && deps.isPidAlive(state.pid) && isLoopbackManagedOpenCodeBaseUrl(state.baseUrl)) {
       const brokerLoadNonceMissing = deps.currentBrokerLoadNonceRequired === true && !state.brokerLoadNonce;
+      const stateCredential = resolveOpenCodeManagedServerStateCredential({
+        state,
+        baseUrl: state.baseUrl,
+      });
       const healthy = launchFingerprintMismatch || brokerLoadNonceMissing
         ? false
-        : await (state.apiGeneration
-            ? deps.probeHealth(state.baseUrl, state.apiGeneration)
-            : deps.probeHealth(state.baseUrl))
+        : await deps.probeHealth(state.baseUrl, state.apiGeneration, stateCredential)
           .catch(() => false);
       if (healthy) {
         if (state.status === 'failed') {
@@ -861,6 +887,7 @@ export async function resolveSharedManagedOpenCodeServerBaseUrl(
             ...(state.launchEnvFingerprint ? { launchEnvFingerprint: state.launchEnvFingerprint } : {}),
             ...(state.brokerLoadNonce ? { brokerLoadNonce: state.brokerLoadNonce } : {}),
             ...(state.apiGeneration ? { apiGeneration: state.apiGeneration } : {}),
+            ...(state.authPassword ? { authPassword: state.authPassword } : {}),
           });
         }
         return {
@@ -897,6 +924,7 @@ export async function resolveSharedManagedOpenCodeServerBaseUrl(
     let provisionalLogPath: string | undefined;
     let provisionalBrokerLoadNonce: string | undefined;
     let provisionalApiGeneration: 'auto' | 'v2' | undefined;
+    let provisionalAuthPassword: string | undefined;
 
     const resolveOwnershipProof = async (pid: number): Promise<Readonly<{
       startTimeMs: number;
@@ -938,6 +966,7 @@ export async function resolveSharedManagedOpenCodeServerBaseUrl(
           provisionalLogPath = readNonEmptyString(spawned.logPath) ?? undefined;
           provisionalBrokerLoadNonce = readNonEmptyString(spawned.brokerLoadNonce) ?? undefined;
           provisionalApiGeneration = spawned.apiGeneration;
+          provisionalAuthPassword = readNonEmptyString(spawned.authPassword) ?? undefined;
           await deps.writeState({
             baseUrl: spawned.baseUrl,
             pid: spawned.pid,
@@ -947,6 +976,9 @@ export async function resolveSharedManagedOpenCodeServerBaseUrl(
             ...(provisionalLogPath ? { logPath: provisionalLogPath } : {}),
             ...(provisionalBrokerLoadNonce ? { brokerLoadNonce: provisionalBrokerLoadNonce } : {}),
             ...(spawned.apiGeneration ? { apiGeneration: spawned.apiGeneration } : {}),
+            // Retained from the 'starting' write onward: a concurrent reader that finds a half-started
+            // server must be able to authenticate to probe (or refuse) it.
+            ...(provisionalAuthPassword ? { authPassword: provisionalAuthPassword } : {}),
             ...(daemonInstanceId && activeServerDir
               ? {
                   v: 2 as const,
@@ -974,6 +1006,7 @@ export async function resolveSharedManagedOpenCodeServerBaseUrl(
         : await resolveOwnershipProof(started.pid);
       const resolvedLogPath = readNonEmptyString(started.logPath) ?? provisionalLogPath;
       const resolvedBrokerLoadNonce = readNonEmptyString(started.brokerLoadNonce) ?? provisionalBrokerLoadNonce;
+      const resolvedAuthPassword = readNonEmptyString(started.authPassword) ?? provisionalAuthPassword;
       const nextState: SharedManagedOpenCodeServerState = {
         baseUrl: started.baseUrl,
         pid: started.pid,
@@ -983,6 +1016,7 @@ export async function resolveSharedManagedOpenCodeServerBaseUrl(
         ...(resolvedLogPath ? { logPath: resolvedLogPath } : {}),
         ...(resolvedBrokerLoadNonce ? { brokerLoadNonce: resolvedBrokerLoadNonce } : {}),
         ...(started.apiGeneration ? { apiGeneration: started.apiGeneration } : {}),
+        ...(resolvedAuthPassword ? { authPassword: resolvedAuthPassword } : {}),
         ...(daemonInstanceId && activeServerDir
           ? {
               v: 2 as const,
@@ -1014,6 +1048,7 @@ export async function resolveSharedManagedOpenCodeServerBaseUrl(
           ...(provisionalLogPath ? { logPath: provisionalLogPath } : {}),
           ...(provisionalBrokerLoadNonce ? { brokerLoadNonce: provisionalBrokerLoadNonce } : {}),
           ...(provisionalApiGeneration ? { apiGeneration: provisionalApiGeneration } : {}),
+          ...(provisionalAuthPassword ? { authPassword: provisionalAuthPassword } : {}),
           ...(daemonInstanceId && activeServerDir
             ? {
                 v: 2 as const,
@@ -1089,6 +1124,7 @@ function readManagedOpenCodeServerStateFromUnknown(parsed: unknown): SharedManag
   const daemonInstanceId = readNonEmptyString(source.daemonInstanceId);
   const logPath = readNonEmptyString(source.logPath);
   const brokerLoadNonce = readNonEmptyString(source.brokerLoadNonce);
+  const authPassword = readNonEmptyString(source.authPassword);
   const apiGeneration = source.apiGeneration === 'auto' || source.apiGeneration === 'v2'
     ? source.apiGeneration
     : undefined;
@@ -1114,6 +1150,7 @@ function readManagedOpenCodeServerStateFromUnknown(parsed: unknown): SharedManag
     ...(logPath ? { logPath } : {}),
     ...(brokerLoadNonce ? { brokerLoadNonce } : {}),
     ...(apiGeneration ? { apiGeneration } : {}),
+    ...(authPassword ? { authPassword } : {}),
     ...(brokerActivationProof ? { brokerActivationProof } : {}),
   };
 }
@@ -1130,7 +1167,11 @@ async function readStateFile(statePath: string): Promise<SharedManagedOpenCodeSe
 async function writeStateFile(statePath: string, state: SharedManagedOpenCodeServerState): Promise<void> {
   await mkdir(dirname(statePath), { recursive: true });
   const tmp = `${statePath}.tmp`;
-  await writeFile(tmp, JSON.stringify(state), 'utf8');
+  // The state carries the managed server's password (`authPassword`), so both the temp file and the
+  // published file are owner-only. `mode` is honored on creation; `chmod` also tightens a file that a
+  // previous (pre-credential) release created with the default mode.
+  await writeFile(tmp, JSON.stringify(state), { encoding: 'utf8', mode: 0o600 });
+  await chmod(tmp, 0o600).catch(() => {});
   await rename(tmp, statePath);
 }
 
@@ -1177,6 +1218,42 @@ export async function rehydrateCurrentManagedOpenCodeBrokerActivationProof(
 export async function readSharedManagedOpenCodeServerStateBestEffort(): Promise<SharedManagedOpenCodeServerState | null> {
   const statePath = resolveStatePathFromEnv();
   return await readStateFile(statePath);
+}
+
+type ReadManagedStateByBaseUrlDeps = Readonly<{
+  readCurrentState: () => Promise<SharedManagedOpenCodeServerState | null>;
+  listPooledStatePaths: () => Promise<readonly string[]>;
+  readStatePath: (statePath: string) => Promise<SharedManagedOpenCodeServerState | null>;
+}>;
+
+/**
+ * Resolve the canonical managed state for an exact loopback endpoint, independent of the caller's
+ * current launch fingerprint. Attach/direct-session callers carry the target URL in session metadata,
+ * but may run in a fresh process whose ambient auth/profile selects a different pool state file.
+ */
+export async function readSharedManagedOpenCodeServerStateByBaseUrlBestEffort(
+  baseUrl: string,
+  deps: Partial<ReadManagedStateByBaseUrlDeps> = {},
+): Promise<SharedManagedOpenCodeServerState | null> {
+  if (!isLoopbackManagedOpenCodeBaseUrl(baseUrl)) return null;
+  const readCurrentState = deps.readCurrentState ?? readSharedManagedOpenCodeServerStateBestEffort;
+  const current = await readCurrentState().catch(() => null);
+  if (current && isOpenCodeManagedServerStateTarget({ state: current, baseUrl })) return current;
+
+  const listPooledStatePaths = deps.listPooledStatePaths ?? (async () => {
+    const entries = await readdir(resolveManagedServersDirectory()).catch(() => []);
+    return entries
+      .filter((entry) => entry.endsWith('.json'))
+      .map((entry) => join(resolveManagedServersDirectory(), entry));
+  });
+  const readStatePath = deps.readStatePath ?? readStateFile;
+  const candidates = await Promise.all(
+    (await listPooledStatePaths().catch(() => [])).map(async (statePath) => await readStatePath(statePath).catch(() => null)),
+  );
+  return candidates
+    .filter((state): state is SharedManagedOpenCodeServerState =>
+      state !== null && isOpenCodeManagedServerStateTarget({ state, baseUrl }))
+    .sort((left, right) => right.startedAtMs - left.startedAtMs)[0] ?? null;
 }
 
 export async function readSharedManagedOpenCodeServerStateByLaunchFingerprintBestEffort(
@@ -1423,6 +1500,7 @@ export async function ensureSharedManagedOpenCodeServerBaseUrl(params: Readonly<
         logPath: started.logPath,
         ...(started.brokerLoadNonce ? { brokerLoadNonce: started.brokerLoadNonce } : {}),
         ...(started.apiGeneration ? { apiGeneration: started.apiGeneration } : {}),
+        authPassword: started.authPassword,
       };
     },
   });
@@ -1435,7 +1513,11 @@ type StopDeps = Readonly<{
   readState: () => Promise<SharedManagedOpenCodeServerState | null>;
   removeState: () => Promise<void>;
   isPidAlive: (pid: number) => boolean;
-  probeHealth: (baseUrl: string) => Promise<boolean>;
+  probeHealth: (
+    baseUrl: string,
+    apiGeneration?: 'auto' | 'v2',
+    auth?: OpenCodeServerAuthCredential | null,
+  ) => Promise<boolean>;
   getProcessInfo: (pid: number) => Promise<ManagedServerProcessInfo | null>;
   resolveLaunchSpec?: () => ManagedServerLaunchSpec | null;
   killPid: (pid: number) => Promise<boolean> | boolean;
@@ -1607,7 +1689,11 @@ export async function stopSharedManagedOpenCodeServerFromState(
     }
 
     const healthy = isLoopbackManagedOpenCodeBaseUrl(state.baseUrl)
-      ? await deps.probeHealth(state.baseUrl).catch(() => false)
+      ? await deps.probeHealth(
+          state.baseUrl,
+          state.apiGeneration,
+          resolveOpenCodeManagedServerStateCredential({ state, baseUrl: state.baseUrl }),
+        ).catch(() => false)
       : false;
     if (healthy) {
       const didKill = await invokeKillPidBestEffort(deps.killPid, state.pid);
@@ -1629,15 +1715,27 @@ export async function stopSharedManagedOpenCodeServerFromState(
   });
 }
 
-async function probeOpenCodeHealthBestEffort(baseUrl: string): Promise<boolean> {
+/**
+ * Health probe for the stop/cleanup path. It authenticates with the credential retained for THIS
+ * server and reuses the canonical readiness surfaces: an unauthenticated probe of a released
+ * OpenCode 2 server answers 401, which would report a live managed server as dead and leave it
+ * running whenever the command-line heuristic cannot recognize it either.
+ */
+async function probeOpenCodeHealthBestEffort(
+  baseUrl: string,
+  apiGeneration?: 'auto' | 'v2',
+  auth?: OpenCodeServerAuthCredential | null,
+): Promise<boolean> {
   if (!isLoopbackManagedOpenCodeBaseUrl(baseUrl)) return false;
   try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 800);
-    timer.unref?.();
-    const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/global/health`, { signal: ctrl.signal }).catch(() => null);
-    clearTimeout(timer);
-    return Boolean(res?.ok);
+    await waitForOpenCodeServerHealth({
+      baseUrl: baseUrl.replace(/\/+$/, ''),
+      timeoutMs: 800,
+      pollIntervalMs: 250,
+      headers: resolveOpenCodeServerAuthHeaders(auth ?? null),
+      ...(apiGeneration ? { apiGeneration } : {}),
+    });
+    return true;
   } catch {
     return false;
   }
@@ -1657,7 +1755,8 @@ export async function stopSharedManagedOpenCodeServerFromEnvBestEffort(): Promis
       await rm(statePath, { force: true }).catch(() => {});
     },
     isPidAlive: isOpenCodeServerPidAlive,
-    probeHealth: async (baseUrl) => await probeOpenCodeHealthBestEffort(baseUrl),
+    probeHealth: async (baseUrl, apiGeneration, auth) =>
+      await probeOpenCodeHealthBestEffort(baseUrl, apiGeneration, auth),
     getProcessInfo: async (pid) => await getProcessInfoBestEffort(pid),
     resolveLaunchSpec: resolveManagedOpenCodeLaunchSpecBestEffort,
     killPid: killPidBestEffort,

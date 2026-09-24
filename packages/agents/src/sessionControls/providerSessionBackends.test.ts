@@ -86,7 +86,7 @@ describe('providerSessionBackends', () => {
     })).toMatchObject({
       sessionStorage: { direct: true, persisted: true },
       sessionCapabilities: {
-        sessionFork: { conversation: 'unsupported', fromMessage: 'unsupported' },
+        sessionFork: { conversation: 'supported', fromMessage: 'supported' },
       },
       localControl: { supported: true, topology: 'shared', attachStrategy: 'provider_attach' },
     });

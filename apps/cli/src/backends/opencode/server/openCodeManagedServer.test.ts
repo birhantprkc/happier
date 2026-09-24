@@ -3,7 +3,8 @@ import { join } from 'node:path';
 
 import { createEnvKeyScope } from '@/testkit/env/envScope';
 import { createTempDirSync, removeTempDirSync } from '@/testkit/fs/tempDir';
-import { buildOpenCodeV2BrokerConfigContent, startManagedOpenCodeServer } from './openCodeManagedServer';
+import { buildOpenCodeV2BrokerConfigContent } from '@/backends/opencode/brokerPlugin/openCodeBrokerPluginAssets';
+import { startManagedOpenCodeServer } from './openCodeManagedServer';
 
 const envKeys = ['PATH', 'HOME', 'HAPPIER_HOME_DIR', 'HAPPIER_OPENCODE_PATH'] as const;
 const TEMP_DIRS = new Set<string>();
@@ -17,15 +18,35 @@ afterEach(() => {
 });
 
 describe('startManagedOpenCodeServer', () => {
-  it('uses the pinned V2 plugin config key for broker materialization', () => {
+  it('uses released V2 plugin directories for broker materialization', () => {
     const config = JSON.parse(buildOpenCodeV2BrokerConfigContent(['openai', 'anthropic']));
     expect(config).toEqual({
-      plugin: [
-        expect.stringMatching(/happier-broker-openai\.js$/u),
-        expect.stringMatching(/happier-broker-anthropic\.js$/u),
+      providers: { openai: {}, anthropic: {} },
+      plugins: [
+        expect.stringMatching(/happier-broker-openai$/u),
+        expect.stringMatching(/happier-broker-anthropic$/u),
       ],
     });
-    expect(config).not.toHaveProperty('plugins');
+    expect(config).not.toHaveProperty('plugin');
+  });
+
+  it('preserves direct provider settings while admitting only the selected broker plugin', () => {
+    const config = JSON.parse(buildOpenCodeV2BrokerConfigContent(
+      ['openai'],
+      JSON.stringify({
+        providers: { anthropic: { settings: { apiKey: 'direct-anthropic-key' } } },
+        share: 'disabled',
+      }),
+    ));
+
+    expect(config).toEqual({
+      providers: {
+        openai: {},
+        anthropic: { settings: { apiKey: 'direct-anthropic-key' } },
+      },
+      share: 'disabled',
+      plugins: [expect.stringMatching(/happier-broker-openai$/u)],
+    });
   });
 
   it('fails closed when the OpenCode CLI is unavailable', async () => {

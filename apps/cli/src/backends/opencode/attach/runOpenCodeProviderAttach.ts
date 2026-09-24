@@ -4,6 +4,14 @@ import { resolveWindowsCommandInvocation } from '@happier-dev/cli-common/process
 
 import { readSharedManagedOpenCodeServerStateBestEffort } from '@/backends/opencode/server/sharedManagedServer';
 import { createOpenCodeAttachArgs } from '@/backends/opencode/localControl/createOpenCodeAttachArgs';
+import {
+  resolveOpenCodeAttachChildEnv,
+  resolveOpenCodeAttachTargetAuthHeaders,
+} from '@/backends/opencode/localControl/openCodeAttachTargetAuth';
+import {
+  resolveOpenCodeAttachCliDialect,
+  type OpenCodeAttachCliDialect,
+} from '@/backends/opencode/localControl/resolveOpenCodeAttachCliDialect';
 import { resolveOpenCodeCliLaunchSpec } from '@/backends/opencode/utils/resolveOpenCodeCliCommand';
 import type { ProviderCliLaunchSpec } from '@/runtime/managedTools/requireProviderCliLaunchSpec';
 import { resolveOpenCodeProviderAttachTargetWithManagedServerFallback } from './evaluateOpenCodeProviderAttachEligibility';
@@ -24,22 +32,49 @@ export async function runOpenCodeProviderAttach(params: Readonly<{
   env?: NodeJS.ProcessEnv;
   readManagedServerStateFn?: typeof readSharedManagedOpenCodeServerStateBestEffort;
   resolveCommandFn?: (env?: NodeJS.ProcessEnv) => ProviderCliLaunchSpec;
+  /** Overrides the target probe; omit in production so the actual server decides the dialect. */
+  resolveDialectFn?: (params: Readonly<{
+    baseUrl: string;
+    launchApiGeneration?: 'auto' | 'v2';
+    headers?: Record<string, string>;
+  }>) => Promise<OpenCodeAttachCliDialect> | OpenCodeAttachCliDialect;
 }>): Promise<number> {
+  const readManagedServerStateFn = params.readManagedServerStateFn ?? readSharedManagedOpenCodeServerStateBestEffort;
   const target = await resolveOpenCodeProviderAttachTargetWithManagedServerFallback({
     metadata: params.metadata,
-    readManagedServerStateFn: params.readManagedServerStateFn ?? readSharedManagedOpenCodeServerStateBestEffort,
+    readManagedServerStateFn,
   });
   if (!target.eligible) {
     return 1;
   }
 
   const spawnProcess = params.spawnProcess ?? spawn;
-  const env = params.env ?? process.env;
+  const ambientEnv = params.env ?? process.env;
   const launch = params.command && params.commandArgs
     ? null
-    : (params.resolveCommandFn ?? resolveOpenCodeCliLaunchSpec)(env);
-  const command = params.command ?? launch?.command ?? resolveOpenCodeCliLaunchSpec(env).command;
-  const commandArgs = params.commandArgs ?? launch?.args ?? resolveOpenCodeCliLaunchSpec(env).args;
+    : (params.resolveCommandFn ?? resolveOpenCodeCliLaunchSpec)(ambientEnv);
+  const command = params.command ?? launch?.command ?? resolveOpenCodeCliLaunchSpec(ambientEnv).command;
+  const commandArgs = params.commandArgs ?? launch?.args ?? resolveOpenCodeCliLaunchSpec(ambientEnv).args;
+  // A loopback (Happier-managed) target is password protected, so both the dialect probe and the
+  // attached CLI need its credential; a remote target keeps the ambient environment untouched.
+  const env = await resolveOpenCodeAttachChildEnv({
+    baseUrl: target.baseUrl,
+    env: ambientEnv,
+    readManagedServerStateFn,
+  });
+  const launchApiGeneration = launch && 'apiGeneration' in launch
+    && (launch.apiGeneration === 'v2' || launch.apiGeneration === 'auto')
+    ? launch.apiGeneration
+    : undefined;
+  const dialect = await (params.resolveDialectFn ?? resolveOpenCodeAttachCliDialect)({
+    baseUrl: target.baseUrl,
+    ...(launchApiGeneration ? { launchApiGeneration } : {}),
+    headers: await resolveOpenCodeAttachTargetAuthHeaders({
+      baseUrl: target.baseUrl,
+      env: ambientEnv,
+      readManagedServerStateFn,
+    }),
+  });
   const invocation = resolveWindowsCommandInvocation({
     command,
     args: [
@@ -48,6 +83,7 @@ export async function runOpenCodeProviderAttach(params: Readonly<{
         baseUrl: target.baseUrl,
         directory: target.directory,
         sessionId: target.vendorSessionId,
+        dialect,
       }),
     ],
     env,

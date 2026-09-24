@@ -52,9 +52,19 @@ async function waitForExit(proc: SpawnedProcess, timeoutMs: number): Promise<boo
   });
 }
 
+/**
+ * `env` lets a provider adapter supply a per-target environment (e.g. the credential of the exact
+ * server this terminal attaches to) without mutating `process.env` or leaking secrets through argv.
+ * Omitted ⇒ the supervisor's own environment is used.
+ */
+type AttachedTerminalInvocation = Readonly<{
+  command: string;
+  args: readonly string[];
+  env?: NodeJS.ProcessEnv;
+}>;
+
 export function createAttachedTerminalSupervisor<TTarget>(params: Readonly<{
-  resolveInvocation: (target: TTarget) => Promise<Readonly<{ command: string; args: readonly string[] }>>
-    | Readonly<{ command: string; args: readonly string[] }>;
+  resolveInvocation: (target: TTarget) => Promise<AttachedTerminalInvocation> | AttachedTerminalInvocation;
   spawnProcess?: typeof spawn;
   env?: NodeJS.ProcessEnv;
   detachTimeoutMs?: number;
@@ -86,16 +96,17 @@ export function createAttachedTerminalSupervisor<TTarget>(params: Readonly<{
       const resolution = params.resolveInvocation(target);
       const resolved = resolution && typeof (resolution as PromiseLike<unknown>).then === 'function'
         ? await resolution
-        : resolution as Readonly<{ command: string; args: readonly string[] }>;
+        : resolution as AttachedTerminalInvocation;
+      const childEnv = resolved.env ?? env;
       const invocation = resolveWindowsCommandInvocation({
         command: resolved.command,
         args: [...resolved.args],
-        env,
+        env: childEnv,
         resolveCommandOnPath: false,
       });
       const child = spawnProcess(invocation.command, invocation.args, {
         stdio: 'inherit',
-        env,
+        env: childEnv,
         ...(invocation.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
       }) as unknown as SpawnedProcess;
       proc = child;

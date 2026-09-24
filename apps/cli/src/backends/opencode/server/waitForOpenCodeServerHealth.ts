@@ -1,10 +1,15 @@
+import { isOpenCodeServerReadyResponse, OPEN_CODE_AUTO_READINESS_PATHS, OPEN_CODE_V2_READINESS_PATHS } from './openCodeServerReadiness';
+
 export async function waitForOpenCodeServerHealth(params: {
   baseUrl: string;
   timeoutMs: number;
   pollIntervalMs: number;
   signal?: AbortSignal;
   headers?: Record<string, string>;
+  /** Released V2 may require a different Basic username from retained V1/reverse-proxy auth. */
+  v2Headers?: Record<string, string>;
   apiGeneration?: 'auto' | 'v2';
+  onReady?: (apiGeneration: 'auto' | 'v2') => void;
 }): Promise<void> {
   const deadline = Date.now() + params.timeoutMs;
   while (Date.now() < deadline) {
@@ -22,27 +27,29 @@ export async function waitForOpenCodeServerHealth(params: {
         const timer = setTimeout(() => ctrl.abort(), requestTimeoutMs);
         timer.unref?.();
         try {
+          const headers = path.startsWith('/api/') ? params.v2Headers ?? params.headers : params.headers;
           return await fetch(`${params.baseUrl}${path}`, {
             signal: ctrl.signal,
-            ...(params.headers && Object.keys(params.headers).length > 0 ? { headers: params.headers } : {}),
+            ...(headers && Object.keys(headers).length > 0 ? { headers } : {}),
           }).catch(() => null);
         } finally {
           clearTimeout(timer);
           params.signal?.removeEventListener('abort', onAbort);
         }
       };
-      const isHealthy = async (response: Response | null): Promise<boolean> => {
+      const isHealthy = async (path: string, response: Response | null): Promise<boolean> => {
         if (!response?.ok) return false;
         const body = await response.json().catch(() => null) as unknown;
-        return Boolean(body && typeof body === 'object' && !Array.isArray(body) && (body as { healthy?: unknown }).healthy === true);
+        return isOpenCodeServerReadyResponse(path, body);
       };
       const paths = params.apiGeneration === 'v2'
-          ? ['/api/health']
-          : ['/api/health', '/global/health'];
+          ? OPEN_CODE_V2_READINESS_PATHS
+          : OPEN_CODE_AUTO_READINESS_PATHS;
       let healthy = false;
       for (const path of paths) {
-        if (await isHealthy(await request(path))) {
+        if (await isHealthy(path, await request(path))) {
           healthy = true;
+          params.onReady?.(path.startsWith('/api/') ? 'v2' : 'auto');
           break;
         }
       }

@@ -98,4 +98,36 @@ describe('createOpenCodeServerRuntimeClient (MCP)', () => {
     });
   });
 
+  it('disconnects the exact V1 MCP name in its registration directory', async () => {
+    const fetchSpy = vi.fn(async (url: any, _init?: any) => {
+      const parsed = new URL(String(url));
+      if (parsed.pathname === '/global/health') {
+        return createOkJsonResponse({ healthy: true, version: '1.2.15' }) as any;
+      }
+      if (parsed.pathname.endsWith('/disconnect')) {
+        return {
+          ok: true,
+          status: 204,
+          statusText: 'No Content',
+          json: async () => undefined,
+          text: async () => '',
+        } as any;
+      }
+      return createOkJsonResponse({}) as any;
+    });
+    vi.stubGlobal('fetch', fetchSpy as any);
+
+    const client = await createOpenCodeServerRuntimeClient({
+      directory: '/tmp',
+      messageBuffer: { push: () => {} } as any,
+    });
+    await client.mcpDisconnect({ directory: '/tmp/resumed', name: 'happier-session-a--custom' });
+
+    const [url, init] = fetchSpy.mock.calls.at(-1)!;
+    const parsed = new URL(String(url));
+    expect(parsed.pathname).toBe('/mcp/happier-session-a--custom/disconnect');
+    expect(parsed.searchParams.get('directory')).toBe('/tmp/resumed');
+    expect((init as any).method).toBe('POST');
+  });
+
 });

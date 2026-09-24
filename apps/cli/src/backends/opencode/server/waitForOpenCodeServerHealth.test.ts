@@ -117,6 +117,63 @@ describe('waitForOpenCodeServerHealth', () => {
     expect(paths).toContain('/api/health');
   });
 
+  it('accepts released V2 readiness through authenticated /api/info when /api/health is absent', async () => {
+    const expectedAuth = `Basic ${Buffer.from('opencode:secret').toString('base64')}`;
+    const paths: string[] = [];
+    const server = await startHealthServer((req, res) => {
+      paths.push(req.url ?? '');
+      if (req.headers.authorization !== expectedAuth) {
+        res.writeHead(401);
+        res.end();
+        return;
+      }
+      if (req.url !== '/api/info') {
+        res.writeHead(404);
+        res.end();
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ version: '2.0.15', pid: 123, urls: [], paths: {} }));
+    });
+    servers.add(server);
+
+    await expect(waitForOpenCodeServerHealth({
+      baseUrl: server.baseUrl,
+      timeoutMs: 1_000,
+      pollIntervalMs: 25,
+      apiGeneration: 'v2',
+      headers: { Authorization: expectedAuth },
+    })).resolves.toBeUndefined();
+    expect(paths).toContain('/api/info');
+  });
+
+  it('uses the V2 credential and records the detected generation when auto probes a released V2 server', async () => {
+    const legacyAuth = `Basic ${Buffer.from('legacy-proxy-user:secret').toString('base64')}`;
+    const v2Auth = `Basic ${Buffer.from('opencode:secret').toString('base64')}`;
+    const detected: Array<'auto' | 'v2'> = [];
+    const server = await startHealthServer((req, res) => {
+      if (req.url !== '/api/info' || req.headers.authorization !== v2Auth) {
+        res.writeHead(req.headers.authorization === legacyAuth ? 401 : 404);
+        res.end();
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ version: '2.0.15', pid: 123, urls: [], paths: {} }));
+    });
+    servers.add(server);
+
+    await expect(waitForOpenCodeServerHealth({
+      baseUrl: server.baseUrl,
+      timeoutMs: 1_000,
+      pollIntervalMs: 25,
+      apiGeneration: 'auto',
+      headers: { Authorization: legacyAuth },
+      v2Headers: { Authorization: v2Auth },
+      onReady: (apiGeneration) => detected.push(apiGeneration),
+    })).resolves.toBeUndefined();
+    expect(detected).toEqual(['v2']);
+  });
+
   it.each([
     ['auto', '/api/health'],
     ['v2', '/api/health'],

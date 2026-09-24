@@ -7,10 +7,13 @@ import { describe, expect, it } from 'vitest';
 import { resolveOpenCodeManagedServerChildEnv } from '@/backends/opencode/server/openCodeManagedServerEnv';
 
 import {
+  buildOpenCodeV2BrokerConfigContent,
   ensureOpenCodeBrokerPluginAssets,
+  prepareOpenCodeConnectedAuthAssets,
   resolveOpenCodeBrokerPluginDir,
   resolveOpenCodeBrokerPluginPath,
   resolveOpenCodeV2BrokerPluginPath,
+  resolveOpenCodeV2BrokerPluginSourcePath,
   resolveOpenCodeConnectedConfigHomeDir,
 } from './openCodeBrokerPluginAssets';
 
@@ -38,9 +41,62 @@ describe('openCodeBrokerPluginAssets', () => {
     await ensureOpenCodeBrokerPluginAssets({ providers: ['openai'], apiGeneration: 'v2', happyHomeDir: home });
 
     const v2Path = resolveOpenCodeV2BrokerPluginPath('openai', home);
-    await expect(readFile(v2Path, 'utf8')).resolves.toContain('export default HappierOpenCodeAuthBrokerPlugin');
-    expect(dirname(v2Path)).not.toBe(resolveOpenCodeBrokerPluginDir(home));
+    const v2SourcePath = resolveOpenCodeV2BrokerPluginSourcePath('openai', home);
+    expect((await stat(v2Path)).isDirectory()).toBe(true);
+    await expect(readFile(v2SourcePath, 'utf8')).resolves.toContain('id: "happier-broker-" + PROVIDER');
+    expect(dirname(v2SourcePath)).toBe(v2Path);
+    expect(v2Path).not.toBe(resolveOpenCodeBrokerPluginDir(home));
     await expect(stat(resolveOpenCodeBrokerPluginPath('openai', home))).rejects.toBeTruthy();
+  });
+
+  it('prepares the same selected broker assets and composed config for every V2 caller', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'happier-broker-assets-prepare-'));
+    const prepared = await prepareOpenCodeConnectedAuthAssets({
+      env: {
+        HAPPIER_OPENCODE_CONNECTED_SERVICE_SELECTION_IDENTITY: 'opencode|connected|openai-codex:primary:',
+        HAPPIER_OPENCODE_BROKER_SELECTIONS: JSON.stringify({
+          openai: {
+            serviceId: 'openai-codex',
+            profileId: 'primary',
+            accountId: 'acct_1',
+            planType: 'plus',
+          },
+        }),
+        OPENCODE_CONFIG_CONTENT: JSON.stringify({
+          providers: { anthropic: { settings: { apiKey: 'direct-key' } } },
+          share: 'disabled',
+        }),
+      },
+      apiGeneration: 'v2',
+      happyHomeDir: home,
+    });
+
+    expect(prepared.providers).toEqual(['openai']);
+    expect(JSON.parse(prepared.openCodeConfigContent ?? '{}')).toEqual({
+      providers: {
+        openai: {},
+        anthropic: { settings: { apiKey: 'direct-key' } },
+      },
+      share: 'disabled',
+      plugins: [resolveOpenCodeV2BrokerPluginPath('openai', home)],
+    });
+    await expect(readFile(resolveOpenCodeV2BrokerPluginSourcePath('openai', home), 'utf8'))
+      .resolves.toContain('model.request');
+  });
+
+  it('composes legacy and native plugin arrays without admitting an unselected broker', () => {
+    expect(JSON.parse(buildOpenCodeV2BrokerConfigContent(
+      ['anthropic'],
+      JSON.stringify({ plugin: ['legacy'], plugins: ['native'] }),
+      '/happier-home',
+    ))).toEqual({
+      providers: { anthropic: {} },
+      plugins: [
+        'legacy',
+        'native',
+        resolveOpenCodeV2BrokerPluginPath('anthropic', '/happier-home'),
+      ],
+    });
   });
 
   it('retires versioned Happier broker siblings while preserving unrelated plugins', async () => {

@@ -79,18 +79,49 @@ export function isKnownUnavailableOpenCodeModel(params: Readonly<{
   return getKnownUnavailableOpenCodeModel(params) !== null;
 }
 
+/**
+ * Canonical readers for an OpenCode model record's capabilities. V1 publishes
+ * `{ toolcall: boolean, input: { text: boolean, ... }, reasoning?: boolean }`; released V2
+ * publishes `Model.Capabilities = { tools: boolean, input: string[], output: string[] }` and moved
+ * reasoning effort onto `variants`. Both shapes are read here so no caller re-implements the test.
+ */
 export function modelSupportsToolCalls(raw: unknown, providerIdHint?: string): boolean {
   const rec = asRecord(raw);
   if (!rec) return false;
   const providerID = normalizeString(providerIdHint) || normalizeString(rec.providerID);
   const modelID = normalizeString(rec.id);
   if (providerID && modelID && isKnownUnavailableOpenCodeModel({ providerID, modelID })) return false;
-  const status = normalizeString(rec.status);
-  if (status && status !== 'active') return false;
+  if (!modelIsActive(rec)) return false;
   const capabilities = asRecord(rec.capabilities);
   if (!capabilities) return false;
-  if (capabilities.toolcall !== true) return false;
-  const input = asRecord(capabilities.input);
-  if (input && input.text === false) return false;
-  return true;
+  const supportsTools = capabilities.tools === true || capabilities.toolcall === true;
+  if (!supportsTools) return false;
+  return modelSupportsTextInput(rec);
+}
+
+export function modelIsActive(raw: unknown): boolean {
+  const rec = asRecord(raw);
+  if (!rec) return true;
+  const status = normalizeString(rec.status);
+  return !status || status === 'active';
+}
+
+export function modelSupportsTextInput(raw: unknown): boolean {
+  const rec = asRecord(raw);
+  if (!rec) return true;
+  const capabilities = asRecord(rec.capabilities);
+  if (!capabilities) return true;
+  const input = capabilities.input;
+  if (Array.isArray(input)) return input.some((value) => normalizeString(value) === 'text');
+  const inputRecord = asRecord(input);
+  return !inputRecord || inputRecord.text !== false;
+}
+
+/** V2 has no `capabilities.reasoning`; a non-empty `variants` list is the released equivalent. */
+export function modelSupportsReasoningVariants(raw: unknown): boolean {
+  const rec = asRecord(raw);
+  if (!rec) return false;
+  const capabilities = asRecord(rec.capabilities);
+  if (capabilities?.reasoning === true) return true;
+  return Array.isArray(rec.variants) && rec.variants.length > 0;
 }

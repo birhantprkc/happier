@@ -185,10 +185,9 @@ export const AGENTS_CORE = {
         sessionStorage: { direct: true, persisted: true },
         sessionCapabilities: {
             sessionListing: 'supported',
-            // Server dialect is detected only after the runtime connects. This
-            // static declaration must therefore describe the least capable
-            // reachable server: pure V2 has no session-fork route.
-            sessionFork: { conversation: 'unsupported', fromMessage: 'unsupported' },
+            // Both retained V1 and released V2 expose native latest/message forks;
+            // the server client adapts the exclusive message boundary per dialect.
+            sessionFork: { conversation: 'supported', fromMessage: 'supported' },
             sessionRollback: { conversation: 'unsupported' },
             usageLimitRecovery: { checkNow: 'supported' },
         },

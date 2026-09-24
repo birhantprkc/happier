@@ -40,6 +40,9 @@ describe('createOpenCodeServerRuntimeClient managed generation authority', () =>
     'HAPPIER_OPENCODE_SERVER_STATE_PATH',
     'HAPPIER_OPENCODE_CLI_GENERATION',
     'HAPPIER_OPENCODE_SERVER_URL',
+    'OPENCODE_PASSWORD',
+    'OPENCODE_SERVER_PASSWORD',
+    'OPENCODE_SERVER_USERNAME',
   ] as const);
 
   afterEach(async () => {
@@ -48,6 +51,9 @@ describe('createOpenCodeServerRuntimeClient managed generation authority', () =>
       'HAPPIER_OPENCODE_SERVER_STATE_PATH',
       'HAPPIER_OPENCODE_CLI_GENERATION',
       'HAPPIER_OPENCODE_SERVER_URL',
+      'OPENCODE_PASSWORD',
+      'OPENCODE_SERVER_PASSWORD',
+      'OPENCODE_SERVER_USERNAME',
     ] as const);
     for (const server of servers) await server.close().catch(() => {});
     servers.clear();
@@ -120,5 +126,65 @@ describe('createOpenCodeServerRuntimeClient managed generation authority', () =>
     expect(paths[0]).toBe(firstHealthPath);
     expect(paths).toContain(expectedSessionPath);
     expect(paths).not.toContain(serverGeneration === 'v1' ? '/api/session' : '/session');
+  });
+
+  it('applies the retained managed-server credential before the first V2 session request', async () => {
+    const password = 'retained-managed-secret';
+    const expectedAuthorization = `Basic ${Buffer.from(`opencode:${password}`, 'utf8').toString('base64')}`;
+    const authorizations: Array<string | undefined> = [];
+    const server = await startServer((req, res) => {
+      const path = new URL(req.url ?? '/', 'http://localhost').pathname;
+      authorizations.push(req.headers.authorization);
+      const authorized = req.headers.authorization === expectedAuthorization;
+      const body = path === '/api/health'
+        ? { healthy: true }
+        : path === '/api/session'
+          ? { data: [] }
+          : { error: 'not found' };
+      const available = path === '/api/health' || path === '/api/session';
+      // The shared managed-server owner authenticates its own reuse/readiness probe. This test
+      // isolates the subsequently constructed client's first session request, so health remains a
+      // permissive boundary fixture while the session route requires the retained credential.
+      const requiresAuth = path === '/api/session';
+      res.writeHead(requiresAuth && !authorized ? 401 : available ? 200 : 404, {
+        'content-type': 'application/json',
+      });
+      res.end(JSON.stringify(requiresAuth && !authorized ? { error: 'unauthorized' } : body));
+    });
+    servers.add(server);
+
+    const dir = createTempDirSync('happier-opencode-managed-auth-client-');
+    tempDirs.add(dir);
+    const statePath = join(dir, 'managed-server.json');
+    envScope.patch({
+      HAPPIER_OPENCODE_SERVER_STATE_PATH: statePath,
+      HAPPIER_OPENCODE_CLI_GENERATION: 'v2',
+      HAPPIER_OPENCODE_SERVER_URL: undefined,
+      OPENCODE_PASSWORD: undefined,
+      OPENCODE_SERVER_PASSWORD: undefined,
+      OPENCODE_SERVER_USERNAME: undefined,
+    });
+    writeFileSync(statePath, JSON.stringify({
+      baseUrl: server.baseUrl,
+      pid: process.pid,
+      startedAtMs: Date.now(),
+      status: 'ready',
+      launchEnvFingerprint: resolveOpenCodeManagedServerLaunchFingerprint({
+        baseEnv: process.env,
+        xdgRootDir: null,
+        isolateConfig: false,
+      }),
+      apiGeneration: 'v2',
+      authPassword: password,
+    }));
+
+    const client = await createOpenCodeServerRuntimeClient({
+      directory: '/repo',
+      messageBuffer: new MessageBuffer(),
+    });
+    await expect(client.sessionList()).resolves.toEqual([]);
+    await client.dispose();
+
+    expect(authorizations.at(-1)).toBe(expectedAuthorization);
   });
 });

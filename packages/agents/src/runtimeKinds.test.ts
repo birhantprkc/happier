@@ -57,7 +57,7 @@ describe('runtimeKinds', () => {
     expect(resolveAgentRuntimeControlSurface('opencode', 'server')).toMatchObject({
       sessionStorage: { direct: true, persisted: true },
       sessionCapabilities: {
-        sessionFork: { conversation: 'unsupported', fromMessage: 'unsupported' },
+        sessionFork: { conversation: 'supported', fromMessage: 'supported' },
         usageLimitRecovery: { checkNow: 'supported' },
       },
       localControl: {

@@ -5,6 +5,13 @@ import { normalizeOpenCodeCliGeneration } from '@happier-dev/agents';
 
 import { isOpenCodeBrokerMarker } from '@/backends/opencode/brokerPlugin/openCodeBrokerPluginEnv';
 
+import { resolveOpenCodeManagedServerCredentialChildEnv } from './openCodeManagedServerCredential';
+import {
+  OPEN_CODE_SERVER_LEGACY_PASSWORD_ENV,
+  OPEN_CODE_SERVER_PASSWORD_ENV,
+  type OpenCodeServerAuthCredential,
+} from './openCodeServerAuth';
+
 /**
  * Env var carrying the STABLE connected-service selection identity for the managed server launch
  * fingerprint. Populated by the connected-services materializer (Lane B1) alongside
@@ -75,11 +82,21 @@ export function resolveOpenCodeManagedServerChildEnv(params: Readonly<{
   baseEnv: NodeJS.ProcessEnv;
   xdgRootDir: string | null;
   isolateConfig: boolean;
+  /**
+   * Credential the managed server must protect itself with. Supplied only by the spawn path: the
+   * launch fingerprint intentionally computes the child env WITHOUT it, because the Happier-minted
+   * password is machine-stable and folding it in would re-key every managed server once, for no
+   * reuse-relevant difference. Operator-configured passwords are folded in from `baseEnv` instead.
+   */
+  authCredential?: OpenCodeServerAuthCredential | null;
 }>): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     ...params.baseEnv,
     // Ensure the subprocess has a stable, explicit config envelope.
     OPENCODE_CONFIG_CONTENT: params.baseEnv.OPENCODE_CONFIG_CONTENT ?? '{}',
+    ...(params.authCredential
+      ? resolveOpenCodeManagedServerCredentialChildEnv(params.authCredential)
+      : {}),
   };
 
   const xdgRootDir = typeof params.xdgRootDir === 'string' ? params.xdgRootDir.trim() : '';
@@ -172,7 +189,15 @@ export function resolveOpenCodeManagedServerLaunchFingerprint(params: Readonly<{
     OPENAI_API_KEY: typeof env.OPENAI_API_KEY === 'string' ? env.OPENAI_API_KEY : '',
     ANTHROPIC_API_KEY: typeof env.ANTHROPIC_API_KEY === 'string' ? env.ANTHROPIC_API_KEY : '',
     OPENCODE_SERVER_USERNAME: typeof env.OPENCODE_SERVER_USERNAME === 'string' ? env.OPENCODE_SERVER_USERNAME : '',
-    OPENCODE_SERVER_PASSWORD: typeof env.OPENCODE_SERVER_PASSWORD === 'string' ? env.OPENCODE_SERVER_PASSWORD : '',
+    // Operator-configured server credentials are a reuse identity: a server protected by one password
+    // cannot serve a session that authenticates with another. Both released names are folded (hashed
+    // together with the rest of the envelope), canonical first.
+    [OPEN_CODE_SERVER_PASSWORD_ENV]: typeof env[OPEN_CODE_SERVER_PASSWORD_ENV] === 'string'
+      ? env[OPEN_CODE_SERVER_PASSWORD_ENV]
+      : '',
+    [OPEN_CODE_SERVER_LEGACY_PASSWORD_ENV]: typeof env[OPEN_CODE_SERVER_LEGACY_PASSWORD_ENV] === 'string'
+      ? env[OPEN_CODE_SERVER_LEGACY_PASSWORD_ENV]
+      : '',
   };
 
   return createHash('sha256').update(JSON.stringify(relevant)).digest('hex');

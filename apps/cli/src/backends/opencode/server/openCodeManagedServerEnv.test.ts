@@ -105,6 +105,46 @@ describe('resolveOpenCodeManagedServerChildEnv', () => {
     expect(env.XDG_CONFIG_HOME).toBe('/xdg-root/config');
   });
 
+  it('injects the managed server credential as the canonical OpenCode 2 password variable only', () => {
+    const env = resolveOpenCodeManagedServerChildEnv({
+      baseEnv: { PATH: '/bin' },
+      xdgRootDir: null,
+      isolateConfig: false,
+      authCredential: { username: 'opencode', password: 'managed-secret' },
+    });
+
+    expect(env.OPENCODE_PASSWORD).toBe('managed-secret');
+    // The retained OpenCode 1 line does not know OPENCODE_PASSWORD, so a stable-generation managed
+    // server keeps serving unauthenticated instead of demanding a legacy credential contract.
+    expect(env.OPENCODE_SERVER_PASSWORD).toBeUndefined();
+  });
+
+  it('leaves the child password env untouched when no managed credential is supplied', () => {
+    const env = resolveOpenCodeManagedServerChildEnv({
+      baseEnv: { PATH: '/bin', OPENCODE_SERVER_PASSWORD: 'operator-legacy' },
+      xdgRootDir: null,
+      isolateConfig: false,
+    });
+
+    expect(env.OPENCODE_PASSWORD).toBeUndefined();
+    expect(env.OPENCODE_SERVER_PASSWORD).toBe('operator-legacy');
+  });
+
+  it('changes the launch fingerprint when the operator-configured OpenCode 2 password changes', () => {
+    const fingerprintA = resolveOpenCodeManagedServerLaunchFingerprint({
+      baseEnv: { HOME: '/Users/example', OPENCODE_PASSWORD: 'secret-a' },
+      xdgRootDir: null,
+      isolateConfig: false,
+    });
+    const fingerprintB = resolveOpenCodeManagedServerLaunchFingerprint({
+      baseEnv: { HOME: '/Users/example', OPENCODE_PASSWORD: 'secret-b' },
+      xdgRootDir: null,
+      isolateConfig: false,
+    });
+
+    expect(fingerprintA).not.toBe(fingerprintB);
+  });
+
   it('changes the launch fingerprint when auth-relevant provider env changes', () => {
     const fingerprintA = resolveOpenCodeManagedServerLaunchFingerprint({
       baseEnv: {

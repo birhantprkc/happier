@@ -1,6 +1,12 @@
 import { createAttachedTerminalSupervisor, type AttachedTerminalSupervisor } from '@/agent/localControl/createAttachedTerminalSupervisor';
+import type { SharedManagedOpenCodeServerState } from '@/backends/opencode/server/sharedManagedServer';
 
 import { createOpenCodeAttachArgs } from './createOpenCodeAttachArgs';
+import {
+  resolveOpenCodeAttachChildEnv,
+  resolveOpenCodeAttachTargetAuthHeaders,
+} from './openCodeAttachTargetAuth';
+import { resolveOpenCodeAttachCliDialect } from './resolveOpenCodeAttachCliDialect';
 import { resolveOpenCodeCliLaunchSpec } from '../utils/resolveOpenCodeCliCommand';
 
 function resolveDetachTimeoutMs(): number {
@@ -21,11 +27,15 @@ export function createOpenCodeTuiSupervisor(params?: Readonly<{
   commandArgs?: readonly string[];
   env?: NodeJS.ProcessEnv;
   onExit?: () => void | Promise<void>;
+  /** Overrides the target probe; omit in production so the actual server decides the dialect. */
+  resolveDialectFn?: typeof resolveOpenCodeAttachCliDialect;
+  readManagedServerStateFn?: () => Promise<SharedManagedOpenCodeServerState | null>;
 }>): OpenCodeTuiSupervisor {
   const env = params?.env ?? process.env;
   const commandOverride = params?.command;
   let command: string;
   let commandArgs: readonly string[];
+  let launchApiGeneration: 'auto' | 'v2' | undefined;
   if (commandOverride) {
     command = commandOverride;
     commandArgs = params?.commandArgs ?? [];
@@ -33,15 +43,32 @@ export function createOpenCodeTuiSupervisor(params?: Readonly<{
     const launch = resolveOpenCodeCliLaunchSpec(env);
     command = launch.command;
     commandArgs = params?.commandArgs ?? launch.args;
+    launchApiGeneration = launch.apiGeneration;
   }
   return createAttachedTerminalSupervisor({
     spawnProcess: params?.spawnProcess,
     env,
     detachTimeoutMs: resolveDetachTimeoutMs(),
     onExit: params?.onExit,
-    resolveInvocation: ({ baseUrl, directory, sessionId }) => ({
+    resolveInvocation: async ({ baseUrl, directory, sessionId }) => {
+      // The attached CLI talks to the target server itself: it needs that server's credential (loopback
+      // managed targets only) and the argv dialect the target actually speaks.
+      const readManagedServerStateFn = params?.readManagedServerStateFn;
+      const targetAuth = {
+        baseUrl,
+        env,
+        ...(readManagedServerStateFn ? { readManagedServerStateFn } : {}),
+      };
+      const dialect = await (params?.resolveDialectFn ?? resolveOpenCodeAttachCliDialect)({
+        baseUrl,
+        ...(launchApiGeneration ? { launchApiGeneration } : {}),
+        headers: await resolveOpenCodeAttachTargetAuthHeaders(targetAuth),
+      });
+      return {
         command,
-        args: [...commandArgs, ...createOpenCodeAttachArgs({ baseUrl, directory, sessionId })],
-    }),
+        args: [...commandArgs, ...createOpenCodeAttachArgs({ baseUrl, directory, sessionId, dialect })],
+        env: await resolveOpenCodeAttachChildEnv(targetAuth),
+      };
+    },
   });
 }

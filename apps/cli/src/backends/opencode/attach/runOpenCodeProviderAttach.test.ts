@@ -17,6 +17,90 @@ import { runOpenCodeProviderAttach } from './runOpenCodeProviderAttach';
 import type { ProviderCliLaunchSpec } from '@/runtime/managedTools/requireProviderCliLaunchSpec';
 
 describe('runOpenCodeProviderAttach', () => {
+  it('attaches a released OpenCode 2 target through the root dialect with its retained credential in the child env', async () => {
+    const spawnProcess = vi.fn(() => ({
+      once: (event: string, handler: (...args: any[]) => void) => {
+        if (event === 'exit') setImmediate(() => handler(0, null));
+      },
+    }));
+    const probeHeaders: Array<Record<string, string> | undefined> = [];
+
+    await expect(runOpenCodeProviderAttach({
+      sessionId: 'sid_opencode_v2',
+      metadata: {
+        path: '/tmp/opencode-workspace',
+        opencodeSessionId: 'opencode-session-v2',
+        opencodeBackendMode: 'server',
+      },
+      command: 'opencode',
+      commandArgs: [],
+      spawnProcess: spawnProcess as any,
+      env: { PATH: '/bin' } as NodeJS.ProcessEnv,
+      readManagedServerStateFn: async () => ({
+        baseUrl: 'http://127.0.0.1:7777',
+        pid: 4242,
+        startedAtMs: 1,
+        authPassword: 'retained-secret',
+      } as any),
+      resolveDialectFn: ({ headers }) => {
+        probeHeaders.push(headers);
+        return 'v2';
+      },
+    })).resolves.toBe(0);
+
+    const expectedAuthorization = `Basic ${Buffer.from('opencode:retained-secret', 'utf8').toString('base64')}`;
+    // The dialect probe authenticates as the managed server requires...
+    expect(probeHeaders).toEqual([{ Authorization: expectedAuthorization }]);
+    expect(spawnProcess).toHaveBeenCalledWith(
+      'opencode',
+      ['--server', 'http://127.0.0.1:7777', '--session', 'opencode-session-v2', '/tmp/opencode-workspace'],
+      expect.objectContaining({
+        // ...and the attached CLI authenticates from its environment, never from argv.
+        env: { PATH: '/bin', OPENCODE_PASSWORD: 'retained-secret' },
+      }),
+    );
+  });
+
+  it('never hands the managed credential to a remote attach target', async () => {
+    const spawnProcess = vi.fn(() => ({
+      once: (event: string, handler: (...args: any[]) => void) => {
+        if (event === 'exit') setImmediate(() => handler(0, null));
+      },
+    }));
+
+    await expect(runOpenCodeProviderAttach({
+      sessionId: 'sid_opencode_remote',
+      metadata: {
+        path: '/tmp/opencode-workspace',
+        opencodeSessionId: 'opencode-session-remote',
+        opencodeBackendMode: 'server',
+        opencodeServerBaseUrl: 'https://remote.example.test',
+        opencodeServerBaseUrlExplicit: true,
+      },
+      command: 'opencode',
+      commandArgs: [],
+      spawnProcess: spawnProcess as any,
+      env: { PATH: '/bin' } as NodeJS.ProcessEnv,
+      resolveDialectFn: ({ headers }) => {
+        expect(headers).toEqual({});
+        return 'v1';
+      },
+      readManagedServerStateFn: async () => ({
+        baseUrl: 'http://127.0.0.1:7777',
+        pid: 4242,
+        startedAtMs: 1,
+        authPassword: 'retained-secret',
+      } as any),
+    })).resolves.toBe(0);
+
+    // Explicit metadata base URLs are normalized to an origin with a trailing slash.
+    expect(spawnProcess).toHaveBeenCalledWith(
+      'opencode',
+      expect.arrayContaining(['attach', 'https://remote.example.test/']),
+      expect.objectContaining({ env: { PATH: '/bin' } }),
+    );
+  });
+
   it('reuses existing OpenCode session metadata and explicit server affinity to launch provider attach', async () => {
     const spawnProcess = vi.fn(() => ({
       once: (event: string, handler: (...args: any[]) => void) => {
@@ -35,6 +119,7 @@ describe('runOpenCodeProviderAttach', () => {
       },
       command: 'opencode',
       spawnProcess: spawnProcess as any,
+      resolveDialectFn: () => 'v1',
       readManagedServerStateFn: async () => null,
     })).resolves.toBe(0);
 
@@ -64,6 +149,7 @@ describe('runOpenCodeProviderAttach', () => {
       },
       command: 'opencode',
       spawnProcess: spawnProcess as any,
+      resolveDialectFn: () => 'v1',
       readManagedServerStateFn: async () => ({ baseUrl: 'http://127.0.0.1:7777' } as any),
     })).resolves.toBe(0);
 
@@ -102,6 +188,7 @@ describe('runOpenCodeProviderAttach', () => {
       },
       command: 'opencode',
       spawnProcess: spawnProcess as any,
+      resolveDialectFn: () => 'v1',
       readManagedServerStateFn: async () => null,
     })).resolves.toBe(0);
 
@@ -131,6 +218,7 @@ describe('runOpenCodeProviderAttach', () => {
         HAPPIER_OPENCODE_PATH: '/tmp/custom-opencode',
       },
       spawnProcess: spawnProcess as any,
+      resolveDialectFn: () => 'v1',
       readManagedServerStateFn: async () => ({ baseUrl: 'http://127.0.0.1:8888' } as any),
       resolveCommandFn: (): ProviderCliLaunchSpec => ({
         source: 'override',
@@ -170,6 +258,7 @@ describe('runOpenCodeProviderAttach', () => {
       command: '/tmp/custom-opencode',
       commandArgs: ['--stdio-wrapper'],
       spawnProcess: spawnProcess as any,
+      resolveDialectFn: () => 'v1',
       readManagedServerStateFn: async () => ({ baseUrl: 'http://127.0.0.1:7777' } as any),
       resolveCommandFn,
     })).resolves.toBe(0);
@@ -197,6 +286,7 @@ describe('runOpenCodeProviderAttach', () => {
         opencodeBackendMode: 'server',
       },
       spawnProcess: spawnProcess as any,
+      resolveDialectFn: () => 'v1',
       readManagedServerStateFn: async () => ({ baseUrl: 'http://127.0.0.1:9999' } as any),
       resolveCommandFn: (): ProviderCliLaunchSpec => ({
         source: 'system',
@@ -233,6 +323,7 @@ describe('runOpenCodeProviderAttach', () => {
         opencodeBackendMode: 'server',
       },
       spawnProcess: spawnProcess as any,
+      resolveDialectFn: () => 'v1',
       readManagedServerStateFn: async () => ({ baseUrl: 'http://127.0.0.1:7777' } as any),
       resolveCommandFn: (): ProviderCliLaunchSpec => ({
         source: 'system',

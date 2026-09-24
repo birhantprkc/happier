@@ -8,20 +8,19 @@ import { resolveWindowsCommandInvocation } from '@happier-dev/cli-common/process
 import { logger } from '@/ui/logger';
 import { resolveOpenCodeCliLaunchSpec } from '@/backends/opencode/utils/resolveOpenCodeCliCommand';
 
-import { resolveOpenCodeServerAuthHeadersFromEnv } from './openCodeServerAuth';
+import { resolveOpenCodeServerAuthHeaders } from './openCodeServerAuth';
+import {
+  resolveOpenCodeManagedServerLaunchCredential,
+  resolveOpenCodeManagedServerReadinessCredentials,
+} from './openCodeManagedServerCredential';
 import {
   resolveOpenCodeManagedServerChildEnv,
-  OPENCODE_CONNECTED_SERVICE_SELECTION_IDENTITY_ENV,
 } from './openCodeManagedServerEnv';
 import {
   OPEN_CODE_BROKER_LOAD_NONCE_ENV,
-  OPEN_CODE_BROKER_PROVIDERS,
-  OPEN_CODE_BROKER_SELECTIONS_ENV,
-  parseOpenCodeBrokerSelections,
 } from '@/backends/opencode/brokerPlugin/openCodeBrokerPluginEnv';
 import {
-  ensureOpenCodeBrokerPluginAssets,
-  resolveOpenCodeV2BrokerPluginPath,
+  prepareOpenCodeConnectedAuthAssets,
 } from '@/backends/opencode/brokerPlugin/openCodeBrokerPluginAssets';
 import { resolveOpenCodeManagedServerTrackedPid } from './resolveOpenCodeManagedServerTrackedPid';
 import { terminateManagedOpenCodeServerPidBestEffort } from './terminateManagedOpenCodeServerPidBestEffort';
@@ -48,14 +47,6 @@ async function resolveEphemeralPort(hostname: string): Promise<number> {
   });
 }
 
-export function buildOpenCodeV2BrokerConfigContent(
-  providers: readonly (typeof OPEN_CODE_BROKER_PROVIDERS)[number][],
-): string {
-  return JSON.stringify({
-    plugin: providers.map((provider) => resolveOpenCodeV2BrokerPluginPath(provider)),
-  });
-}
-
 /**
  * For connected (config-isolated) sessions only, ensure the Happier-owned config home exists and the
  * broker plugin file(s) referenced by the materialized `OPENCODE_CONFIG_CONTENT` are written. Keyed
@@ -66,33 +57,15 @@ async function ensureConnectedOpenCodeBrokerAssetsBeforeSpawn(
   env: NodeJS.ProcessEnv,
   apiGeneration: 'auto' | 'v2',
 ): Promise<Readonly<{ brokerLoadNonce: string | null; openCodeConfigContent?: string }>> {
-  if (typeof env[OPENCODE_CONNECTED_SERVICE_SELECTION_IDENTITY_ENV] !== 'string') {
-    return { brokerLoadNonce: null };
-  }
-  const selections = parseOpenCodeBrokerSelections(env[OPEN_CODE_BROKER_SELECTIONS_ENV]);
-  const providers = OPEN_CODE_BROKER_PROVIDERS.filter((provider) => selections[provider]);
+  const prepared = await prepareOpenCodeConnectedAuthAssets({ env, apiGeneration });
   let brokerLoadNonce: string | null = null;
-  if (providers.length > 0) {
+  if (prepared.providers.length > 0) {
     brokerLoadNonce = randomUUID();
     env[OPEN_CODE_BROKER_LOAD_NONCE_ENV] = brokerLoadNonce;
   }
-  if (apiGeneration === 'auto') {
-    // `opencode` names both the retained V1 line and released V2. Before the
-    // health probe can distinguish their wire contracts, prepare each
-    // generation's existing discovery path from the same source bytes. V1
-    // consumes the auto-discovery leaf; V2 consumes the explicit config leaf.
-    await Promise.all([
-      ensureOpenCodeBrokerPluginAssets({ providers, apiGeneration: 'v1' }),
-      ensureOpenCodeBrokerPluginAssets({ providers, apiGeneration: 'v2' }),
-    ]);
-  } else {
-    await ensureOpenCodeBrokerPluginAssets({ providers, apiGeneration: 'v2' });
-  }
   return {
     brokerLoadNonce,
-    ...(providers.length > 0 ? {
-      openCodeConfigContent: buildOpenCodeV2BrokerConfigContent(providers),
-    } : {}),
+    ...(prepared.openCodeConfigContent ? { openCodeConfigContent: prepared.openCodeConfigContent } : {}),
   };
 }
 
@@ -112,6 +85,12 @@ export async function startManagedOpenCodeServer(params: Readonly<{
     logPath: string;
     brokerLoadNonce?: string;
     apiGeneration: 'auto' | 'v2';
+    /**
+     * Minted password this managed child is protected with, for the state owner to retain. Absent when
+     * the child inherited an operator-configured password: that credential is re-derived from the
+     * environment (keeping its username override) instead of being written down.
+     */
+    authPassword?: string;
   }>) => void | Promise<void>;
 }> = {}): Promise<{
   baseUrl: string;
@@ -120,6 +99,7 @@ export async function startManagedOpenCodeServer(params: Readonly<{
   logPath: string;
   brokerLoadNonce?: string;
   apiGeneration: 'auto' | 'v2';
+  authPassword?: string;
 }> {
   const hostname = typeof params.hostname === 'string' && params.hostname.trim().length > 0 ? params.hostname.trim() : '127.0.0.1';
   const port = typeof params.port === 'number' && Number.isFinite(params.port) && params.port > 0
@@ -132,7 +112,17 @@ export async function startManagedOpenCodeServer(params: Readonly<{
   const launch = resolveOpenCodeCliLaunchSpec();
   const cmd = launch.command;
   const args = [...launch.args, `serve`, `--hostname=${hostname}`, `--port=${port}`];
-  const healthHeaders = resolveOpenCodeServerAuthHeadersFromEnv();
+  // Released OpenCode 2 password-protects every `serve`, generating an unknowable secret when the
+  // environment supplies none. Mint the credential BEFORE spawning so the child is protected with a
+  // password this launch can authenticate with; the caller retains it in the managed-server state so
+  // later readers of THIS server can too.
+  const launchCredential = resolveOpenCodeManagedServerLaunchCredential();
+  const readinessCredentials = resolveOpenCodeManagedServerReadinessCredentials({
+    env: process.env,
+    launchCredential: launchCredential.credential,
+  });
+  const healthHeaders = resolveOpenCodeServerAuthHeaders(readinessCredentials.v1);
+  const v2HealthHeaders = resolveOpenCodeServerAuthHeaders(readinessCredentials.v2);
 
   logger.debug('[OpenCodeServer] Spawning managed server', { cmd, args });
 
@@ -154,6 +144,7 @@ export async function startManagedOpenCodeServer(params: Readonly<{
       : process.env,
     xdgRootDir: xdgRootDir.length > 0 ? xdgRootDir : null,
     isolateConfig,
+    authCredential: launchCredential.credential,
   });
   const invocation = resolveWindowsCommandInvocation({
     command: cmd,
@@ -238,6 +229,7 @@ export async function startManagedOpenCodeServer(params: Readonly<{
     await closePromise;
   };
 
+  let detectedApiGeneration = launch.apiGeneration;
   await new Promise<void>((resolve, reject) => {
     const tag = randomUUID();
     const timer = setTimeout(() => {
@@ -267,7 +259,11 @@ ${readStartupOutput()}`,
       timeoutMs,
       pollIntervalMs: 200,
       headers: healthHeaders,
+      v2Headers: v2HealthHeaders,
       apiGeneration: launch.apiGeneration,
+      onReady: (apiGeneration) => {
+        detectedApiGeneration = apiGeneration;
+      },
     })
       .then(() => {
         clearTimeout(timer);
@@ -303,7 +299,8 @@ ${readStartupOutput()}`));
       pid: trackedPid,
       logPath,
       ...(brokerLoadNonce ? { brokerLoadNonce } : {}),
-      apiGeneration: launch.apiGeneration,
+      apiGeneration: detectedApiGeneration,
+      ...(launchCredential.retainedPassword ? { authPassword: launchCredential.retainedPassword } : {}),
     });
   } catch (error) {
     await close();
@@ -323,6 +320,7 @@ ${readStartupOutput()}`));
     close,
     logPath,
     ...(brokerLoadNonce ? { brokerLoadNonce } : {}),
-    apiGeneration: launch.apiGeneration,
+    apiGeneration: detectedApiGeneration,
+    ...(launchCredential.retainedPassword ? { authPassword: launchCredential.retainedPassword } : {}),
   };
 }
