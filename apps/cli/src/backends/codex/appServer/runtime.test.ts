@@ -12395,6 +12395,7 @@ describe('createCodexAppServerRuntime', () => {
 
         await runtime.startOrLoad({});
         await runtime.sendPrompt('bridge-streams', { userMessageSeq: 7 });
+        lastObservedMessageSeq = 25; // A later interrupted turn has transcript rows but is not rollback-eligible.
         await (runtime as any).rollbackConversation({ v: 1, target: { type: 'latest_turn' } });
 
         const requestLog = (await readFile(requestLogPath, 'utf8')).trim().split('\n').map((line) => JSON.parse(line));
@@ -12413,7 +12414,7 @@ describe('createCodexAppServerRuntime', () => {
                     {
                         target: { type: 'latest_turn' },
                         startSeqInclusive: 7,
-                        endSeqInclusive: 11,
+                        endSeqInclusive: 25,
                         rolledBackAt: expect.any(Number),
                     },
                 ],

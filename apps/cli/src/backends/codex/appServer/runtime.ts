@@ -5850,7 +5850,10 @@ export function createCodexAppServerRuntime(params: Readonly<{
             }
 
             const target = request.target;
-            const rollbackPlan = turnBoundaryTracker.resolveRollbackPlan(target);
+            const rollbackPlan = turnBoundaryTracker.resolveRollbackPlan(
+                target,
+                params.session.getLastObservedMessageSeq?.(),
+            );
             if (!rollbackPlan) {
                 return { ok: false, errorCode: 'invalid_parameters', errorMessage: 'Rollback target is not available in the active conversation' };
             }

@@ -93,4 +93,41 @@ describe('resolveCodexAppServerRollbackPlan', () => {
             range: { startSeqInclusive: 6, endSeqInclusive: 9 },
         });
     });
+
+    it('includes a later cancelled turn in the transcript range when reverting before a completed turn', () => {
+        const evidence = buildCodexAppServerRollbackEvidenceSet({
+            sessionId: 'session-1',
+            updatedAt: 30,
+            entries: [
+                {
+                    turnId: 'turn-completed',
+                    providerTurnId: 'provider-turn-completed',
+                    status: 'completed',
+                    startedAt: 1,
+                    updatedAt: 10,
+                    transcriptAnchors: { startUserMessageSeq: 10, startSeqInclusive: 10, endSeqInclusive: 20 },
+                    rollback: { state: 'eligible', updatedAt: 10 },
+                },
+                {
+                    turnId: 'turn-cancelled',
+                    providerTurnId: 'provider-turn-cancelled',
+                    status: 'cancelled',
+                    startedAt: 11,
+                    updatedAt: 30,
+                    transcriptAnchors: { startUserMessageSeq: 21, startSeqInclusive: 21, endSeqInclusive: null },
+                    rollback: { state: 'not_eligible', updatedAt: 30 },
+                },
+            ],
+        });
+
+        expect(resolveCodexAppServerRollbackPlan({
+            sessionTurnEvidence: evidence,
+            lastObservedMessageSeq: 25,
+            target: { type: 'before_user_message', userMessageSeq: 10 },
+        })).toMatchObject({
+            numTurns: 1,
+            beforeTurnId: 'provider-turn-completed',
+            range: { startSeqInclusive: 10, endSeqInclusive: 25 },
+        });
+    });
 });

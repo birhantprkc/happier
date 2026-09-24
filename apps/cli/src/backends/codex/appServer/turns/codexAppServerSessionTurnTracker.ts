@@ -808,8 +808,12 @@ export function createCodexAppServerSessionTurnTracker(params: Readonly<{
             activeTurn = null;
         },
 
-        resolveRollbackPlan(target: SessionRollbackTarget): CodexAppServerRollbackPlan | null {
-            return resolveCodexAppServerRollbackPlan({ target, sessionTurnEvidence: readRollbackPlanningEvidence() });
+        resolveRollbackPlan(target: SessionRollbackTarget, lastObservedMessageSeq?: number | null): CodexAppServerRollbackPlan | null {
+            return resolveCodexAppServerRollbackPlan({
+                target,
+                sessionTurnEvidence: readRollbackPlanningEvidence(),
+                lastObservedMessageSeq,
+            });
         },
 
         async markRolledBack(rollbackPlan: CodexAppServerRollbackPlan): Promise<void> {
