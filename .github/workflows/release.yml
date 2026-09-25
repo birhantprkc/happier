@@ -1096,7 +1096,7 @@ jobs:
 
   deploy_ui:
     if: always() && needs.resolve_resume.result == 'success' && needs.deploy_plan.outputs.deploy_ui_resume_complete != 'true' && needs.plan.result == 'success' && needs.prepare_release_candidate.result == 'success' && needs.verify_release_candidates.result == 'success' && inputs.dry_run != true && needs.deploy_plan.outputs.deploy_ui_requested == 'true' && ((inputs.environment == 'production' && needs.promote_main.result == 'success') || (inputs.environment == 'preview' && needs.promote_preview.result == 'success'))
-    needs: [resolve_resume, plan, promote_preview, promote_main, deploy_plan, prepare_release_candidate, verify_release_candidates]
+    needs: [resolve_resume, plan, promote_preview, promote_main, deploy_plan, prepare_release_candidate, verify_release_candidates, publish_cli_binaries]
     permissions:
       contents: write
       actions: write
@@ -1112,6 +1112,7 @@ jobs:
       deploy_web: ${{ needs.deploy_plan.outputs.deploy_ui_web == 'true' }}
       expo_action: ${{ needs.deploy_plan.outputs.deploy_ui_expo_action }}
       desktop_mode: ${{ needs.deploy_plan.outputs.deploy_ui_desktop_mode }}
+      candidate_cli_version: ${{ needs.publish_cli_binaries.result == 'success' && needs.publish_cli_binaries.outputs.version || '' }}
       release_notes_id: ${{ inputs.release_notes_id }}
 
   deploy_server:

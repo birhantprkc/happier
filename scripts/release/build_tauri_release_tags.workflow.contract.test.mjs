@@ -30,9 +30,10 @@ test('desktop publication survives intentionally skipped resume/build ancestors 
     ['build', ['resolve_source']],
     ['finalize', ['resolve_source']],
     ['prepare_assets', ['resolve_source', 'finalize']],
+    ['desktop_setup', ['resolve_source', 'finalize']],
     ['publish_preview', ['resolve_source', 'prepare_assets']],
     ['publish_dev', ['resolve_source', 'prepare_assets']],
-    ['publish_stable_release', ['resolve_source', 'prepare_assets']],
+    ['publish_stable_release', ['resolve_source', 'prepare_assets', 'desktop_setup']],
     ['promote_stable_feed', ['resolve_source']],
   ]) {
     const condition = String(jobs[jobId].if ?? '');

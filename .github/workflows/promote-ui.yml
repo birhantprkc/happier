@@ -119,6 +119,11 @@ on:
         required: false
         default: none
         type: string
+      candidate_cli_version:
+        description: "Published CLI candidate for the desktop setup gate"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -637,5 +642,6 @@ jobs:
       environment: ${{ inputs.environment }}
       source_ref: ${{ needs.promote.outputs.release_sha }}
       publish_release: ${{ inputs.desktop_mode == 'build_and_publish' }}
+      candidate_cli_version: ${{ inputs.candidate_cli_version }}
       release_message: ${{ needs.promote.outputs.release_notes_github_markdown }}
       release_notes_id: ${{ inputs.release_notes_id }}

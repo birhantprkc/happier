@@ -72,58 +72,105 @@ test('a run over the registry budget warns instead of failing; a failed run stil
   assert.throws(() => runDesktopSetupValidation({ ...base, timeBudgetMinutes: undefined, exec: () => {} }), /timeBudgetMinutes/);
 });
 
-test('tests.yml runs a selected desktop-setup on x86_64 with the staged desktop candidate and fails when it has none', async () => {
-  const raw = await readFile(join(repoRoot, '.github', 'workflows', 'tests.yml'), 'utf8');
-  const workflow = YAML.parse(raw, { prettyErrors: true });
-  const inputs = workflow.on.workflow_call.inputs;
-  assert.deepEqual(inputs.run_desktop_setup, { required: false, default: false, type: 'boolean' });
-  assert.deepEqual(inputs.desktop_setup_artifact, { required: false, default: '', type: 'string' });
-  assert.deepEqual(inputs.desktop_setup_cli_ref, { required: false, default: '', type: 'string' });
+const loadWorkflow = async (name) => YAML.parse(await readFile(join(repoRoot, '.github', 'workflows', name), 'utf8'), { prettyErrors: true });
 
-  const job = workflow.jobs['desktop-setup'];
-  assert.ok(job, 'tests.yml must own one desktop-setup job');
-  assert.equal(job.if, '${{ inputs.select_jobs_explicitly && inputs.run_desktop_setup }}');
-  // Linux desktop bundles ship for x86_64 only.
+test('build-tauri gates the production desktop publish on desktop-setup against the just-built Linux bundle', async () => {
+  const workflow = await loadWorkflow('build-tauri.yml');
+  for (const trigger of ['workflow_call', 'workflow_dispatch']) {
+    assert.equal(workflow.on[trigger].inputs.candidate_cli_version?.type, 'string', `${trigger} takes the CLI candidate`);
+    assert.equal(workflow.on[trigger].inputs.candidate_cli_version?.default, '');
+  }
+
+  const job = workflow.jobs.desktop_setup;
+  assert.ok(job, 'build-tauri must own one desktop-setup gate job');
+  assert.deepEqual(job.needs, ['resolve_source', 'finalize']);
+  assert.match(job.if, /!cancelled\(\)/);
+  assert.ok(job.if.includes("needs.resolve_source.result == 'success'"));
+  assert.ok(job.if.includes("needs.finalize.result == 'success'"), 'it consumes the finalized (signed) Linux bundle');
+  // Linux desktop bundles ship for x86_64 only; hosted ubuntu runners are x86_64 with Docker.
   assert.equal(job['runs-on'], 'ubuntu-latest');
-  // A same-run artifact needs no token scope, so no caller of tests.yml has to grant more.
-  assert.equal(job.permissions, undefined);
+  assert.deepEqual(job.permissions, { contents: 'read' });
+  assert.equal(job.environment, undefined, 'the gate must not enter the secret-bearing release environment');
+  assert.doesNotMatch(JSON.stringify(job), /secrets\./, 'the gate needs no secrets');
 
   const steps = job.steps;
-  const guard = steps.findIndex((step) => /DESKTOP_SETUP_ARTIFACT/.test(String(step.run ?? '')) && /exit 1/.test(String(step.run ?? '')));
-  const download = steps.findIndex((step) => String(step.uses ?? '').startsWith('actions/download-artifact@'));
-  const runStep = steps.findIndex((step) => /--suite desktop-setup/.test(String(step.run ?? '')));
-  assert.ok(guard >= 0 && guard < download && download < runStep, 'a selected run without its inputs fails before anything else runs');
-  assert.equal(steps[download].with.name, '${{ inputs.desktop_setup_artifact }}');
-  assert.equal(steps[download].with['run-id'], undefined);
-  const run = String(steps[runStep].run);
+  const checkout = steps.find((step) => String(step.uses ?? '').startsWith('actions/checkout@'));
+  assert.equal(checkout.with.ref, '${{ needs.resolve_source.outputs.source_sha }}', 'the harness matches the hsetup protocol it drives');
+  assert.equal(checkout.with['persist-credentials'], false);
+
+  // The registry is the one selection owner: the job asks it, and every later step follows it.
+  const plan = steps.find((step) => step.id === 'plan');
+  assert.match(String(plan.run), /resolve-validation-plan\.mjs/);
+  assert.match(String(plan.run), /--suite desktop-setup/);
+  assert.match(String(plan.run), /--has-desktop-candidate true/);
+  assert.match(String(plan.run), /--has-cli-candidate "\$\(\[\[ -n "\$CANDIDATE_CLI_VERSION" \]\]/);
+  assert.match(String(plan.run), /--candidate-channel "\$RELEASE_ENVIRONMENT"/);
+  assert.equal(plan.env.CANDIDATE_CLI_VERSION, '${{ inputs.candidate_cli_version }}');
+  assert.equal(plan.env.RELEASE_ENVIRONMENT, '${{ inputs.environment }}');
+  const skipNotice = steps.find((step) => step.if === "steps.plan.outputs.run != 'true'");
+  assert.match(String(skipNotice?.run ?? ''), /::notice/, 'a skip is reported with its reason');
+  assert.match(String(skipNotice.env?.SKIP_REASON ?? ''), /steps\.plan\.outputs\.skip_reason/);
+
+  const download = steps.find((step) => String(step.uses ?? '').startsWith('actions/download-artifact@'));
+  assert.equal(download.with.name, 'tauri-updates-linux-x86_64', 'the same-run bundle finalize uploaded');
+  assert.equal(download.with['run-id'], undefined);
+  const runStep = steps.find((step) => /--suite desktop-setup/.test(String(step.run ?? '')) && /release-validate/.test(String(step.run ?? '')));
+  assert.ok(steps.indexOf(plan) < steps.indexOf(download) && steps.indexOf(download) < steps.indexOf(runStep));
+  for (const step of steps.slice(steps.indexOf(plan) + 1)) {
+    if (step === skipNotice) continue;
+    assert.match(String(step.if ?? ''), /steps\.plan\.outputs\.run == 'true'/, `${step.name} runs only when the registry selects the suite`);
+  }
+  assert.equal(runStep['timeout-minutes'], '${{ fromJSON(steps.plan.outputs.timeout_minutes) }}', 'the hard stop derives from the registry budget');
+  assert.ok(job['timeout-minutes'] > 20, 'the job leaves room for setup around the derived suite timeout');
+  const run = String(runStep.run);
   assert.match(run, /--platform linux/);
   assert.match(run, /--source published-tag/);
-  assert.match(run, /--ref "\$\{DESKTOP_SETUP_CLI_REF\}"/);
+  assert.match(run, /--ref "cli-v\$\{CANDIDATE_CLI_VERSION\}"/);
   assert.match(run, /--desktop-artifact "\$\{desktop_artifact\}"/);
-  assert.equal(steps[runStep].env?.DESKTOP_SETUP_CLI_REF, '${{ inputs.desktop_setup_cli_ref }}');
+  assert.equal(runStep.env.CANDIDATE_CLI_VERSION, '${{ inputs.candidate_cli_version }}');
 
-  // Selected ⇒ must have executed: the collector treats a requested lane GitHub skipped as a failure.
-  assert.match(raw, /REQUEST_RUN_DESKTOP_SETUP: \$\{\{ inputs\.run_desktop_setup \}\}/);
-  assert.match(raw, /REQUEST_RUN_DESKTOP_SETUP: \['desktop-setup'\]/);
+  // The production publish waits for the gate; a failed gate never publishes.
+  const publish = workflow.jobs.publish_stable_release;
+  assert.ok(publish.needs.includes('desktop_setup'));
+  assert.ok(publish.if.includes("needs.desktop_setup.result == 'success'"));
+  const admits = (desktopSetupResult) => Function('needs', 'inputs', 'cancelled', `return ${publish.if.slice(3, -2)}`)(
+    {
+      resolve_source: { result: 'success', outputs: { retry_version: '' } },
+      prepare_assets: { result: 'success' },
+      desktop_setup: { result: desktopSetupResult },
+    },
+    { publish_release: true, environment: 'production' },
+    () => false,
+  );
+  assert.equal(admits('success'), true);
+  for (const result of ['failure', 'cancelled', 'skipped']) assert.equal(admits(result), false, `publish must not follow a ${result} gate`);
 });
 
-test('release-verify stages the candidate desktop build into its own run for desktop-setup', async () => {
-  const workflow = YAML.parse(await readFile(join(repoRoot, '.github', 'workflows', 'release-verify.yml'), 'utf8'), { prettyErrors: true });
-  const stage = workflow.jobs.stage_desktop_candidate;
-  assert.ok(stage, 'one job owns the cross-run download');
-  assert.equal(stage.if, "${{ inputs.candidate_desktop_run_id != '' }}");
-  assert.equal(stage['runs-on'], 'ubuntu-latest');
-  assert.equal(stage.permissions?.actions, 'read');
-  const download = stage.steps.find((step) => String(step.uses ?? '').startsWith('actions/download-artifact@'));
-  assert.equal(download.with['run-id'], '${{ inputs.candidate_desktop_run_id }}');
-  assert.equal(download.with.name, 'tauri-updates-linux-x86_64');
-  assert.equal(download.with['github-token'], '${{ github.token }}');
-  const upload = stage.steps.find((step) => String(step.uses ?? '').startsWith('actions/upload-artifact@'));
-  assert.equal(upload.with.name, 'desktop-setup-candidate');
-  assert.equal(upload.with['if-no-files-found'], 'error');
+test('every desktop release caller passes its CLI candidate to the build-tauri gate', async () => {
+  const release = await loadWorkflow('release.yml');
+  assert.ok(release.jobs.deploy_ui.needs.includes('publish_cli_binaries'));
+  assert.equal(
+    release.jobs.deploy_ui.with.candidate_cli_version,
+    "${{ needs.publish_cli_binaries.result == 'success' && needs.publish_cli_binaries.outputs.version || '' }}",
+  );
+  const promoteUi = await loadWorkflow('promote-ui.yml');
+  assert.equal(promoteUi.on.workflow_call.inputs.candidate_cli_version?.default, '');
+  assert.equal(promoteUi.jobs.desktop.with.candidate_cli_version, '${{ inputs.candidate_cli_version }}');
+  const nightly = await loadWorkflow('nightly-dev.yml');
+  assert.ok(nightly.jobs.ui_desktop.needs.includes('cli'));
+  assert.equal(nightly.jobs.ui_desktop.with.candidate_cli_version, '${{ needs.cli.outputs.version }}');
+});
 
-  const verify = workflow.jobs.verify;
-  assert.ok(verify.needs.includes('stage_desktop_candidate'));
-  assert.match(verify.if, /needs\.stage_desktop_candidate\.result == 'success' \|\| needs\.stage_desktop_candidate\.result == 'skipped'/);
-  assert.equal(verify.with.desktop_setup_artifact, "${{ inputs.candidate_desktop_run_id != '' && 'desktop-setup-candidate' || '' }}");
+test('desktop-setup runs in exactly one place: release verification no longer stages or runs it', async () => {
+  const releaseVerify = await loadWorkflow('release-verify.yml');
+  assert.equal(releaseVerify.on.workflow_call.inputs.candidate_desktop_run_id, undefined);
+  assert.equal(releaseVerify.jobs.stage_desktop_candidate, undefined);
+  assert.doesNotMatch(JSON.stringify(releaseVerify), /desktop.setup|desktop_setup|has-desktop-candidate/);
+
+  const tests = await loadWorkflow('tests.yml');
+  assert.equal(tests.jobs['desktop-setup'], undefined);
+  for (const input of ['run_desktop_setup', 'desktop_setup_artifact', 'desktop_setup_cli_ref']) {
+    assert.equal(tests.on.workflow_call.inputs[input], undefined, `tests.yml must not keep ${input}`);
+  }
+  assert.doesNotMatch(JSON.stringify(tests), /desktop.setup|DESKTOP_SETUP/);
 });

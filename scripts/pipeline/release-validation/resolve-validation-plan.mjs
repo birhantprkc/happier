@@ -6,7 +6,13 @@ import { appendFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { pathToFileURL } from 'node:url';
 
-import { RELEASE_VALIDATION_SUITE_IDS, resolveAutomaticReleaseValidationExecution } from './registry.mjs';
+import {
+  RELEASE_VALIDATION_SUITE_IDS,
+  resolveAutomaticReleaseValidationExecution,
+  resolveReleaseValidationSuite,
+  resolveReleaseValidationSuiteApplicability,
+  resolveReleaseValidationSuiteTimeoutMinutes,
+} from './registry.mjs';
 
 const OUTPUT_KEYS = Object.freeze([
   'run_installers_smoke',
@@ -16,7 +22,6 @@ const OUTPUT_KEYS = Object.freeze([
   'run_daemon_continuity',
   'run_session_continuity',
   'run_release_assets_docker',
-  'run_desktop_setup',
   'run_self_host_systemd',
   'run_self_host_launchd',
   'run_self_host_schtasks',
@@ -31,16 +36,16 @@ const SUITE_OUTPUT_KEYS = Object.freeze({
   'daemon-continuity': 'run_daemon_continuity',
   'session-continuity': 'run_session_continuity',
   'docker-release-assets': 'run_release_assets_docker',
-  'desktop-setup': 'run_desktop_setup',
 });
 const NON_WAIVABLE_SUITES = new Set(['artifact-verify', 'binary-smoke']);
 
 function validateSuiteIds(values, label) {
   const ids = [...new Set(values ?? [])];
   for (const id of ids) {
-    if (!RELEASE_VALIDATION_SUITE_IDS.includes(id) || !Object.hasOwn(SUITE_OUTPUT_KEYS, id)) {
-      throw new Error(`Unknown release validation suite in ${label}: ${id}`);
-    }
+    if (!RELEASE_VALIDATION_SUITE_IDS.includes(id)) throw new Error(`Unknown release validation suite in ${label}: ${id}`);
+    // A registered suite without a tests.yml lane (desktop-setup gates build-tauri.yml) cannot be
+    // included or waived here: honouring the request would report coverage nothing runs.
+    if (!Object.hasOwn(SUITE_OUTPUT_KEYS, id)) throw new Error(`Release validation suite ${id} is not run by release verification (${label})`);
   }
   return ids;
 }
@@ -66,8 +71,6 @@ function bool(value, label) {
  *   profileId: string;
  *   hasCliCandidate: boolean;
  *   hasServerCandidate: boolean;
- *   hasDesktopCandidate?: boolean;
- *   candidateChannel?: string;
  *   hasPublishedRelayPredecessor: boolean;
  *   risks: { cliUpgrade: boolean; sessionContinuity: boolean; relayUpgrade: boolean };
  *   includeSuiteIds?: string[];
@@ -79,8 +82,6 @@ export function resolveReleaseValidationPlan(input) {
   const execution = resolveAutomaticReleaseValidationExecution(input.profileId, {
     hasCliCandidate: input.hasCliCandidate,
     hasServerCandidate: input.hasServerCandidate,
-    hasDesktopCandidate: input.hasDesktopCandidate === true,
-    candidateChannel: input.candidateChannel,
     hasPublishedRelayPredecessor: input.hasPublishedRelayPredecessor,
     risks: input.risks,
   });
@@ -96,7 +97,6 @@ export function resolveReleaseValidationPlan(input) {
     run_daemon_continuity: 'false',
     run_session_continuity: String(automatic.has('session-continuity')),
     run_release_assets_docker: String(automatic.has('docker-release-assets')),
-    run_desktop_setup: String(automatic.has('desktop-setup')),
     run_self_host_systemd: 'false',
     run_self_host_launchd: 'false',
     run_self_host_schtasks: 'false',
@@ -109,10 +109,37 @@ export function resolveReleaseValidationPlan(input) {
   };
 }
 
+/**
+ * One suite that gates a component build rather than release verification (build-tauri.yml runs
+ * desktop-setup on its just-finalized Linux bundle). Selection comes from the same registry rule
+ * as every profile suite; the hard stop derives from the suite's registry budget.
+ * @param {{
+ *   suiteId: string;
+ *   hasCliCandidate: boolean;
+ *   hasDesktopCandidate: boolean;
+ *   candidateChannel: string;
+ * }} input
+ */
+export function resolveReleaseValidationSuiteGate(input) {
+  const suite = resolveReleaseValidationSuite(input.suiteId);
+  if (!suite) throw new Error(`Unknown release validation suite: ${input.suiteId}`);
+  const { selected, skipReason } = resolveReleaseValidationSuiteApplicability(suite.id, {
+    hasCliCandidate: input.hasCliCandidate,
+    hasDesktopCandidate: input.hasDesktopCandidate,
+    candidateChannel: input.candidateChannel,
+  });
+  return {
+    run: String(selected),
+    skip_reason: skipReason ?? '',
+    timeout_minutes: String(resolveReleaseValidationSuiteTimeoutMinutes(suite)),
+  };
+}
+
 /** @param {string[]} [argv] */
 export async function main(argv = process.argv.slice(2)) {
   const options = {
     profile: { type: 'string', default: '' },
+    suite: { type: 'string', default: '' },
     'has-cli-candidate': { type: 'string', default: 'false' },
     'has-server-candidate': { type: 'string', default: 'false' },
     'has-desktop-candidate': { type: 'string', default: 'false' },
@@ -126,13 +153,29 @@ export async function main(argv = process.argv.slice(2)) {
     'github-output': { type: 'string', default: '' },
   };
   const { values } = parseArgs({ args: argv, options, allowPositionals: false });
+  const githubOutput = String(values['github-output'] ?? '');
+  const suiteId = String(values.suite ?? '').trim();
+  if (suiteId) {
+    if (String(values.profile ?? '').trim()) throw new Error('--suite and --profile are exclusive');
+    const gate = resolveReleaseValidationSuiteGate({
+      suiteId,
+      hasCliCandidate: bool(values['has-cli-candidate'], '--has-cli-candidate'),
+      hasDesktopCandidate: bool(values['has-desktop-candidate'], '--has-desktop-candidate'),
+      candidateChannel: String(values['candidate-channel'] ?? '').trim(),
+    });
+    if (gate.run !== 'true') process.stderr.write(`release-validation: skipped ${suiteId} (${gate.skip_reason})\n`);
+    if (githubOutput) appendFileSync(githubOutput, `${Object.entries(gate).map(([key, value]) => `${key}=${value}`).join('\n')}\n`, 'utf8');
+    else process.stdout.write(`${JSON.stringify(gate)}\n`);
+    return gate;
+  }
+  if (bool(values['has-desktop-candidate'], '--has-desktop-candidate') || String(values['candidate-channel'] ?? '').trim()) {
+    throw new Error('--has-desktop-candidate and --candidate-channel apply only to --suite (desktop-setup gates build-tauri.yml)');
+  }
   const csv = (value) => String(value ?? '').split(',').map((item) => item.trim()).filter(Boolean);
   const result = resolveReleaseValidationPlan({
     profileId: String(values.profile ?? ''),
     hasCliCandidate: bool(values['has-cli-candidate'], '--has-cli-candidate'),
     hasServerCandidate: bool(values['has-server-candidate'], '--has-server-candidate'),
-    hasDesktopCandidate: bool(values['has-desktop-candidate'], '--has-desktop-candidate'),
-    candidateChannel: String(values['candidate-channel'] ?? '').trim(),
     hasPublishedRelayPredecessor: bool(values['has-published-relay-predecessor'], '--has-published-relay-predecessor'),
     risks: {
       cliUpgrade: bool(values['risk-cli-upgrade'], '--risk-cli-upgrade'),
@@ -149,7 +192,6 @@ export async function main(argv = process.argv.slice(2)) {
   ].join('\n');
   // Visible in the job log, not only in outputs: an unexecutable suite reads "skipped (reason)".
   for (const entry of result.skippedSuites) process.stderr.write(`release-validation: skipped ${entry}\n`);
-  const githubOutput = String(values['github-output'] ?? '');
   if (githubOutput) appendFileSync(githubOutput, `${lines}\n`, 'utf8');
   else process.stdout.write(`${JSON.stringify(result)}\n`);
   return result;
