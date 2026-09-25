@@ -210,6 +210,24 @@ That picker is dynamic:
 
 If no compatible connected profile exists for a service, Happier keeps that service on native auth and offers a shortcut to open Connected services settings.
 
+## Claude configuration sharing
+
+In development builds with the configuration-sharing correction, Claude connected
+accounts and pools honor the configured sharing mode. Linked configuration is the
+default: shareable entries such as skills, hooks and settings point to the machine's
+native Claude configuration, including a custom `CLAUDE_CONFIG_DIR` when configured.
+File changes are visible through those links without reconnecting the account.
+Claude may still need to reload a setting before using its new value.
+
+Copied configuration is refreshed whenever Happier materializes the account home,
+even when its credential has not changed. Isolated configuration imports none of
+these entries. On systems where a configuration link cannot be created, Happier
+falls back to copying that entry.
+
+Credentials and account metadata remain separate from configuration sharing.
+Session-history sharing follows its own setting; changing configuration sharing
+does not opt in to workspace trust or change that history policy.
+
 ## Connected services and browsing sessions (Codex)
 
 For some providers, your connected-service choice affects which provider “home” Happier should use for session browsing.
