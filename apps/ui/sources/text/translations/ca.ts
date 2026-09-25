@@ -9032,7 +9032,6 @@ settingsSession: {
         sections: {
             thisApp: 'Aquesta app',
             thisComputer: 'Aquest ordinador',
-            thisComputerNamed: ({ name }: { name: string }) => `Aquest ordinador · ${name}`,
             machine: 'Màquina',
         },
         offline: 'Sense connexió',
@@ -9062,7 +9061,6 @@ settingsSession: {
             updating: 'Actualitzant…',
             keepWorking: 'Pots continuar treballant.',
             ready: 'Reinicia per acabar d’actualitzar Happier',
-            failed: 'Una actualització no ha acabat',
             failedCount: ({ count }: { count: number }) => plural({ count, singular: '1 actualització no ha acabat', plural: `${count} actualitzacions no han acabat` }),
             notCheckedYet: 'Encara no comprovat',
             required: 'Cal una actualització',
@@ -9088,7 +9086,6 @@ settingsSession: {
         action: {
             update: 'Actualitza',
             updateAll: 'Actualitza-ho tot',
-            retry: 'Torna-ho a provar',
             restart: 'Reinicia per actualitzar',
             reload: 'Recarrega',
             storeIos: 'Actualitza a l’App Store',
@@ -9098,7 +9095,6 @@ settingsSession: {
             skipVersion: 'Omet aquesta versió',
             openUpdates: 'Obre Actualitzacions',
             whatsNew: 'Novetats',
-            copyCommand: 'Copia l’ordre',
             viewLog: 'Mostra el registre',
         },
         row: {
@@ -9122,7 +9118,6 @@ settingsSession: {
             rolledBack: ({ kept, target }: { kept: string; target: string }) => `${target} no s’ha iniciat en aquesta màquina, així que continua amb la ${kept}.`,
             installedByYou: 'Instal·lat per tu',
             updateItYourWay: 'Actualitza’l de la mateixa manera que el vas instal·lar.',
-            runCommand: 'Executa això en aquell ordinador:',
             offline: 'No es pot actualitzar sense connexió',
             skipped: ({ version }: { version: string }) => `${version} omesa`,
             checking: 'Comprovant…',

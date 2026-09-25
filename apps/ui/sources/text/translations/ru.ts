@@ -9616,7 +9616,6 @@ settingsSession: {
     sections: {
       thisApp: "Это приложение",
       thisComputer: "Этот компьютер",
-      thisComputerNamed: ({ name }: { name: string }) => `Этот компьютер · ${name}`,
       machine: "Машина",
     },
     offline: "Не в сети",
@@ -9646,7 +9645,6 @@ settingsSession: {
       updating: "Обновление…",
       keepWorking: "Можно продолжать работу.",
       ready: "Перезапустите, чтобы завершить обновление Happier",
-      failed: "Одно из обновлений не завершилось",
       failedCount: ({ count }: { count: number }) => plural({ count, one: `${count} обновление не завершилось`, few: `${count} обновления не завершились`, many: `${count} обновлений не завершились` }),
       notCheckedYet: "Ещё не проверено",
       required: "Требуется обновление",
@@ -9672,7 +9670,6 @@ settingsSession: {
     action: {
       update: "Обновить",
       updateAll: "Обновить всё",
-      retry: "Повторить",
       restart: "Перезапустить для обновления",
       reload: "Перезагрузить",
       storeIos: "Обновить в App Store",
@@ -9682,7 +9679,6 @@ settingsSession: {
       skipVersion: "Пропустить эту версию",
       openUpdates: "Открыть обновления",
       whatsNew: "Что нового",
-      copyCommand: "Скопировать команду",
       viewLog: "Показать журнал",
     },
     row: {
@@ -9706,7 +9702,6 @@ settingsSession: {
       rolledBack: ({ kept, target }: { kept: string; target: string }) => `Версия ${target} не запустилась на этой машине, поэтому осталась ${kept}.`,
       installedByYou: "Установлено вами",
       updateItYourWay: "Обновите тем же способом, которым устанавливали.",
-      runCommand: "Выполните это на том компьютере:",
       offline: "Нельзя обновить без сети",
       skipped: ({ version }: { version: string }) => `Версия ${version} пропущена`,
       checking: "Проверка…",

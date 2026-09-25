@@ -9126,7 +9126,6 @@ settingsSession: {
         sections: {
             thisApp: 'This app',
             thisComputer: 'This computer',
-            thisComputerNamed: ({ name }: { name: string }) => `This computer · ${name}`,
             machine: 'Machine',
         },
         offline: 'Offline',
@@ -9156,7 +9155,6 @@ settingsSession: {
             updating: 'Updating…',
             keepWorking: 'You can keep working.',
             ready: 'Restart to finish updating Happier',
-            failed: 'An update didn’t finish',
             failedCount: ({ count }: { count: number }) => plural({ count, singular: '1 update didn’t finish', plural: `${count} updates didn’t finish` }),
             notCheckedYet: 'Not checked yet',
             required: 'An update is required',
@@ -9182,7 +9180,6 @@ settingsSession: {
         action: {
             update: 'Update',
             updateAll: 'Update all',
-            retry: 'Retry',
             restart: 'Restart to update',
             reload: 'Reload',
             storeIos: 'Update in App Store',
@@ -9192,7 +9189,6 @@ settingsSession: {
             skipVersion: 'Skip this version',
             openUpdates: 'Open Updates',
             whatsNew: 'What’s new',
-            copyCommand: 'Copy command',
             viewLog: 'View log',
         },
         row: {
@@ -9216,7 +9212,6 @@ settingsSession: {
             rolledBack: ({ kept, target }: { kept: string; target: string }) => `${target} didn’t start on this machine, so it’s still on ${kept}.`,
             installedByYou: 'Installed by you',
             updateItYourWay: 'Update it the way you installed it.',
-            runCommand: 'Run this on that computer:',
             offline: 'Can’t update while offline',
             skipped: ({ version }: { version: string }) => `${version} skipped`,
             checking: 'Checking…',

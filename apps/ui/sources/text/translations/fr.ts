@@ -9083,7 +9083,6 @@ settingsSession: {
         sections: {
             thisApp: 'Cette app',
             thisComputer: 'Cet ordinateur',
-            thisComputerNamed: ({ name }: { name: string }) => `Cet ordinateur · ${name}`,
             machine: 'Machine',
         },
         offline: 'Hors ligne',
@@ -9113,7 +9112,6 @@ settingsSession: {
             updating: 'Mise à jour…',
             keepWorking: 'Tu peux continuer à travailler.',
             ready: 'Redémarre pour terminer la mise à jour de Happier',
-            failed: 'Une mise à jour n’a pas abouti',
             failedCount: ({ count }: { count: number }) => plural({ count, singular: '1 mise à jour n’a pas abouti', plural: `${count} mises à jour n’ont pas abouti` }),
             notCheckedYet: 'Pas encore vérifié',
             required: 'Une mise à jour est requise',
@@ -9139,7 +9137,6 @@ settingsSession: {
         action: {
             update: 'Mettre à jour',
             updateAll: 'Tout mettre à jour',
-            retry: 'Réessayer',
             restart: 'Redémarrer pour mettre à jour',
             reload: 'Recharger',
             storeIos: 'Mettre à jour dans l’App Store',
@@ -9149,7 +9146,6 @@ settingsSession: {
             skipVersion: 'Ignorer cette version',
             openUpdates: 'Ouvrir les mises à jour',
             whatsNew: 'Nouveautés',
-            copyCommand: 'Copier la commande',
             viewLog: 'Voir le journal',
         },
         row: {
@@ -9173,7 +9169,6 @@ settingsSession: {
             rolledBack: ({ kept, target }: { kept: string; target: string }) => `${target} n’a pas démarré sur cette machine, elle reste donc en version ${kept}.`,
             installedByYou: 'Installé par toi',
             updateItYourWay: 'Mets-le à jour de la même façon que tu l’as installé.',
-            runCommand: 'Exécute ceci sur l’ordinateur concerné :',
             offline: 'Mise à jour impossible hors ligne',
             skipped: ({ version }: { version: string }) => `${version} ignorée`,
             checking: 'Vérification…',

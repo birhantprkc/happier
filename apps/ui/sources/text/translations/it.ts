@@ -9979,7 +9979,6 @@ settingsSession: {
     sections: {
       thisApp: "Questa app",
       thisComputer: "Questo computer",
-      thisComputerNamed: ({ name }: { name: string }) => `Questo computer · ${name}`,
       machine: "Macchina",
     },
     offline: "Offline",
@@ -10009,7 +10008,6 @@ settingsSession: {
       updating: "Aggiornamento…",
       keepWorking: "Puoi continuare a lavorare.",
       ready: "Riavvia per completare l’aggiornamento di Happier",
-      failed: "Un aggiornamento non è stato completato",
       failedCount: ({ count }: { count: number }) => plural({ count, singular: "1 aggiornamento non è stato completato", plural: `${count} aggiornamenti non sono stati completati` }),
       notCheckedYet: "Non ancora controllato",
       required: "È necessario un aggiornamento",
@@ -10035,7 +10033,6 @@ settingsSession: {
     action: {
       update: "Aggiorna",
       updateAll: "Aggiorna tutto",
-      retry: "Riprova",
       restart: "Riavvia per aggiornare",
       reload: "Ricarica",
       storeIos: "Aggiorna nell’App Store",
@@ -10045,7 +10042,6 @@ settingsSession: {
       skipVersion: "Salta questa versione",
       openUpdates: "Apri Aggiornamenti",
       whatsNew: "Novità",
-      copyCommand: "Copia comando",
       viewLog: "Visualizza log",
     },
     row: {
@@ -10069,7 +10065,6 @@ settingsSession: {
       rolledBack: ({ kept, target }: { kept: string; target: string }) => `${target} non si è avviata su questa macchina, quindi resta alla ${kept}.`,
       installedByYou: "Installato da te",
       updateItYourWay: "Aggiornalo nello stesso modo in cui l’hai installato.",
-      runCommand: "Esegui questo su quel computer:",
       offline: "Impossibile aggiornare offline",
       skipped: ({ version }: { version: string }) => `${version} saltata`,
       checking: "Controllo…",

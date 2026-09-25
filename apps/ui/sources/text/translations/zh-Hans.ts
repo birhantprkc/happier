@@ -9296,7 +9296,6 @@ settingsSession: {
     sections: {
       thisApp: "此应用",
       thisComputer: "此电脑",
-      thisComputerNamed: ({ name }: { name: string }) => `此电脑 · ${name}`,
       machine: "机器",
     },
     offline: "离线",
@@ -9326,7 +9325,6 @@ settingsSession: {
       updating: "正在更新…",
       keepWorking: "你可以继续工作。",
       ready: "重启以完成 Happier 的更新",
-      failed: "有更新未完成",
       failedCount: ({ count }: { count: number }) => `${count} 个更新未完成`,
       notCheckedYet: "尚未检查",
       required: "需要更新",
@@ -9352,7 +9350,6 @@ settingsSession: {
     action: {
       update: "更新",
       updateAll: "全部更新",
-      retry: "重试",
       restart: "重启以更新",
       reload: "重新加载",
       storeIos: "在 App Store 中更新",
@@ -9362,7 +9359,6 @@ settingsSession: {
       skipVersion: "跳过此版本",
       openUpdates: "打开更新",
       whatsNew: "新功能",
-      copyCommand: "复制命令",
       viewLog: "查看日志",
     },
     row: {
@@ -9386,7 +9382,6 @@ settingsSession: {
       rolledBack: ({ kept, target }: { kept: string; target: string }) => `${target} 未能在这台机器上启动，因此仍保持 ${kept}。`,
       installedByYou: "由你安装",
       updateItYourWay: "请按你安装时的方式进行更新。",
-      runCommand: "在那台电脑上运行：",
       offline: "离线时无法更新",
       skipped: ({ version }: { version: string }) => `已跳过 ${version}`,
       checking: "正在检查…",

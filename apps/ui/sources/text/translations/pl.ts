@@ -9657,7 +9657,6 @@ settingsSession: {
     sections: {
       thisApp: "Ta aplikacja",
       thisComputer: "Ten komputer",
-      thisComputerNamed: ({ name }: { name: string }) => `Ten komputer · ${name}`,
       machine: "Maszyna",
     },
     offline: "Offline",
@@ -9687,7 +9686,6 @@ settingsSession: {
       updating: "Aktualizowanie…",
       keepWorking: "Możesz dalej pracować.",
       ready: "Uruchom ponownie, aby dokończyć aktualizację Happier",
-      failed: "Jedna z aktualizacji nie została ukończona",
       failedCount: ({ count }: { count: number }) => plural({ count, one: `${count} aktualizacja nie została ukończona`, few: `${count} aktualizacje nie zostały ukończone`, many: `${count} aktualizacji nie zostało ukończonych` }),
       notCheckedYet: "Jeszcze nie sprawdzono",
       required: "Wymagana jest aktualizacja",
@@ -9713,7 +9711,6 @@ settingsSession: {
     action: {
       update: "Aktualizuj",
       updateAll: "Aktualizuj wszystko",
-      retry: "Spróbuj ponownie",
       restart: "Uruchom ponownie, aby zaktualizować",
       reload: "Odśwież",
       storeIos: "Aktualizuj w App Store",
@@ -9723,7 +9720,6 @@ settingsSession: {
       skipVersion: "Pomiń tę wersję",
       openUpdates: "Otwórz Aktualizacje",
       whatsNew: "Co nowego",
-      copyCommand: "Kopiuj polecenie",
       viewLog: "Pokaż dziennik",
     },
     row: {
@@ -9747,7 +9743,6 @@ settingsSession: {
       rolledBack: ({ kept, target }: { kept: string; target: string }) => `Wersja ${target} nie uruchomiła się na tej maszynie, więc nadal działa ${kept}.`,
       installedByYou: "Zainstalowane przez Ciebie",
       updateItYourWay: "Zaktualizuj tak samo, jak przy instalacji.",
-      runCommand: "Uruchom to na tamtym komputerze:",
       offline: "Nie można aktualizować offline",
       skipped: ({ version }: { version: string }) => `Pominięto ${version}`,
       checking: "Sprawdzanie…",

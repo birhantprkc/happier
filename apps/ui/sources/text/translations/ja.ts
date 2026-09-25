@@ -9884,7 +9884,6 @@ settingsSession: {
     sections: {
       thisApp: "このアプリ",
       thisComputer: "このコンピュータ",
-      thisComputerNamed: ({ name }: { name: string }) => `このコンピュータ · ${name}`,
       machine: "マシン",
     },
     offline: "オフライン",
@@ -9914,7 +9913,6 @@ settingsSession: {
       updating: "アップデート中…",
       keepWorking: "そのまま作業を続けられます。",
       ready: "再起動して Happier のアップデートを完了",
-      failed: "完了しなかったアップデートがあります",
       failedCount: ({ count }: { count: number }) => `${count} 件のアップデートが完了しませんでした`,
       notCheckedYet: "未確認",
       required: "アップデートが必要です",
@@ -9940,7 +9938,6 @@ settingsSession: {
     action: {
       update: "アップデート",
       updateAll: "すべてアップデート",
-      retry: "再試行",
       restart: "再起動してアップデート",
       reload: "再読み込み",
       storeIos: "App Store でアップデート",
@@ -9950,7 +9947,6 @@ settingsSession: {
       skipVersion: "このバージョンをスキップ",
       openUpdates: "アップデートを開く",
       whatsNew: "新機能",
-      copyCommand: "コマンドをコピー",
       viewLog: "ログを表示",
     },
     row: {
@@ -9974,7 +9970,6 @@ settingsSession: {
       rolledBack: ({ kept, target }: { kept: string; target: string }) => `${target} はこのマシンで起動しなかったため、${kept} のままです。`,
       installedByYou: "ユーザーがインストール",
       updateItYourWay: "インストールしたときと同じ方法でアップデートしてください。",
-      runCommand: "対象のコンピュータで次を実行してください:",
       offline: "オフライン中はアップデートできません",
       skipped: ({ version }: { version: string }) => `${version} をスキップしました`,
       checking: "確認中…",

@@ -9096,7 +9096,6 @@ settingsSession: {
         sections: {
             thisApp: 'Diese App',
             thisComputer: 'Dieser Computer',
-            thisComputerNamed: ({ name }: { name: string }) => `Dieser Computer · ${name}`,
             machine: 'Rechner',
         },
         offline: 'Offline',
@@ -9126,7 +9125,6 @@ settingsSession: {
             updating: 'Wird aktualisiert…',
             keepWorking: 'Du kannst weiterarbeiten.',
             ready: 'Neu starten, um das Update von Happier abzuschließen',
-            failed: 'Ein Update wurde nicht abgeschlossen',
             failedCount: ({ count }: { count: number }) => plural({ count, singular: '1 Update wurde nicht abgeschlossen', plural: `${count} Updates wurden nicht abgeschlossen` }),
             notCheckedYet: 'Noch nicht geprüft',
             required: 'Ein Update ist erforderlich',
@@ -9152,7 +9150,6 @@ settingsSession: {
         action: {
             update: 'Aktualisieren',
             updateAll: 'Alle aktualisieren',
-            retry: 'Erneut versuchen',
             restart: 'Neu starten zum Aktualisieren',
             reload: 'Neu laden',
             storeIos: 'Im App Store aktualisieren',
@@ -9162,7 +9159,6 @@ settingsSession: {
             skipVersion: 'Diese Version überspringen',
             openUpdates: 'Updates öffnen',
             whatsNew: 'Was ist neu',
-            copyCommand: 'Befehl kopieren',
             viewLog: 'Protokoll anzeigen',
         },
         row: {
@@ -9186,7 +9182,6 @@ settingsSession: {
             rolledBack: ({ kept, target }: { kept: string; target: string }) => `${target} ist auf diesem Rechner nicht gestartet, daher bleibt er bei ${kept}.`,
             installedByYou: 'Von dir installiert',
             updateItYourWay: 'Aktualisiere es auf dem Weg, auf dem du es installiert hast.',
-            runCommand: 'Führe dies auf dem betreffenden Computer aus:',
             offline: 'Offline kein Update möglich',
             skipped: ({ version }: { version: string }) => `${version} übersprungen`,
             checking: 'Wird geprüft…',

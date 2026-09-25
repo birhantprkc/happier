@@ -9664,7 +9664,6 @@ settingsSession: {
     sections: {
       thisApp: "Esta app",
       thisComputer: "Este ordenador",
-      thisComputerNamed: ({ name }: { name: string }) => `Este ordenador · ${name}`,
       machine: "Máquina",
     },
     offline: "Sin conexión",
@@ -9694,7 +9693,6 @@ settingsSession: {
       updating: "Actualizando…",
       keepWorking: "Puedes seguir trabajando.",
       ready: "Reinicia para terminar de actualizar Happier",
-      failed: "Una actualización no terminó",
       failedCount: ({ count }: { count: number }) => plural({ count, singular: "1 actualización no terminó", plural: `${count} actualizaciones no terminaron` }),
       notCheckedYet: "Aún sin comprobar",
       required: "Se necesita una actualización",
@@ -9720,7 +9718,6 @@ settingsSession: {
     action: {
       update: "Actualizar",
       updateAll: "Actualizar todo",
-      retry: "Reintentar",
       restart: "Reiniciar para actualizar",
       reload: "Recargar",
       storeIos: "Actualizar en App Store",
@@ -9730,7 +9727,6 @@ settingsSession: {
       skipVersion: "Omitir esta versión",
       openUpdates: "Abrir Actualizaciones",
       whatsNew: "Novedades",
-      copyCommand: "Copiar comando",
       viewLog: "Ver registro",
     },
     row: {
@@ -9754,7 +9750,6 @@ settingsSession: {
       rolledBack: ({ kept, target }: { kept: string; target: string }) => `${target} no arrancó en esta máquina, así que sigue en ${kept}.`,
       installedByYou: "Instalado por ti",
       updateItYourWay: "Actualízalo de la misma forma en que lo instalaste.",
-      runCommand: "Ejecuta esto en ese ordenador:",
       offline: "No se puede actualizar sin conexión",
       skipped: ({ version }: { version: string }) => `${version} omitida`,
       checking: "Comprobando…",
