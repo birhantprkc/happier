@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/text', async () => {
     const { createTextModuleMock } = await import('@/dev/testkit/mocks/text');
-    return createTextModuleMock();
+    return createTextModuleMock({ translate: (key: string, params?: Record<string, unknown>) => (params ? `${key}:${JSON.stringify(params)}` : key) });
 });
 
 import {
@@ -116,6 +116,14 @@ describe('another machine — Happier CLI row (K5)', () => {
             remoteUpdateAdvertised: true, task: IDLE_TASK,
         });
         expect(failedSilently).toMatchObject({ state: 'failed', failure: { kind: 'message', message: 'updates.row.failedGeneric' }, action: { kind: 'run', verb: 'retry' } });
+
+        const couldNotStart = buildRemoteCliUpdateItem({
+            machineId: 'm2', title: 'Happier CLI', online: true, platform: 'darwin', happyCliVersion: '0.2.9',
+            facts: { ...k5, lastUpdate: { targetVersion: null, outcome: 'failed', at: 1, message: 'no release for this channel' } },
+            remoteUpdateAdvertised: true, task: IDLE_TASK,
+        });
+        expect(couldNotStart).toMatchObject({ state: 'failed', action: { kind: 'run', verb: 'retry' } });
+        expect(couldNotStart.failure).toEqual({ kind: 'message', message: 'updates.row.couldNotStart:{"message":"no release for this channel"}' });
 
         const reconnecting = buildRemoteCliUpdateItem({
             machineId: 'm2', title: 'Happier CLI', online: true, platform: 'darwin', happyCliVersion: '0.2.9',

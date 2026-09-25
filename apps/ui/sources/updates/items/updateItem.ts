@@ -45,7 +45,8 @@ export type UpdateItemAction =
 
 /** Which step is running, when the producer says, for the row's one-line status. */
 /** `reconnecting`: installed on another machine, waiting for it to come back (K5 `pendingReconnect`). */
-export type UpdateItemStep = 'downloading' | 'installing' | 'restarting' | 'restartingService' | 'reconnecting' | null;
+/** `lostConnection`: the machine stopped answering before its update task reported; it may still be updating. */
+export type UpdateItemStep = 'downloading' | 'installing' | 'restarting' | 'restartingService' | 'reconnecting' | 'lostConnection' | null;
 
 /** Why the last attempt did not finish, as a key the row maps to one sentence. */
 export type UpdateItemFailure =

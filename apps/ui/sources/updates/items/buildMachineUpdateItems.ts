@@ -161,7 +161,7 @@ export function buildRemoteCliUpdateItem(params: Readonly<{
             // Installed and restarting there: waiting to reconnect is not failure.
             return { ...item, state: 'running', step: 'reconnecting' };
         }
-        if (last.outcome === 'rolledBack' && currentVersion) {
+        if (last.outcome === 'rolledBack' && currentVersion && last.targetVersion) {
             return {
                 ...item,
                 state: 'failed',
@@ -173,7 +173,13 @@ export function buildRemoteCliUpdateItem(params: Readonly<{
             return {
                 ...item,
                 state: 'failed',
-                failure: { kind: 'message', message: last.message ?? t('updates.row.failedGeneric') },
+                // `targetVersion: null` — no release was resolved, so nothing was activated.
+                failure: {
+                    kind: 'message',
+                    message: last.targetVersion == null
+                        ? t('updates.row.couldNotStart', { message: last.message ?? t('updates.row.failedGeneric') })
+                        : last.message ?? t('updates.row.failedGeneric'),
+                },
                 action: params.remoteUpdateAdvertised !== false ? { kind: 'run', verb: 'retry' } : { kind: 'none' },
             };
         }
@@ -236,6 +242,23 @@ export function buildAgentCliUpdateItem(params: Readonly<{
         manual: userManaged ? { kind: 'manual', command } : null,
     });
     return updateSupported && installSource === 'native' ? { ...resolved, vendorUpdater: true } : resolved;
+}
+
+/** An agent CLI or helper whose detect errored on that machine: listed, versionless, "Couldn't check". */
+export function buildProbeFailedItem(params: Readonly<{
+    machineId: string;
+    subject: Extract<UpdateItem['subject'], { kind: 'agent-cli' | 'installable' }>;
+    title: string;
+    online: boolean;
+}>): UpdateItem {
+    const item = baseItem({
+        machineId: params.machineId,
+        subject: params.subject,
+        title: params.title,
+        currentVersion: null,
+        latestVersion: null,
+    });
+    return params.online ? { ...item, state: 'unknown', failure: { kind: 'latestUnknown' } } : { ...item, state: 'offline' };
 }
 
 /** A helper installable (GitHub CLI, codex-acp, …) from the installables registry's detect data. */
