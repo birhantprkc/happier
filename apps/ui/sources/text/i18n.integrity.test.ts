@@ -89,6 +89,8 @@ const IGNORED_UNTRANSLATED_KEYS_BY_LOCALE: Readonly<Record<string, ReadonlySet<s
     // A key here is a decision, not a gap; translating one of them would make the UI read worse.
     fr: new Set([
         'machine.thisComputer.cliChannelStable',
+        // "Machine" is the French word for a computer here, not an untranslated fallback.
+        'updates.sections.machine',
         'agentInput.acp.modeSectionTitle',
         'agentInput.acp.optionsSectionTitle',
         'agentInput.actionMenu.title',
