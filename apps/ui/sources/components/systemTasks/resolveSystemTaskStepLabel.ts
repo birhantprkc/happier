@@ -5,6 +5,7 @@ const SYSTEM_TASK_STEP_TRANSLATION_KEYS: Readonly<Record<string, TranslationKey>
     'task.step.installRuntime': 'settings.systemTaskStepInstallRuntime',
     'task.step.finish': 'settings.systemTaskStepFinish',
     'install.runtime': 'settings.systemTaskStepInstallRuntime',
+    'setup.thisComputer.cliChoice': 'settings.machineSetupStageInstall',
     'setup.thisComputer.ensureCli': 'settings.machineSetupStageInstall',
     'setup.thisComputer.inspectService': 'settings.machineSetupStageConnect',
     'setup.thisComputer.serviceConsent': 'settings.machineSetupStageConnect',

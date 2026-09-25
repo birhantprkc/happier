@@ -31,11 +31,18 @@ pub const SHOW_MAIN_WINDOW_MENU_ID: &str = "show-main-window";
 /// Quits the app through `app.exit`, the only quit that reaches the shutdown handoff.
 #[cfg(desktop)]
 pub const QUIT_APP_MENU_ID: &str = "quit-app";
+/// Reveals the main window at Settings › Updates (the tray's optional "Updates" item).
+#[cfg(desktop)]
+pub const OPEN_UPDATES_MENU_ID: &str = "open-updates";
+/// Tells the main webview to navigate to Settings › Updates; the webview owns routing.
+#[cfg(desktop)]
+pub const OPEN_UPDATES_REQUESTED_EVENT: &str = "desktop_open_updates_requested";
 
 #[cfg(desktop)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DesktopMenuAction {
     ShowMainWindow,
+    OpenUpdates,
     QuitApp,
 }
 
@@ -45,6 +52,7 @@ pub enum DesktopMenuAction {
 pub fn resolve_desktop_menu_action(menu_item_id: &str) -> Option<DesktopMenuAction> {
     match menu_item_id {
         SHOW_MAIN_WINDOW_MENU_ID => Some(DesktopMenuAction::ShowMainWindow),
+        OPEN_UPDATES_MENU_ID => Some(DesktopMenuAction::OpenUpdates),
         QUIT_APP_MENU_ID => Some(DesktopMenuAction::QuitApp),
         _ => None,
     }
@@ -56,6 +64,17 @@ pub fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
         Some(DesktopMenuAction::ShowMainWindow) => {
             if let Err(error) = crate::window_chrome::show_main_window(app) {
                 log::warn!("failed to show the main window from a menu command: {error}");
+            }
+        }
+        Some(DesktopMenuAction::OpenUpdates) => {
+            use tauri::{Emitter, Manager};
+            if let Some(window) = app.get_webview_window("main") {
+                if let Err(error) = window.emit(OPEN_UPDATES_REQUESTED_EVENT, ()) {
+                    log::warn!("failed to ask the main window to open Updates: {error}");
+                }
+            }
+            if let Err(error) = crate::window_chrome::show_main_window(app) {
+                log::warn!("failed to show the main window for Updates: {error}");
             }
         }
         // Held once by `crate::shutdown` so the webview can honour the background-service
@@ -183,6 +202,14 @@ mod tests {
         assert_eq!(
             resolve_desktop_menu_action(SHOW_MAIN_WINDOW_MENU_ID),
             Some(DesktopMenuAction::ShowMainWindow)
+        );
+    }
+
+    #[test]
+    fn the_updates_item_opens_the_updates_screen() {
+        assert_eq!(
+            resolve_desktop_menu_action(OPEN_UPDATES_MENU_ID),
+            Some(DesktopMenuAction::OpenUpdates)
         );
     }
 

@@ -11,6 +11,21 @@ import { useDesktopAutostart } from './useDesktopAutostart';
 import { useDesktopBackgroundServiceAutostart } from './useDesktopBackgroundServiceAutostart';
 import { Icon } from '@/components/ui/icons/Icon';
 
+/**
+ * One truthful sentence for the background-service row (U12): not set up yet is not the same as a
+ * CLI that cannot report its mode, and a failed change is said in words — the raw error is a
+ * diagnostic, not a subtitle.
+ */
+function resolveBackgroundServiceSubtitle(state: ReturnType<typeof useDesktopBackgroundServiceAutostart>): string {
+    if (state.installed === false) {
+        return t('settingsDesktop.backgroundServiceNotSetUp');
+    }
+    if (state.mode === null) {
+        return t('settingsDesktop.backgroundServiceUnknown');
+    }
+    return state.error ? t('settingsDesktop.backgroundServiceChangeFailed') : t('settingsDesktop.backgroundServiceSubtitle');
+}
+
 export const DesktopSettingsSection = React.memo(function DesktopSettingsSection() {
     const { theme } = useUnistyles();
     const autostart = useDesktopAutostart();
@@ -45,10 +60,7 @@ export const DesktopSettingsSection = React.memo(function DesktopSettingsSection
                 <Item
                     testID="settings-desktop-background-service-enabled"
                     title={t('settingsDesktop.backgroundServiceTitle')}
-                    subtitle={backgroundService.error
-                        ?? (backgroundService.mode === null
-                            ? t('settingsDesktop.backgroundServiceUnknown')
-                            : t('settingsDesktop.backgroundServiceSubtitle'))}
+                    subtitle={resolveBackgroundServiceSubtitle(backgroundService)}
                     icon={<Icon name="pulse" size={29} color={theme.colors.accent.green} />}
                     rightElement={(
                         <Switch

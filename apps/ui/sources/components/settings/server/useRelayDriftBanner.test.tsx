@@ -3,7 +3,7 @@ import renderer from 'react-test-renderer';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { SystemTaskRunner } from '@/components/systemTasks/types';
+import type { SystemTaskBridge, SystemTaskRunner } from '@/components/systemTasks/types';
 import { renderScreen } from '@/dev/testkit';
 import { installServerSettingsHooksCommonModuleMocks } from './hooks/serverSettingsHooksTestHelpers';
 import type { RelayDriftBanner } from './relayDriftTypes';
@@ -68,6 +68,30 @@ vi.mock('@/components/systemTasks/systemTasksRuntime', () => ({
     getSystemTasksRunner: () => state.runner,
 }));
 
+/**
+ * The real bridge always settles a status read — with facts, or with the failure hsetup reported.
+ * These repair fakes only model the setup task, so their status reads (the coordinator re-reads
+ * facts that could not see this computer's account before deciding, D1) answer "could not read
+ * this computer", which leaves the doctor-cache classification these cases exercise in charge.
+ */
+function withStatusReadsAnswered(bridge: SystemTaskBridge): SystemTaskBridge {
+    let reads = 0;
+    return {
+        ...bridge,
+        start: async (spec) => (spec.kind === 'daemon.service.status.v1' ? `status_read_${++reads}` : await bridge.start(spec)),
+        subscribe: async (taskId, listenerSet) => {
+            if (!taskId.startsWith('status_read_')) return await bridge.subscribe(taskId, listenerSet);
+            queueMicrotask(() => listenerSet.onResult({
+                protocolVersion: 1,
+                taskId,
+                ok: false,
+                error: { code: 'cli_spawn_failed', message: 'this computer is not readable in this test' },
+            }));
+            return () => {};
+        },
+    };
+}
+
 function setupSpecMatcher(target: Readonly<{ activeRelayUrl: string; activeWebappUrl: string; activeLocalRelayUrl: string | null }>) {
     return expect.objectContaining({
         kind: 'setup.thisComputer.v1',
@@ -103,7 +127,9 @@ const AMBIENT_STATUS_DATA = {
 installServerSettingsHooksCommonModuleMocks({
     text: async () => {
         const { createTextModuleMock } = await import('@/dev/testkit/mocks/text');
-        return createTextModuleMock({ translate: (key) => key });
+        return createTextModuleMock({
+            translate: (key: string, params?: Record<string, unknown>) => (params ? `${key}:${JSON.stringify(params)}` : key),
+        });
     },
 });
 
@@ -128,6 +154,10 @@ vi.mock('@/sync/domains/server/serverProfiles', () => ({
     getActiveServerSnapshot: () => state.activeServerSnapshot,
     getDeviceDefaultServerId: () => state.activeServerSnapshot.serverId,
     getTabActiveServerId: () => null,
+    // Mirrors the real owner: the page origin, except inside the desktop app whose page is its bundle.
+    getWebSameOriginServerUrl: () => (state.isTauriDesktop
+        ? null
+        : (globalThis as { location?: { origin?: string } }).location?.origin ?? null),
     listServerProfiles: () => state.profiles,
 }));
 
@@ -325,7 +355,7 @@ describe('useRelayDriftBanner', () => {
         }>();
         state.runner = createSystemTaskRunner({
             mode: 'dev',
-            bridge: {
+            bridge: withStatusReadsAnswered({
                 start: startMock,
                 async subscribe(taskId, listenerSet) {
                     listeners.set(taskId, listenerSet);
@@ -335,7 +365,7 @@ describe('useRelayDriftBanner', () => {
                 },
                 cancel: cancelMock,
                 respond: async () => {},
-            },
+            }),
         });
         state.cachedDoctorSnapshot = {
             cachedAt: 1,
@@ -421,14 +451,14 @@ describe('useRelayDriftBanner', () => {
 
         state.runner = createSystemTaskRunner({
             mode: 'dev',
-            bridge: {
+            bridge: withStatusReadsAnswered({
                 start: startMock,
                 async subscribe() {
                     return () => {};
                 },
                 async cancel() {},
                 async respond() {},
-            },
+            }),
         });
         state.activeServerSnapshot = {
             serverId: 'cloud',
@@ -486,14 +516,14 @@ describe('useRelayDriftBanner', () => {
 
         state.runner = createSystemTaskRunner({
             mode: 'dev',
-            bridge: {
+            bridge: withStatusReadsAnswered({
                 start: startMock,
                 async subscribe() {
                     return () => {};
                 },
                 async cancel() {},
                 async respond() {},
-            },
+            }),
         });
         state.activeServerSnapshot = {
             serverId: 'server-a',
@@ -551,14 +581,14 @@ describe('useRelayDriftBanner', () => {
         });
         state.runner = createSystemTaskRunner({
             mode: 'dev',
-            bridge: {
+            bridge: withStatusReadsAnswered({
                 start: startMock,
                 async subscribe() {
                     return () => {};
                 },
                 async cancel() {},
                 async respond() {},
-            },
+            }),
         });
         state.activeServerSnapshot = {
             serverId: 'server-a',
@@ -719,7 +749,7 @@ describe('useRelayDriftBanner', () => {
         expect(banner).toEqual(expect.objectContaining({
             kind: 'warning',
             title: 'server.relayDrift.bannerDifferentRelayTitle',
-            actionLabel: 'server.relayDrift.repairAction',
+            actionLabel: 'server.relayDrift.connectHereAction',
             secondaryActionLabel: 'server.switchToServer',
         }));
     });
@@ -749,7 +779,7 @@ describe('useRelayDriftBanner', () => {
         expect(banner).toEqual(expect.objectContaining({
             kind: 'warning',
             title: 'server.relayDrift.bannerNotRunningTitle',
-            actionLabel: 'server.relayDrift.repairAction',
+            actionLabel: 'server.relayDrift.connectHereAction',
         }));
     });
 
@@ -941,12 +971,65 @@ describe('useRelayDriftBanner', () => {
         expect(banner).toEqual(expect.objectContaining({
             kind: 'warning',
             title: 'server.relayDrift.bannerAccountMismatchTitle',
-            description: 'server.relayDrift.bannerAccountMismatchDescription',
-            actionLabel: 'common.authenticate',
+            description: expect.stringContaining('server.relayDrift.bannerAccountMismatchDescription'),
+            actionLabel: 'server.relayDrift.connectHereAction',
         }));
     });
 
-    it('uses an authenticate action label when the relay matches but the daemon still needs auth', async () => {
+    async function renderDesktopBanner(data: unknown): Promise<() => RelayDriftBanner | null> {
+        state.isTauriDesktop = true;
+        await installAmbientLocalFacts(data);
+        const { useRelayDriftBanner } = await import('./useRelayDriftBanner');
+        let banner: RelayDriftBanner | null = null;
+        function Probe() {
+            banner = useRelayDriftBanner();
+            return null;
+        }
+        await renderScreen(React.createElement(Probe));
+        await renderer.act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+        return () => banner;
+    }
+
+    it('says in one sentence which relay and account this computer is connected to, with one action (R17/U7)', async () => {
+        const facts = localFactsForDaemon({ serverUrl: 'https://daemon-relay.example.test', serviceInstalled: true, controlReachable: true });
+        const read = await renderDesktopBanner({ ...facts, auth: { ...facts.auth, accountLabel: 'bob' } });
+
+        const banner = read();
+        expect(banner?.description).toContain('daemon-relay.example.test');
+        expect(banner?.description).not.toContain('https://');
+        expect(banner?.description).toContain('bob');
+        expect(banner?.actionLabel).toBe('server.relayDrift.connectHereAction');
+    });
+
+    it('names both accounts when this computer is signed in as someone else on this relay (R17/D1)', async () => {
+        const facts = localFactsForDaemon({ serverUrl: 'https://relay.example.test', serviceInstalled: true, controlReachable: true });
+        const read = await renderDesktopBanner({
+            ...facts,
+            auth: { ...facts.auth, accountId: 'acct_other', validatedAccountId: 'acct_other', accountLabel: 'bob' },
+        });
+
+        const banner = read();
+        expect(banner?.title).toBe('server.relayDrift.bannerAccountMismatchTitle');
+        expect(banner?.description).toContain('relay.example.test');
+        expect(banner?.description).toContain('bob');
+        expect(banner?.description).toContain('acct_app');
+        expect(banner?.actionLabel).toBe('server.relayDrift.connectHereAction');
+    });
+
+    it('stays quiet when the credential check could not reach the relay, instead of claiming sign-in (U9)', async () => {
+        const facts = localFactsForDaemon({ serverUrl: 'https://relay.example.test', serviceInstalled: true, controlReachable: true });
+        const read = await renderDesktopBanner({
+            ...facts,
+            needsAuth: false,
+            auth: { ...facts.auth, credentialState: 'unknown', validatedAccountId: null },
+        });
+
+        expect(read()).toBeNull();
+    });
+
+    it('offers the one connect action when the relay matches but the daemon still needs auth', async () => {
         const { useRelayDriftBanner } = await import('./useRelayDriftBanner');
         state.cachedDoctorSnapshot = {
             cachedAt: 1,
@@ -977,6 +1060,6 @@ describe('useRelayDriftBanner', () => {
 
         const resolvedBanner = banner as RelayDriftBanner | null;
         expect(resolvedBanner).not.toBeNull();
-        expect(resolvedBanner?.actionLabel).toBe('common.authenticate');
+        expect(resolvedBanner?.actionLabel).toBe('server.relayDrift.connectHereAction');
     });
 });

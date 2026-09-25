@@ -8,6 +8,9 @@ type LocalDaemonServiceTaskKind =
     | 'daemon.service.start.v1'
     | 'daemon.service.stop.v1'
     | 'daemon.service.autostart.set.v1'
+    // K2/R17 — updates the desktop-managed CLI of the app's channel through the acquisition owner,
+    // then restarts a running service daemon. The executor refuses a CLI the app did not place.
+    | 'cli.update.v1'
     | 'cli.pathExposure.ensure.v1'
     | 'cli.pathExposure.remove.v1';
 

@@ -41,8 +41,14 @@ vi.mock('@/components/navigation/connectionStatus/useConnectionHealth', () => ({
     useConnectionHealth: () => useConnectionHealthSpy(),
 }));
 
+// The tray holds the summary projection only — never the repair's task machinery.
+vi.mock('@/components/settings/server/useRelayDriftSummary', () => ({
+    useRelayDriftSummary: () => useRelayDriftBannerSpy(),
+}));
 vi.mock('@/components/settings/server/useRelayDriftBanner', () => ({
-    useRelayDriftBanner: () => useRelayDriftBannerSpy(),
+    useRelayDriftBanner: () => {
+        throw new Error('the always-mounted tray must not mount the drift repair');
+    },
 }));
 
 vi.mock('@/text', async () => {
@@ -84,9 +90,10 @@ describe('DesktopTrayRuntime', () => {
         let tree = (await renderScreen(<DesktopTrayRuntime />)).tree;
 
         expect(applyTauriTrayState).toHaveBeenCalledWith({
-            status: 'healthy',
             label: 'status.connected',
             detail: 'status.online · 2/2',
+            openLabel: 'settingsDesktop.trayOpen',
+            quitLabel: 'settingsDesktop.trayQuit',
         });
 
         await act(async () => {
@@ -117,7 +124,7 @@ describe('DesktopTrayRuntime', () => {
         });
     });
 
-    it('treats relay drift as attention required even when connection health is healthy', async () => {
+    it('describes relay drift as action required even when connection health is healthy', async () => {
         isTauriDesktopState.value = true;
         connectionHealthState.value = {
             kind: 'healthy',
@@ -140,9 +147,10 @@ describe('DesktopTrayRuntime', () => {
         let tree = (await renderScreen(<DesktopTrayRuntime />)).tree;
 
         expect(applyTauriTrayState).toHaveBeenCalledWith({
-            status: 'attention_required',
             label: 'status.actionRequired',
-            detail: 'Relay drift detected',
+            detail: 'Switch to the daemon relay to continue.',
+            openLabel: 'settingsDesktop.trayOpen',
+            quitLabel: 'settingsDesktop.trayQuit',
         });
 
         await act(async () => {

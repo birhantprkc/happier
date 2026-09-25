@@ -52,16 +52,16 @@ export function DesktopBackgroundServiceCloseGuard(props: Readonly<{ enabled: bo
                         }),
                         canSeeDaemonSessions: appAccountId !== null && facts?.auth.validatedAccountId === appAccountId,
                     });
-                    if (decision === 'ask') {
+                    if (decision === 'ask' || decision === 'askUnknown') {
                         // Quit from the tray leaves the window hidden, so the question would be
                         // asked of a webview nobody can see: the exit is held, Quit looks like it
                         // did nothing, and the deal the toggle made goes unhonoured.
                         await invokeTauri('desktop_show_main_window');
-                        if (await presentBackgroundServiceCloseConsent() !== 'stop') {
+                        if (await presentBackgroundServiceCloseConsent({ sessions: decision === 'ask' ? 'running' : 'unknown' }) !== 'stop') {
                             return;
                         }
                     }
-                    if (decision === 'stop' || decision === 'ask') {
+                    if (decision !== 'leaveRunning') {
                         await stopBackgroundService();
                     }
                 } catch {

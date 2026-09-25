@@ -1,3 +1,7 @@
+import { setupReplacesValidatedAccount } from '@happier-dev/protocol';
+
+import { createRelayUrlComparableKeySafe } from '@/sync/domains/server/relayDrift/relayDriftModel';
+
 import {
     daemonRelayMatchesExpectation,
     type DesktopLocalInspection,
@@ -6,84 +10,106 @@ import {
 } from './deriveDesktopLocalSetupSnapshot';
 
 /**
- * `start`: run the executor now. `confirm`: ask the user before the app moves their background
- * service.
+ * `start`: run the executor now. `confirm_relay`: ask before the app moves this computer's
+ * background service to another Relay (UD5). `confirm_account`: ask before the app moves it to
+ * another ACCOUNT (D1) — always asked, and never covered by the relay-only "always move".
  */
-export type RelayReconciliationDecision = 'start' | 'confirm';
+export type RelayReconciliationDecision = 'start' | 'confirm_relay' | 'confirm_account';
 
 export type RelayReconciliationInput = Readonly<{
     /** The one ambient inspection (plan §3.3) — immutable for this app open. */
     inspection: DesktopLocalInspection;
     /** The relay and account the app expected when those facts were read. */
     observedExpectation: DesktopSetupExpectation | null;
+    /** Where the executor would take this computer: the relay and account the app is on NOW. */
+    target: DesktopSetupExpectation;
     /** The device-local "always move my default-following service with my selected default relay". */
     alwaysMoveDefaultFollowingService: boolean;
 }>;
 
 /**
- * UD5, decided from current facts only — never installation history (D7).
+ * D1 — the relay validated this daemon for an account, and it is not the one the app is on now.
  *
- * The app may silently move a background service only when the facts prove the service is its
- * own and is where the app last put it:
+ * It is a fact about the daemon, not about who installed it: a CLI signed in from a terminal with
+ * no service of the app's, a manual daemon, and the app's own service all lose their account the
+ * same way when the executor claims this computer with `--replace-existing`. It is measured
+ * against the CURRENT target, never the identity the app first observed — signing out of A and
+ * into C in one run leaves the observation saying A, exactly like the daemon.
+ */
+function daemonAccountContradictsTarget(facts: DesktopLocalReadinessFacts, target: DesktopSetupExpectation): boolean {
+    // The same rule the executor enforces on the credentials it would replace.
+    return setupReplacesValidatedAccount({ validatedAccountId: facts.auth.validatedAccountId, expectedAccountId: target.accountId });
+}
+
+/**
+ * UD5 + D1, decided from current facts only — never installation history (D7).
+ *
+ * An **account** move is asked first and always (D1): whatever service runs here, the account it
+ * is signed in as stops reaching this computer, and "always move" was only ever an answer about
+ * relays.
+ *
+ * A **relay** move is silent only when the facts prove the service is the app's own and is where
+ * the app last put it:
  *
  * - **that is default-following** — `service.targetMode` says so, and it is asked of every
  *   installed service before anything else, running or stopped. That is the only mode whose
  *   contract is "track the selected default relay". A `pinned` service was deliberately fixed to
  *   one relay, and `null` means nothing proved a mode at all (an older CLI, or an unreadable
- *   definition); neither is evidence the app may move it, so both are asked about once. This
- *   fact is required because the rest of the picture cannot supply it: an installed service whose
- *   running daemon its own installation owns looks identical whether it is pinned or following,
- *   so without the mode a remembered "always move my default-following service" could repoint a
- *   pinned one;
+ *   definition); neither is evidence the app may move it, so both are asked about. This fact is
+ *   required because the rest of the picture cannot supply it: an installed service whose running
+ *   daemon its own installation owns looks identical whether it is pinned or following, so without
+ *   the mode a remembered "always move my default-following service" could repoint a pinned one;
  * - **on the relay the app last expected**, compared through the corridor's one relay comparer;
- * - **as an account that does not contradict the app's** — the relay validated the daemon's
- *   credentials, and either the app had no account expectation when it looked or the accounts
- *   match. A known-different account is the mismatch UD5 names.
+ * - **with credentials the relay validated** — an unvalidated daemon proves nothing about where
+ *   it belongs.
+ *
+ * A daemon already on the target relay, with no account contradiction, moves nowhere: the
+ * executor converges it and the CLI's own dry-run raises any ownership consent (INV9).
  *
  * A manual, foreign-home, conflicting or multiple service is one this installation does not own at
  * all, so this function does not classify it: the executor's `service install --dry-run --json`
  * does, and raises the CLI's own consent (INV9). Restating that ownership policy here would put a
- * second, weaker decision in the UI. What this function decides is only UD5's own question —
- * whether the app may move the service it does own to the relay the user selected.
- *
- * The device preference therefore reaches only the compatible default-following ask; it can never
- * suppress the CLI's ownership consent, because that consent is not raised from here.
+ * second, weaker decision in the UI.
  */
 export function resolveRelayReconciliationConsent(input: RelayReconciliationInput): RelayReconciliationDecision {
+    if (input.inspection.status === 'resolved' && daemonAccountContradictsTarget(input.inspection.facts, input.target)) {
+        return 'confirm_account';
+    }
     if (input.inspection.status !== 'resolved' || !input.observedExpectation) {
-        return 'confirm';
+        return 'confirm_relay';
     }
     const facts = input.inspection.facts;
+    if (facts.runtimeConvergence !== null && daemonRelayMatchesExpectation(facts, input.target)) {
+        // Already on the relay the app is going to, as no other account: nothing moves.
+        return 'start';
+    }
     // UD5 turns on what this service IS, not on whether it happens to be running. Only a
     // default-following service is the app's to move with its selected default relay; `pinned` and
-    // UNKNOWN are asked about once, and neither may be reached past by the device preference. This
+    // UNKNOWN are asked about, and neither may be reached past by the device preference. This
     // comes first because a stopped service has no running daemon for anything to own: asking
     // about ownership before the mode read every stopped definition — a pinned one included — as
     // "not the app's at all". Stopping is not consent.
     if (facts.service.installed && facts.service.targetMode !== 'default-following') {
-        return 'confirm';
+        return 'confirm_relay';
     }
     if (!installationOwnsService(facts)) {
         // Nothing of this installation's to move: no service at all, or a bare process it does not
         // own. A first install is not a relay move, and a service this installation does not own
         // is classified by the executor's own `service install --dry-run --json` (INV9) rather
         // than asked about twice here.
-        return facts.runtimeConvergence === null ? 'confirm' : 'start';
+        return facts.runtimeConvergence === null ? 'confirm_relay' : 'start';
     }
     if (facts.runtimeConvergence === null) {
         // The CLI that answered described no running daemon at all, so nothing below can be
         // compared honestly. Fail closed.
-        return 'confirm';
+        return 'confirm_relay';
     }
 
     const relayAligned = daemonRelayMatchesExpectation(facts, input.observedExpectation);
-    const validatedAccountId = facts.auth.validatedAccountId;
-    const accountAligned = validatedAccountId !== null
-        && (input.observedExpectation.accountId === null || validatedAccountId === input.observedExpectation.accountId);
-    if (relayAligned && accountAligned) {
+    if (relayAligned && facts.auth.validatedAccountId !== null) {
         return 'start';
     }
-    return input.alwaysMoveDefaultFollowingService ? 'start' : 'confirm';
+    return input.alwaysMoveDefaultFollowingService ? 'start' : 'confirm_relay';
 }
 
 /**
@@ -104,8 +130,8 @@ function installationOwnsService(facts: DesktopLocalReadinessFacts): boolean {
 }
 
 /**
- * B2/UD5 — whether the facts describe a background service this installation owns that the
- * executor would MOVE to reach the app's current target, rather than converge for the first time.
+ * B2/UD5/D1 — whether the facts describe a daemon the executor would MOVE to reach the app's
+ * current target, rather than converge for the first time.
  *
  * The gate's other discriminator — the relay the app expected when the facts were read — cannot
  * answer this after a relaunch: an ambient device-scope switch is persisted, so on the next open
@@ -113,13 +139,18 @@ function installationOwnsService(facts: DesktopLocalReadinessFacts): boolean {
  * Asked of the facts instead, the question has the same answer whether it is asked in the same run
  * or a week later, which is what keeps a relaunch from silently repointing someone's daemon.
  *
- * "This installation owns it" is deliberately generous: a running daemon its own installation owns
- * proves it, and so does an installed definition whose target mode the CLI could read — a service
- * that is merely stopped is still the user's. Nothing installed at all contradicts nothing: a
- * first install is not a move. The consent decision itself stays with
- * `resolveRelayReconciliationConsent`, which this function never second-guesses.
+ * Two kinds of move qualify:
+ * - **an account move**, whoever set the daemon up (D1/U3): a CLI signed in from a terminal as
+ *   another account loses this computer to `--replace-existing` just as the app's own service does;
+ * - **a relay move of this installation's own service** — a running daemon its own installation
+ *   owns, or an installed definition whose target mode the CLI could read. A service that is merely
+ *   stopped is still the user's. Nothing installed contradicts no relay: a first install is not a
+ *   move.
+ *
+ * The consent decision itself stays with `resolveRelayReconciliationConsent`, which this function
+ * never second-guesses.
  */
-export function appOwnedServiceContradictsTarget(input: Readonly<{
+export function daemonContradictsTarget(input: Readonly<{
     inspection: DesktopLocalInspection;
     target: DesktopSetupExpectation;
 }>): boolean {
@@ -127,14 +158,40 @@ export function appOwnedServiceContradictsTarget(input: Readonly<{
         return false;
     }
     const facts = input.inspection.facts;
-    if (!installationOwnsService(facts)) {
-        return false;
-    }
-    if (!daemonRelayMatchesExpectation(facts, input.target)) {
+    if (daemonAccountContradictsTarget(facts, input.target)) {
         return true;
     }
-    const validatedAccountId = facts.auth.validatedAccountId;
-    return validatedAccountId !== null
-        && input.target.accountId !== null
-        && validatedAccountId !== input.target.accountId;
+    return installationOwnsService(facts) && !daemonRelayMatchesExpectation(facts, input.target);
+}
+
+/**
+ * D5 — the daemon a person chose to keep as it is: the relay it is on and the account it is signed
+ * in as. That pair is what "Keep it as is" was an answer about, so a daemon that later moves, or
+ * signs in as someone else, is a new question.
+ */
+export type KeptBackgroundServiceIdentity = Readonly<{ relayKey: string; accountId: string | null }>;
+
+export function identifyKeptBackgroundService(inspection: DesktopLocalInspection): KeptBackgroundServiceIdentity | null {
+    if (inspection.status !== 'resolved') {
+        return null;
+    }
+    const facts = inspection.facts;
+    const relayKey = facts.server.comparableKey ?? createRelayUrlComparableKeySafe(facts.server.serverUrl);
+    return relayKey ? { relayKey, accountId: facts.auth.validatedAccountId } : null;
+}
+
+/**
+ * Whether this device already answered "Keep it as is" for the daemon these facts describe, and it
+ * still contradicts where the app is. A daemon that is already the app's has nothing to keep.
+ */
+export function keptBackgroundServiceApplies(input: Readonly<{
+    inspection: DesktopLocalInspection;
+    target: DesktopSetupExpectation;
+    kept: KeptBackgroundServiceIdentity | null;
+}>): boolean {
+    if (!input.kept || !daemonContradictsTarget(input)) {
+        return false;
+    }
+    const current = identifyKeptBackgroundService(input.inspection);
+    return current !== null && current.relayKey === input.kept.relayKey && current.accountId === input.kept.accountId;
 }

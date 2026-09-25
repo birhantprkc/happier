@@ -4,21 +4,29 @@ import type {
     ConnectionHealthStatusLabelKey,
 } from '@/components/navigation/connectionStatus/connectionHealthTypes';
 
-export type DesktopTrayStatus =
-    | 'healthy'
-    | 'attention_required'
-    | 'connecting'
-    | 'server_unreachable'
-    | 'auth_required'
-    | 'server_error'
-    | 'no_machine'
-    | 'machine_offline';
-
+/** The tray icon is the plain Happier mark; the status is read in its menu as "label · detail". */
 export type DesktopTrayState = Readonly<{
-    status: DesktopTrayStatus;
     label: string;
     detail: string;
+    /** The tray menu's own items, localized here because the native menu cannot translate (U14). */
+    openLabel: string;
+    quitLabel: string;
+    /**
+     * R13 (e) — the one optional "Updates available (3)…" item, localized here; absent when there
+     * is nothing to act on, which is also what older native shells expect.
+     */
+    updatesLabel?: string;
 }>;
+
+type TrayLabelKey = ConnectionHealthStatusLabelKey | ConnectionHealthMachineLabelKey | 'settingsDesktop.trayOpen' | 'settingsDesktop.trayQuit';
+
+/**
+ * When the one "this computer" projection has something to say, it is the truest description the
+ * tray can give — including when the account has no machine, or only offline ones, because the
+ * reason is usually this computer's daemon being connected somewhere else (U7). Server-level
+ * failures keep their own status: they are about the connection, not about this computer.
+ */
+const HEALTH_KINDS_THAT_DEFER_TO_THIS_COMPUTER: ReadonlySet<ConnectionHealthKind> = new Set(['healthy', 'no_machine', 'machine_offline']);
 
 export function buildDesktopTrayState(params: Readonly<{
     health: Readonly<{
@@ -28,32 +36,35 @@ export function buildDesktopTrayState(params: Readonly<{
         statusLabelKey: ConnectionHealthStatusLabelKey;
         machineLabelKey: ConnectionHealthMachineLabelKey;
     }>;
-    relayDriftBannerTitle?: string | null;
-    t: (key: ConnectionHealthStatusLabelKey | ConnectionHealthMachineLabelKey) => string;
+    /** The drift summary's one sentence naming what this computer is connected to (U7/R17). */
+    thisComputerSentence?: string | null;
+    /** The Updates summary's tray label (`describeUpdatesTrayLabel`); `null` = no item. */
+    updatesLabel?: string | null;
+    t: (key: TrayLabelKey) => string;
 }>): DesktopTrayState {
-    const driftTitle = typeof params.relayDriftBannerTitle === 'string'
-        ? params.relayDriftBannerTitle.trim()
+    const menuLabels = {
+        openLabel: params.t('settingsDesktop.trayOpen'),
+        quitLabel: params.t('settingsDesktop.trayQuit'),
+        ...(params.updatesLabel ? { updatesLabel: params.updatesLabel } : null),
+    };
+    const sentence = typeof params.thisComputerSentence === 'string'
+        ? params.thisComputerSentence.trim()
         : '';
-    if (params.health.kind === 'healthy' && driftTitle) {
+    if (sentence && HEALTH_KINDS_THAT_DEFER_TO_THIS_COMPUTER.has(params.health.kind)) {
         return {
-            status: 'attention_required',
             label: params.t('status.actionRequired'),
-            detail: driftTitle,
+            detail: sentence,
+            ...menuLabels,
         };
     }
 
     const label = params.t(params.health.statusLabelKey);
     const machineLabel = params.t(params.health.machineLabelKey);
     const showCounts = params.health.machineCount > 0;
-    const status = params.health.kind === 'machine_not_ready'
-        ? 'attention_required'
-        : params.health.kind === 'server_restarting'
-            ? 'connecting'
-            : params.health.kind;
 
     return {
-        status,
         label,
         detail: showCounts ? `${machineLabel} · ${params.health.onlineCount}/${params.health.machineCount}` : machineLabel,
+        ...menuLabels,
     };
 }

@@ -17,6 +17,7 @@ const setBackgroundServiceModeMock = vi.fn(async () => {});
 const backgroundServiceState = {
     supported: true,
     mode: 'at-login' as 'at-login' | 'on-demand' | null,
+    installed: true as boolean | null,
     loading: false,
     error: null as string | null,
     setMode: setBackgroundServiceModeMock,
@@ -63,6 +64,7 @@ describe('DesktopSettingsSection', () => {
         setEnabledMock.mockReset();
         backgroundServiceState.supported = true;
         backgroundServiceState.mode = 'at-login';
+        backgroundServiceState.installed = true;
         backgroundServiceState.loading = false;
         backgroundServiceState.error = null;
         setBackgroundServiceModeMock.mockReset();
@@ -141,6 +143,28 @@ describe('DesktopSettingsSection', () => {
 
         expect(row?.props.rightElement.props.disabled).toBe(true);
         expect(row?.props.subtitle).toBe('settingsDesktop.backgroundServiceUnknown');
+    });
+
+    it('says the switch arrives with setup when no background service is installed yet (U12)', async () => {
+        // Before setup, or after the user declined it, nothing is installed: the CLI is not
+        // failing to report a mode, there is simply no service to report on.
+        backgroundServiceState.mode = null;
+        backgroundServiceState.installed = false;
+        const { DesktopSettingsSection } = await import('./DesktopSettingsSection');
+        const screen = await renderSettingsView(<DesktopSettingsSection />);
+        const row = screen.findRow('settings-desktop-background-service-enabled');
+
+        expect(row?.props.rightElement.props.disabled).toBe(true);
+        expect(row?.props.subtitle).toBe('settingsDesktop.backgroundServiceNotSetUp');
+    });
+
+    it('shows a failed change in words, never the raw error (U12)', async () => {
+        backgroundServiceState.error = 'Error: spawn happier ENOENT';
+        const { DesktopSettingsSection } = await import('./DesktopSettingsSection');
+        const screen = await renderSettingsView(<DesktopSettingsSection />);
+        const row = screen.findRow('settings-desktop-background-service-enabled');
+
+        expect(row?.props.subtitle).toBe('settingsDesktop.backgroundServiceChangeFailed');
     });
 
     it('keeps the app row when the background-service control is unavailable', async () => {

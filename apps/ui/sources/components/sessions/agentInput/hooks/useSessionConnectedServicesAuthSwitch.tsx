@@ -279,7 +279,7 @@ function readBinding(value: unknown): ConnectedServicesServiceBinding | null {
     return null;
 }
 
-function readConnectedServicesBindingsFromMetadata(
+export function readConnectedServicesBindingsFromMetadata(
     metadata: unknown,
     agentId: string,
 ): Readonly<Record<string, ConnectedServicesServiceBinding | undefined>> {
@@ -326,7 +326,7 @@ function areServiceBindingsEqual(
         && left?.groupId === right?.groupId;
 }
 
-function buildSessionSwitchPayload(params: Readonly<{
+export function buildSessionConnectedServicesBindings(params: Readonly<{
     supportedServiceIds: ReadonlyArray<ConnectedServiceId>;
     bindingsByServiceId: Readonly<Record<string, ConnectedServicesServiceBinding | undefined>>;
 }>): ConnectedServiceBindingsV1 {
@@ -568,7 +568,7 @@ export function useSessionConnectedServicesAuthSwitch(params: Readonly<{
             setPartialApplicationNotice(null);
             setOptimisticBindingsByServiceId(nextBindings);
 
-            const bindings = buildSessionSwitchPayload({
+            const bindings = buildSessionConnectedServicesBindings({
                 supportedServiceIds: supportedConnectedServiceIds,
                 bindingsByServiceId: nextBindings,
             });

@@ -1,6 +1,7 @@
 import type { CapabilitiesDetectRequest, CapabilityDetectResult, CapabilityId, CodexAcpDepData } from '@/sync/api/capabilities/capabilitiesProtocol';
 import { compareVersions, parseVersion } from '@/utils/system/versionUtils';
 import { CODEX_ACP_DEP_ID } from '@happier-dev/protocol/installables';
+import { isLatestVersionCheckDue } from '@/updates/latestVersionCheckFreshness';
 
 function isCodexAcpLatestVersionSuccess(
     value: CodexAcpDepData['latestVersionCheck'],
@@ -71,9 +72,6 @@ export function shouldPrefetchCodexAcpLatestVersion(params: {
     data?: CodexAcpLatestVersionAwareData | null;
     requireExistingResult?: boolean;
 }): boolean {
-    const OK_STALE_MS = 24 * 60 * 60 * 1000;
-    const ERROR_RETRY_MS = 30 * 60 * 1000;
-
     const now = Date.now();
     const requireExistingResult = params.requireExistingResult === true;
     const result = params.result ?? null;
@@ -94,10 +92,7 @@ export function shouldPrefetchCodexAcpLatestVersion(params: {
     if (!hasLatestVersionCheck) return true;
     if (checkedAt <= 0) return true;
 
-    const ok = isCodexAcpLatestVersionSuccess(latestVersionCheck);
-    const ageMs = now - checkedAt;
-    const threshold = ok ? OK_STALE_MS : ERROR_RETRY_MS;
-    return ageMs > threshold;
+    return isLatestVersionCheckDue({ checkedAt, ok: isCodexAcpLatestVersionSuccess(latestVersionCheck), now });
 }
 
 export function buildCodexAcpLatestVersionDetectRequest(): CapabilitiesDetectRequest {

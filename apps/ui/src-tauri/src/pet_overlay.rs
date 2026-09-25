@@ -121,10 +121,7 @@ impl NativeMousePollController {
     }
 
     fn is_enabled(&self) -> bool {
-        self.gate
-            .lock()
-            .map(|gate| gate.enabled)
-            .unwrap_or(false)
+        self.gate.lock().map(|gate| gate.enabled).unwrap_or(false)
     }
 }
 
@@ -207,7 +204,9 @@ fn start_pet_overlay_native_mouse_poll_loop<R: Runtime + 'static>(
         if !state.1.wait_until_enabled() {
             break;
         }
-        std::thread::sleep(Duration::from_millis(PET_OVERLAY_NATIVE_MOUSE_POLL_INTERVAL_MS));
+        std::thread::sleep(Duration::from_millis(
+            PET_OVERLAY_NATIVE_MOUSE_POLL_INTERVAL_MS,
+        ));
         if !state.1.is_enabled() {
             continue;
         }
@@ -254,8 +253,12 @@ fn publish_pet_overlay_native_mouse_payload<R: Runtime>(
         }
     };
     if should_emit {
-        app.emit_to(PET_OVERLAY_WINDOW_LABEL, PET_OVERLAY_NATIVE_MOUSE_EVENT, payload)
-            .map_err(|error| error.to_string())?;
+        app.emit_to(
+            PET_OVERLAY_WINDOW_LABEL,
+            PET_OVERLAY_NATIVE_MOUSE_EVENT,
+            payload,
+        )
+        .map_err(|error| error.to_string())?;
     }
     Ok(())
 }

@@ -11,7 +11,7 @@ import {
     useItemGroupRowPosition,
 } from '@/components/ui/lists/ItemGroupRowPosition';
 import { Text } from '@/components/ui/text/Text';
-import { InboxSection } from '@/components/inbox/InboxSection';
+import { ListSection } from '@/components/ui/lists/ListSection';
 import { useNowMs } from '@/hooks/time/useNowMs';
 import { t } from '@/text';
 import { actionOperationReentry } from '@/sync/domains/actionOperations/actionOperationReentry';
@@ -294,17 +294,18 @@ export const ActionOperationLedger = React.memo(function ActionOperationLedger(p
     return (
         <View testID="action-operation-ledger">
             {sections.inProgress.length > 0 ? (
-                <InboxSection id="operations-in-progress" title={t('inbox.actionOperations.sections.inProgress')}>
+                <ListSection namespace="inbox" id="operations-in-progress" title={t('inbox.actionOperations.sections.inProgress')}>
                     {renderRows(sections.inProgress)}
-                </InboxSection>
+                </ListSection>
             ) : null}
             {sections.needsAttention.length > 0 ? (
-                <InboxSection id="operations-needs-attention" title={t('inbox.actionOperations.sections.needsAttention')}>
+                <ListSection namespace="inbox" id="operations-needs-attention" title={t('inbox.actionOperations.sections.needsAttention')}>
                     {renderRows(sections.needsAttention)}
-                </InboxSection>
+                </ListSection>
             ) : null}
             {sections.recent.length > 0 ? (
-                <InboxSection
+                <ListSection
+                    namespace="inbox"
                     id="operations-recent"
                     title={t('inbox.actionOperations.sections.recent')}
                     headerAction={props.onClearRecent ? (
@@ -323,7 +324,7 @@ export const ActionOperationLedger = React.memo(function ActionOperationLedger(p
                     ) : null}
                 >
                     {renderRows(sections.recent)}
-                </InboxSection>
+                </ListSection>
             ) : null}
         </View>
     );

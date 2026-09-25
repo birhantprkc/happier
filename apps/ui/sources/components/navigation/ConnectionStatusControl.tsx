@@ -43,6 +43,7 @@ import { runGuardedNavigation } from '@/utils/navigation/runGuardedNavigation';
 import { ActionListSection } from '@/components/ui/lists/ActionListSection';
 import { sync } from '@/sync/sync';
 import type { ConnectionHealthPresentation } from './connectionStatus/connectionHealthTypes';
+import { ThisComputerStatusRow } from './connectionStatus/ThisComputerStatusRow';
 import { isAccountSettingsSyncAttentionStatus } from '@/sync/domains/settings/accountSettingsSyncStatus';
 import { Icon } from '@/components/ui/icons/Icon';
 
@@ -551,6 +552,14 @@ export const ConnectionStatusControl = React.memo(function ConnectionStatusContr
                                     <Text style={styles.popoverLabel}>{t('settings.machines')}</Text>
                                     <Text style={styles.popoverValue}>{t(connectionHealth.machineLabelKey)}</Text>
                                 </View>
+
+                                {isTauriDesktop() ? (
+                                    <ThisComputerStatusRow
+                                        rowStyle={styles.popoverRow}
+                                        labelStyle={styles.popoverLabel}
+                                        valueStyle={styles.popoverValue}
+                                    />
+                                ) : null}
 
                                 <View style={styles.popoverRow}>
                                     <Text style={styles.popoverLabel}>{t('connectionStatus.labels.server')}</Text>

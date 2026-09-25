@@ -127,7 +127,7 @@ test.describe('ui e2e: desktop sidebar chrome window controls', () => {
     await expect(page.getByTestId('desktop-window-controls-minimize')).toBeVisible({ timeout: 60_000 });
     await expect(page.getByTestId('desktop-window-controls-toggle-maximize')).toBeVisible({ timeout: 60_000 });
     await expect(page.getByTestId('desktop-window-controls-close')).toBeVisible({ timeout: 60_000 });
-    await expect(page.getByTestId('sidebar-shell-app-update-status-tag')).toHaveCount(1, { timeout: 60_000 });
+    await expect(page.getByTestId('desktop-sidebar-updates-pill')).toHaveCount(1, { timeout: 60_000 });
 
     await dragFromMainContentTitlebar(page);
     await expect.poll(async () => readFakeTauriDesktopState(page), { timeout: 60_000 }).toMatchObject({
@@ -187,7 +187,7 @@ test.describe('ui e2e: desktop sidebar chrome window controls', () => {
     await expect(page.getByTestId('desktop-pet-overlay-root')).toHaveCount(1, { timeout: 120_000 });
     await expect(page.getByTestId('desktop-window-controls-host')).toHaveCount(0);
     await expect(page.getByTestId('desktop-sidebar-chrome')).toHaveCount(0);
-    await expect(page.getByTestId('root-shell-app-update-status-tag')).toHaveCount(0);
-    await expect(page.getByTestId('app-update-status-tag')).toHaveCount(0);
+    await expect(page.getByTestId('root-shell-updates-pill')).toHaveCount(0);
+    await expect(page.getByTestId('desktop-sidebar-updates-pill')).toHaveCount(0);
   });
 });

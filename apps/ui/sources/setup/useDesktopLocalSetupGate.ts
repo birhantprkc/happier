@@ -4,7 +4,7 @@ import { useAuth } from '@/auth/context/AuthContext';
 import { useThisComputerSetupTask } from '@/components/systemTasks/useThisComputerSetupTask';
 import { getActiveServerAccountScope } from '@/sync/domains/scope/activeServerAccountScope';
 import { getActiveServerSnapshot, subscribeActiveServer } from '@/sync/domains/server/serverRuntime';
-import { storage } from '@/sync/domains/state/storage';
+import { storage, useLocalSetting } from '@/sync/domains/state/storage';
 
 import {
     deriveDesktopLocalSetupSnapshot,
@@ -20,8 +20,9 @@ import {
     readDirectRelaySelectionIntentGeneration,
     subscribeDirectRelaySelectionIntent,
 } from './directRelaySelectionIntent';
-import { appOwnedServiceContradictsTarget } from './relayReconciliationConsent';
+import { daemonContradictsTarget, keptBackgroundServiceApplies } from './relayReconciliationConsent';
 import { presentRelayReconciliationConsent } from './presentRelayReconciliationConsent';
+import { presentCliChoice } from './presentCliChoice';
 import { presentUnmanagedCliConsent } from './presentUnmanagedCliConsent';
 import { presentSetupServiceConsent } from './presentSetupServiceConsent';
 
@@ -44,6 +45,12 @@ export type DesktopLocalSetupGate = Readonly<{
     setupTask: ReturnType<typeof useThisComputerSetupTask>;
     /** Re-runs a failed inspection, or a failed setup, visibly. */
     retry: () => void;
+    /**
+     * U4 — the way out of a blocked state Retry cannot fix: the same decision as declining a
+     * question (the panel steps aside, nothing claims ready). The drift banner and Settings › This
+     * computer carry the state; the next launch asks again (R14).
+     */
+    continueWithoutThisComputer: () => void;
 }>;
 
 function subscribeAccountScope(listener: () => void): () => void {
@@ -86,10 +93,11 @@ function useDesktopSetupExpectation(): DesktopSetupGateExpectation {
 const PENDING_INSPECTION: DesktopLocalInspection = { status: 'pending' };
 
 /**
- * Drives the desktop entry decision for the authenticated root (R2/R14). Reads the one ambient
- * inspection, derives the pure snapshot against the app's current relay/account, starts the
- * executor automatically when facts prove this computer is not ready (UD2), and reveals only once
- * re-read facts converge (INV8) **and** the machine answers one read-only RPC (INV10).
+ * Drives the desktop setup lifecycle for the authenticated shell (R2/R14/R11). Reads the one
+ * ambient inspection, derives the pure snapshot against the app's current relay/account, starts
+ * the executor automatically when facts prove this computer is not ready (UD2), and declares it
+ * ready only once re-read facts converge (INV8) **and** the machine answers one read-only RPC
+ * (INV10). Mounted once, by `DesktopLocalSetupRuntime`; it never blocks the app.
  */
 export function useDesktopLocalSetupGate(options: Readonly<{ enabled: boolean }>): DesktopLocalSetupGate {
     const auth = useAuth();
@@ -112,11 +120,8 @@ export function useDesktopLocalSetupGate(options: Readonly<{ enabled: boolean }>
         desktopSetupCoordinator.readInspectionTaskId,
         desktopSetupCoordinator.readInspectionTaskId,
     );
-    // The coordinator keeps the last established facts while it reads again, because a surface
-    // already showing true facts must not flash an empty state (`apps/ui/AGENTS.md`). This gate is
-    // the one reader for which being mid-check IS the thing to show: Retry has to be acknowledged
-    // on the next frame, and nothing here may act on facts a re-read is about to replace.
-    const inspection = inspectionRefreshing ? PENDING_INSPECTION : settledInspection;
+    /** D5 — the daemon this device chose to keep as it is, if any. */
+    const keptBackgroundService = useLocalSetting('desktopKeptBackgroundService');
     // R8/INV7 — how many times the person has directly picked a Relay/Home in this app run. A pick
     // of the relay the app is already on changes no identity, so without this the gate would never
     // re-run its trigger and the deliberate choice would do nothing (B1).
@@ -128,18 +133,18 @@ export function useDesktopLocalSetupGate(options: Readonly<{ enabled: boolean }>
     const [inspectionAttempt, setInspectionAttempt] = React.useState(0);
     const [verification, setVerification] = React.useState<DesktopSetupVerification>({ status: 'idle' });
     const [declinedAttempt, setDeclinedAttempt] = React.useState<string | null>(null);
-    /** The attempt whose on-demand quiet start has already had its turn (H6). */
+    /** The attempt whose quiet start has already had its turn (H6/D6). */
     const [quietStartAttempted, setQuietStartAttempted] = React.useState<string | null>(null);
     const setupAttemptRef = React.useRef<string | null>(null);
     const proofAttemptRef = React.useRef<string | null>(null);
     /** The facts the last settled proof was about, so a newer read can retire its verdict (F1). */
     const provedInspectionRef = React.useRef<DesktopLocalInspection | null>(null);
     const quietStartRef = React.useRef<string | null>(null);
-    // UD4 — monotonic for this app run: `authenticatedThisRun` is set once at sign-in and never
-    // cleared, so it cannot say whether the user has seen the app yet. The opaque ground belongs
-    // to a first run only; every later blocking maintenance keeps the user's context under the
-    // veil. The gate owns the shell it renders, so this survives navigation within the app.
-    const hasPresentedShellRef = React.useRef(false);
+    // Monotonic for this app run: `authenticatedThisRun` is set once at sign-in and never cleared,
+    // so it cannot say whether the first-run setup has already settled. The checking panel belongs
+    // to a first run only; later maintenance presents settled facts alone. The runtime is mounted
+    // at the shell, so this survives navigation within the app.
+    const firstRunSettledRef = React.useRef(false);
     const attemptKey = `${inspectionAttempt}:${expectation.serverId}:${expectation.accountId ?? ''}`;
     // One attempt of the gate's own work, plus the choices the person has made since. The proof is
     // keyed by identity alone — reaching this machine does not become a different question because
@@ -203,9 +208,9 @@ export function useDesktopLocalSetupGate(options: Readonly<{ enabled: boolean }>
             }
             : {}),
         // Keeping the existing service is a decision, not a failure — the same shape as declining
-        // the relay move. Nothing is ready and nothing claims to be, but the shell comes back so
-        // the user is not held on a blocking surface by a Retry that reopens the question they
-        // just answered. The drift and settings repair entries carry it until they return.
+        // the relay move. Nothing is ready and nothing claims to be, but the panel steps aside so
+        // the user is not offered a Retry that reopens the question they just answered. The drift
+        // and settings repair entries carry it until they return.
         onServiceConsentRequired: async (prompt) => {
             const approved = await presentSetupServiceConsent(prompt);
             if (!approved) {
@@ -213,11 +218,29 @@ export function useDesktopLocalSetupGate(options: Readonly<{ enabled: boolean }>
             }
             return approved;
         },
-        // Declining is a decision, not a failure: the run stops and the shell comes back with
+        // Declining is a decision, not a failure: the run stops and the panel steps aside with
         // setup deferred, exactly as declining the relay move does. Retrying identically forever
         // was the old behaviour and it never had a second outcome.
         onUnmanagedCliConsentRequired: async (decision) => {
             const approved = await presentUnmanagedCliConsent(decision);
+            if (!approved) {
+                setDeclinedAttempt(triggerKeyRef.current);
+            }
+            return approved;
+        },
+        // R12 — dismissing the one-CLI question is a decision not to go on right now: the run stops
+        // before writing anything and the panel steps aside, as with the other questions.
+        onCliChoiceRequired: async (prompt) => {
+            const choice = await presentCliChoice(prompt);
+            if (choice === null) {
+                setDeclinedAttempt(triggerKeyRef.current);
+            }
+            return choice;
+        },
+        // D1 — the executor found the target relay signed in as another account. Keeping it is the
+        // same decision as keeping it when the gate asked before the run.
+        onAccountConsentRequired: async (request) => {
+            const approved = (await presentRelayReconciliationConsent(request)) !== 'keep';
             if (!approved) {
                 setDeclinedAttempt(triggerKeyRef.current);
             }
@@ -228,6 +251,19 @@ export function useDesktopLocalSetupGate(options: Readonly<{ enabled: boolean }>
         // reach the machine at all. The same proof the settings flow uses decides it here.
         onSucceeded: () => runProof({ fresh: true }),
     });
+
+    // The coordinator keeps the last established facts while it reads again, because a surface
+    // already showing true facts must not flash an empty state (`apps/ui/AGENTS.md`). This gate is
+    // the one reader for which being mid-check IS the thing to show: Retry has to be acknowledged
+    // on the next frame, and nothing here may act on facts a re-read is about to replace.
+    //
+    // U5 — except while a run that SUCCEEDED is being proved: that re-read is the verify stage the
+    // surface is already showing, and dropping to "Checking this computer" at ring 0 right before
+    // the reveal read as a step backwards. The stale facts are safe to hold here: the trigger only
+    // acts on an idle verdict, and the proof owns this window until it settles.
+    const provingSucceededRun = verification.status === 'verifying' && setupTask.activeTaskSnapshot?.result?.ok === true;
+    const inspection = inspectionRefreshing && !provingSucceededRun ? PENDING_INSPECTION : settledInspection;
+    const keptApplies = keptBackgroundServiceApplies({ inspection, target: expectation, kept: keptBackgroundService });
 
     // The entry path: this app open's ambient facts already describe a converged runtime, so the
     // only thing left to prove is that the relay can reach it. Nothing re-reads here — an
@@ -245,8 +281,8 @@ export function useDesktopLocalSetupGate(options: Readonly<{ enabled: boolean }>
     // A verdict belongs to the facts it answered for. Any other reader can replace those facts —
     // Machines › Refresh, the background-service toggle's install, a settings verify or adopt, a
     // settings Start — and a computer that has since stopped converging then derived `setup` while
-    // the trigger below stayed gated on a settled verification: a blocking veil over the whole app
-    // with nothing running and no Retry, until the app was restarted. Retiring the stale verdict
+    // the trigger below stayed gated on a settled verification: a setup panel with nothing
+    // running and no Retry, until the app was restarted. Retiring the stale verdict
     // lets the existing effects do the right thing — re-prove it if it still converges, run setup
     // or reconciliation if it does not. Only a SETTLED verdict is retired: a proof in flight owns
     // its own window and must be allowed to answer.
@@ -293,23 +329,25 @@ export function useDesktopLocalSetupGate(options: Readonly<{ enabled: boolean }>
             },
             {
                 authenticatedThisRun: auth.authenticatedThisRun,
-                hasPresentedShell: hasPresentedShellRef.current,
-                userDeclinedThisAttempt: declinedAttempt === triggerKey,
+                firstRunSettled: firstRunSettledRef.current,
+                // D5 — a daemon this device already chose to keep is the same answer as declining,
+                // given before this launch: no panel, no question, the drift banner carries it.
+                userDeclinedThisAttempt: declinedAttempt === triggerKey || keptApplies,
             },
         ),
-        [attemptKey, auth.authenticatedThisRun, declinedAttempt, expectation, inspection, quietStartAttempted, reachability, triggerKey],
+        [attemptKey, auth.authenticatedThisRun, declinedAttempt, expectation, inspection, keptApplies, quietStartAttempted, reachability, triggerKey],
     );
     React.useEffect(() => {
-        if (snapshot.presentation === 'shell') {
-            hasPresentedShellRef.current = true;
+        if (snapshot.presentation === 'hidden') {
+            firstRunSettledRef.current = true;
         }
     }, [snapshot.presentation]);
 
-    // H6 - the app's own on-demand service is installed for this relay and account and is simply
-    // not running yet, which is the deal the settings toggle made: it answers while the app is
-    // open. The existing service command is enough; the executor has nothing to configure. The
-    // surface stays the ordinary shell because this is a check, not maintenance, and the same
-    // readiness proof as every other path decides the outcome (INV8/INV10).
+    // H6/D6 - the app's own service is installed for this relay and account and is simply not
+    // running — on-demand after the last quit, or an at-login one something stopped. The existing
+    // service command is enough; the executor has nothing to configure. The surface stays the
+    // Home quiet because this is a check, not maintenance, and the same readiness proof as
+    // every other path decides the outcome (INV8/INV10).
     React.useEffect(() => {
         if (!options.enabled || snapshot.reason !== 'service_start_pending' || quietStartRef.current === attemptKey) {
             return;
@@ -331,7 +369,7 @@ export function useDesktopLocalSetupGate(options: Readonly<{ enabled: boolean }>
         );
     }, [attemptKey, options.enabled, runProof, snapshot.reason]);
 
-    const setupStart = setupTask.start;
+    const setupLaunch = setupTask.launch;
     React.useEffect(() => {
         if (!options.enabled || snapshot.state !== 'setup' || verification.status !== 'idle') {
             return;
@@ -361,7 +399,7 @@ export function useDesktopLocalSetupGate(options: Readonly<{ enabled: boolean }>
         // navigation-, notification-, deep-link-, voice- or focus-driven change mutates nothing,
         // including when it lands back on the relay the durable preference already named. Refusing
         // is the same answer as declining the move: nothing is ready, nothing claims to be, and
-        // the shell comes back with the drift banner carrying it instead of a veil over no run.
+        // the drift banner carries it instead of a panel over no run.
         if (relayChanged && !consumeDirectRelaySelectionIntent(expectation.serverId)) {
             setupAttemptRef.current = triggerKey;
             setDeclinedAttempt(triggerKey);
@@ -369,27 +407,25 @@ export function useDesktopLocalSetupGate(options: Readonly<{ enabled: boolean }>
         }
         // The choice the user just made replaces the refusal that came before it.
         setDeclinedAttempt(null);
+        // Any account move is a reconciliation, whoever set the daemon up (D1/U3): a CLI signed in
+        // from a terminal as someone else loses this computer to the executor exactly like the
+        // app's own service would, so it gets the same question.
         const isReconciliation = relayChanged
             || accountChanged
-            || appOwnedServiceContradictsTarget({ inspection, target: expectation });
+            || daemonContradictsTarget({ inspection, target: expectation });
         setupAttemptRef.current = triggerKey;
-        if (!isReconciliation) {
-            void desktopSetupCoordinator.startSetup({ start: setupStart }).catch(() => {
-                // `setupTask.startError` carries the failure; the surface renders it as blocked.
-            });
-            return;
-        }
-        void desktopSetupCoordinator
-            .reconcile({ start: setupStart, confirm: presentRelayReconciliationConsent })
-            .then((outcome) => {
-                if (outcome === null) {
-                    setDeclinedAttempt(triggerKey);
-                }
-            })
-            .catch(() => {
-                // `setupTask.startError` carries the failure; the surface renders it as blocked.
-            });
-    }, [expectation, inspection, options.enabled, setupStart, setupTask.activeTaskSnapshot, setupTask.isStarting, snapshot.state, triggerKey, verification.status]);
+        const settle = (outcome: Readonly<{ taskId: string }> | null) => {
+            if (outcome === null) {
+                setDeclinedAttempt(triggerKey);
+            }
+        };
+        const run = isReconciliation
+            ? desktopSetupCoordinator.reconcile({ start: setupLaunch, confirm: presentRelayReconciliationConsent })
+            : desktopSetupCoordinator.startSetup({ start: setupLaunch, confirm: presentRelayReconciliationConsent });
+        void run.then(settle).catch(() => {
+            // `setupTask.startError` carries the failure; the surface renders it as blocked.
+        });
+    }, [expectation, inspection, options.enabled, setupLaunch, setupTask.activeTaskSnapshot, setupTask.isStarting, snapshot.state, triggerKey, verification.status]);
 
     const retry = React.useCallback(() => {
         setupAttemptRef.current = null;
@@ -401,6 +437,10 @@ export function useDesktopLocalSetupGate(options: Readonly<{ enabled: boolean }>
         setInspectionAttempt((value) => value + 1);
     }, []);
 
+    const continueWithoutThisComputer = React.useCallback(() => {
+        setDeclinedAttempt(triggerKeyRef.current);
+    }, []);
+
     return {
         snapshot,
         inspection,
@@ -408,5 +448,6 @@ export function useDesktopLocalSetupGate(options: Readonly<{ enabled: boolean }>
         inspectionTaskId,
         setupTask,
         retry,
+        continueWithoutThisComputer,
     };
 }

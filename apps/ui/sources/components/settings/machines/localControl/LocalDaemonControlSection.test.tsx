@@ -53,6 +53,13 @@ installMachinesSettingsCommonModuleMocks({
     },
 });
 
+// Settings › This computer only renders on desktop, where the drift summary reads this computer's
+// own ambient facts; the platform adapter is the boundary.
+vi.mock('@/utils/platform/tauri', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/utils/platform/tauri')>()),
+    isTauriDesktop: () => true,
+}));
+
 vi.mock('@expo/vector-icons', () => ({
     Ionicons: 'Ionicons',
     Octicons: 'Octicons',
@@ -231,6 +238,40 @@ describe('LocalDaemonControlSection', () => {
         expect(starts.some((entry) => (entry as { kind?: unknown }).kind === 'daemon.service.start.v1')).toBe(true);
     });
 
+    it('re-reads this computer once when the section opens, so facts found since app open show (R17)', async () => {
+        // The app-open read — the one every desktop surface shares — settled before Settings opened.
+        const { desktopSetupCoordinator } = await import('@/setup/desktopSetupCoordinator');
+        await desktopSetupCoordinator.inspect();
+        // Since then the daily background check found something new (here: the service stopped).
+        ambient.data = {
+            ...HEALTHY_AMBIENT_STATUS_DATA,
+            serviceInstalled: true,
+            daemonRunning: false,
+            service: { installed: true, running: false },
+            runtimeConvergence: { ...HEALTHY_AMBIENT_STATUS_DATA.runtimeConvergence, controlReachable: false },
+        };
+        const { createSystemTaskRunner } = await import('@/components/systemTasks/createSystemTaskRunner');
+        const runner = createSystemTaskRunner({
+            bridge: {
+                async start() {
+                    return 'task_unused';
+                },
+                async subscribe() {
+                    return () => {};
+                },
+                async cancel() {},
+                async respond() {},
+            },
+        });
+
+        const { LocalDaemonControlSection } = await import('./LocalDaemonControlSection');
+        const screen = await renderScreen(React.createElement(LocalDaemonControlSection, { runner }));
+        await settleAmbientInspection();
+        await settleAmbientInspection();
+
+        expect(screen.findByTestId('settings.localDaemonControl.status')?.props.subtitle).toBe('server.relayDrift.bannerNotRunningDescription');
+    });
+
     it('re-reads the shared inspection when Refresh is pressed', async () => {
         const { createSystemTaskRunner } = await import('@/components/systemTasks/createSystemTaskRunner');
         const runner = createSystemTaskRunner({
@@ -249,7 +290,7 @@ describe('LocalDaemonControlSection', () => {
         const { LocalDaemonControlSection } = await import('./LocalDaemonControlSection');
         const screen = await renderScreen(React.createElement(LocalDaemonControlSection, { runner }));
         await settleAmbientInspection();
-        expect(screen.findByTestId('settings.localDaemonControl.status')?.props.subtitle).toBe('machine.daemonStatus.likelyAlive');
+        expect(screen.findByTestId('settings.localDaemonControl.status')?.props.subtitle).toBe('machine.thisComputer.connectedAs');
 
         // The service stopped while the settings screen was open.
         ambient.data = {
@@ -310,6 +351,163 @@ describe('LocalDaemonControlSection', () => {
                 surface: 'desktop.ui',
             }),
         }));
+    });
+
+    it('names the command line by version and offers the one Update when a newer one exists (R17)', async () => {
+        const { createSystemTaskRunner } = await import('@/components/systemTasks/createSystemTaskRunner');
+        const { SystemTaskSpecSchema } = await import('@happier-dev/protocol');
+        ambient.data = {
+            ...HEALTHY_AMBIENT_STATUS_DATA,
+            acquisition: { ...HEALTHY_AMBIENT_STATUS_DATA.acquisition, version: '0.2.13' },
+            cli: { update: { currentVersion: '0.2.13', latestVersion: '0.2.14', updateAvailable: true, managed: true } },
+        };
+        const starts: Array<{ kind: string }> = [];
+        const runner = createSystemTaskRunner({
+            bridge: {
+                async start(spec) {
+                    const parsed = SystemTaskSpecSchema.parse(spec);
+                    starts.push({ kind: parsed.kind });
+                    return `task_${starts.length}:${parsed.kind}`;
+                },
+                async subscribe() {
+                    return () => {};
+                },
+                async cancel() {},
+                async respond() {},
+            },
+        });
+
+        const { LocalDaemonControlSection } = await import('./LocalDaemonControlSection');
+        const screen = await renderScreen(React.createElement(LocalDaemonControlSection, { runner }));
+        await settleAmbientInspection();
+
+        expect(screen.findByTestId('settings.localDaemonControl.cli')?.props.subtitle).toBe('machine.thisComputer.cliManaged');
+        expect(screen.findByTestId('settings.localDaemonControl.updateCli')).toBeTruthy();
+        await screen.pressByTestIdAsync('settings.localDaemonControl.updateCli');
+        expect(starts).toContainEqual({ kind: 'cli.update.v1' });
+    });
+
+    it('names the channel of the command line this computer runs beside its version (R11/RV-9)', async () => {
+        // An app of another channel adopts the default channel's CLI (D2), so "Happier 0.2.10" alone
+        // could not say why the app's own newer release is not the one answering here.
+        ambient.data = {
+            ...HEALTHY_AMBIENT_STATUS_DATA,
+            acquisition: { ...HEALTHY_AMBIENT_STATUS_DATA.acquisition, version: '0.2.10', channel: 'stable' },
+        };
+
+        const { LocalDaemonControlSection } = await import('./LocalDaemonControlSection');
+        const screen = await renderScreen(React.createElement(LocalDaemonControlSection));
+        await settleAmbientInspection();
+
+        expect(screen.findByTestId('settings.localDaemonControl.cli')?.props.subtitle).toBe('machine.thisComputer.cliManagedOnChannel');
+    });
+
+    it('names where a command line the app did not install came from, and offers no Update for it (R17)', async () => {
+        const { createSystemTaskRunner } = await import('@/components/systemTasks/createSystemTaskRunner');
+        ambient.data = {
+            ...HEALTHY_AMBIENT_STATUS_DATA,
+            acquisition: { command: '/opt/homebrew/bin/happier', provenance: 'override', version: '0.2.10' },
+            cli: { update: { currentVersion: '0.2.10', latestVersion: '0.2.14', updateAvailable: true, managed: false } },
+        };
+        const runner = createSystemTaskRunner({
+            bridge: {
+                async start() {
+                    return 'task_unused';
+                },
+                async subscribe() {
+                    return () => {};
+                },
+                async cancel() {},
+                async respond() {},
+            },
+        });
+
+        const { LocalDaemonControlSection } = await import('./LocalDaemonControlSection');
+        const screen = await renderScreen(React.createElement(LocalDaemonControlSection, { runner }));
+        await settleAmbientInspection();
+
+        expect(screen.findByTestId('settings.localDaemonControl.cli')?.props.subtitle).toBe('machine.thisComputer.cliFromPath');
+        expect(screen.findByTestId('settings.localDaemonControl.updateCli')).toBeNull();
+    });
+
+    it('says this computer runs the person\'s own command line, and changes it through the one setup run (R12)', async () => {
+        const { createSystemTaskRunner } = await import('@/components/systemTasks/createSystemTaskRunner');
+        const { SystemTaskSpecSchema } = await import('@happier-dev/protocol');
+        ambient.data = {
+            ...HEALTHY_AMBIENT_STATUS_DATA,
+            acquisition: { command: '/usr/local/bin/happier', provenance: 'override', version: '0.2.13' },
+            cli: {
+                update: null,
+                choice: {
+                    mode: 'own',
+                    otherCli: { command: '/usr/local/bin/happier', origin: 'npm', removalCommand: 'npm uninstall -g @happier-dev/cli', updateCommand: 'npm install -g @happier-dev/cli@latest' },
+                },
+            },
+        };
+        const starts: Array<{ kind: string; params: unknown }> = [];
+        const runner = createSystemTaskRunner({
+            bridge: {
+                async start(spec) {
+                    const parsed = SystemTaskSpecSchema.parse(spec);
+                    starts.push({ kind: parsed.kind, params: parsed.params });
+                    return `task_${starts.length}:${parsed.kind}`;
+                },
+                async subscribe() {
+                    return () => {};
+                },
+                async cancel() {},
+                async respond() {},
+            },
+        });
+
+        const { LocalDaemonControlSection } = await import('./LocalDaemonControlSection');
+        const screen = await renderScreen(React.createElement(LocalDaemonControlSection, { runner }));
+        await settleAmbientInspection();
+
+        expect(screen.findByTestId('settings.localDaemonControl.cli')?.props.subtitle).toBe('machine.thisComputer.cliChoiceOwn');
+        expect(screen.findByTestId('settings.localDaemonControl.oldCli')).toBeNull();
+        await screen.pressByTestIdAsync('settings.localDaemonControl.changeCli');
+        await settleAmbientInspection();
+        expect(starts).toContainEqual({ kind: 'setup.thisComputer.v1', params: expect.objectContaining({ reconsiderCli: true }) });
+    });
+
+    it('says Happier manages the command line and shows, never runs, the command that removes the old copy (R12)', async () => {
+        ambient.data = {
+            ...HEALTHY_AMBIENT_STATUS_DATA,
+            acquisition: { ...HEALTHY_AMBIENT_STATUS_DATA.acquisition, version: '0.2.14' },
+            cli: {
+                update: null,
+                choice: {
+                    mode: 'managed',
+                    otherCli: { command: '/usr/local/bin/happier', origin: 'npm', removalCommand: 'npm uninstall -g @happier-dev/cli', updateCommand: 'npm install -g @happier-dev/cli@latest' },
+                },
+            },
+        };
+
+        const { LocalDaemonControlSection } = await import('./LocalDaemonControlSection');
+        const screen = await renderScreen(React.createElement(LocalDaemonControlSection));
+        await settleAmbientInspection();
+
+        expect(screen.findByTestId('settings.localDaemonControl.cli')?.props.subtitle).toBe('machine.thisComputer.cliChoiceManaged');
+        const oldCopy = screen.findByTestId('settings.localDaemonControl.oldCli');
+        expect(oldCopy?.props.subtitle).toBe('machine.thisComputer.cliOldCopyRemove');
+        expect(oldCopy?.props.copy).toBe('npm uninstall -g @happier-dev/cli');
+        expect(screen.findByTestId('settings.localDaemonControl.changeCli')).toBeTruthy();
+    });
+
+    it('offers no change when there is no other command line to choose (R12)', async () => {
+        ambient.data = {
+            ...HEALTHY_AMBIENT_STATUS_DATA,
+            cli: { update: null, choice: { mode: 'managed', otherCli: null } },
+        };
+
+        const { LocalDaemonControlSection } = await import('./LocalDaemonControlSection');
+        const screen = await renderScreen(React.createElement(LocalDaemonControlSection));
+        await settleAmbientInspection();
+
+        expect(screen.findByTestId('settings.localDaemonControl.cli')?.props.subtitle).toBe('machine.thisComputer.cliChoiceManaged');
+        expect(screen.findByTestId('settings.localDaemonControl.changeCli')).toBeNull();
+        expect(screen.findByTestId('settings.localDaemonControl.oldCli')).toBeNull();
     });
 
     it('surfaces a recoverable status error without disabling daemon repair', async () => {

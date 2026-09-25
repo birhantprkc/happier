@@ -5,9 +5,18 @@ import { StyleSheet } from 'react-native-unistyles';
 import { SelectionListSectionHeader } from '@/components/ui/selectionList';
 import { ItemGroup } from '@/components/ui/lists/ItemGroup';
 
-export const InboxSection = React.memo(function InboxSection(props: Readonly<{
+/**
+ * A titled list section in two densities: `flat` (a popover's eyebrow + rows) and `grouped` (a
+ * screen's inset group). Shared by the Inbox and Updates surfaces, which render the same content in
+ * both densities.
+ */
+export const ListSection = React.memo(function ListSection(props: Readonly<{
+    /** Test-id namespace of the owning surface: ids read `${namespace}.section.${id}`. */
+    namespace: string;
     id: string;
     title: string;
+    /** Keep the title's case (names such as hostnames are case-meaningful). */
+    preserveTitleCase?: boolean;
     children: React.ReactNode;
     headerAction?: React.ReactNode;
     spacing?: 'following' | 'separated';
@@ -16,8 +25,9 @@ export const InboxSection = React.memo(function InboxSection(props: Readonly<{
     const grouped = props.surface === 'grouped';
     const header = (
         <SelectionListSectionHeader
-            testID={`inbox.section.${props.id}.header`}
+            testID={`${props.namespace}.section.${props.id}.header`}
             title={props.title}
+            preserveCase={props.preserveTitleCase}
             rightAccessory={props.headerAction}
             containerStyle={grouped
                 ? styles.groupedHeader
@@ -29,7 +39,7 @@ export const InboxSection = React.memo(function InboxSection(props: Readonly<{
 
     return (
         <View
-            testID={`inbox.section.${props.id}`}
+            testID={`${props.namespace}.section.${props.id}`}
             style={[
                 styles.section,
                 props.spacing === 'following' ? styles.sectionFollowing : null,

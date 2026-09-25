@@ -18,6 +18,13 @@ export type DesktopLocalReadinessFacts = Readonly<{
     acquisition: Readonly<{
         command: string;
         provenance: 'managed' | 'override';
+        /** The version that CLI reports for itself; `null` when the answer carried none. */
+        version: string | null;
+        /**
+         * The release channel whose managed CLI this is — the default channel's when the app adopted
+         * it (D2), else the app's own. `null` for an override CLI, or when the answer carried none.
+         */
+        channel: DesktopCliChannel | null;
     }>;
     server: Readonly<{
         serverUrl: string | null;
@@ -31,6 +38,11 @@ export type DesktopLocalReadinessFacts = Readonly<{
         validatedAccountId: string | null;
         /** The account named by the credentials on disk. Diagnostic; never sufficient for readiness. */
         accountId: string | null;
+        /**
+         * K1 — a readable label for the validated account (the relay profile's username, else its
+         * display name). `null` when the CLI reports none; readers fall back to a short id.
+         */
+        accountLabel: string | null;
         machineId: string | null;
     }>;
     service: Readonly<{
@@ -38,10 +50,9 @@ export type DesktopLocalReadinessFacts = Readonly<{
         running: boolean;
         /**
          * The autostart mode the installed definition declares. `null` when the CLI that answered
-         * does not report one. Entry policy reads it for exactly one decision: an `on-demand`
-         * service that is simply not running yet is the deal the user made — "it answers while the
-         * app is open" — so starting it is a check, not maintenance to announce (H6). The desktop
-         * settings toggle and the app-close guard project the same fact.
+         * does not report one. The desktop settings toggle and the app-close guard project it;
+         * entry policy does not — a stopped service the app owns gets the same quiet start
+         * whichever way it starts at login (H6/D6).
          */
         autostart: DesktopBackgroundServiceAutostartMode | null;
         /**
@@ -59,6 +70,39 @@ export type DesktopLocalReadinessFacts = Readonly<{
         machineIdMatches: boolean;
         cliVersionMatches: boolean;
     }> | null;
+    /**
+     * K1/R17 — the CLI's own update check for the app's release channel, from its cached answer.
+     * `managed` says whether the app's install path placed this CLI, i.e. whether the app may
+     * update it. `null` when the CLI reports none (an older CLI, or no check has answered yet).
+     */
+    cliUpdate: DesktopCliUpdateFacts | null;
+    /** R12 — this computer's one-CLI answer and the CLI that is not the managed one. */
+    cliChoice: DesktopCliChoiceFacts;
+}>;
+
+/**
+ * R12 — `mode` is what this computer answered (`null`: nobody was asked). `otherCli` is the CLI
+ * that is not the managed one: the person's own after "Keep my own", otherwise a `happier` still on
+ * PATH — the old copy after "Let Happier manage it". Its commands are shown, never run.
+ */
+export type DesktopCliChoiceFacts = Readonly<{
+    mode: 'managed' | 'own' | null;
+    otherCli: Readonly<{
+        command: string;
+        origin: 'npm' | 'brew' | 'unknown';
+        removalCommand: string | null;
+        updateCommand: string | null;
+    }> | null;
+}>;
+
+/** The public release channels a managed CLI can belong to (`@happier-dev/release-runtime`). */
+export type DesktopCliChannel = 'stable' | 'preview' | 'publicdev';
+
+export type DesktopCliUpdateFacts = Readonly<{
+    currentVersion: string;
+    latestVersion: string | null;
+    updateAvailable: boolean;
+    managed: boolean;
 }>;
 
 export type DesktopLocalInspection =
@@ -85,8 +129,8 @@ export type DesktopLocalSetupInput = Readonly<{
     expected: DesktopSetupExpectation;
     reachability?: DesktopSetupReachability;
     /**
-     * H6 — the on-demand quiet start has already had its turn for these facts. Until then, facts
-     * that say "installed, stopped, on-demand" are an unsettled check (`service_start_pending`):
+     * H6/D6 — the quiet start has already had its turn for these facts. Until then, facts that
+     * say "installed, stopped, otherwise aligned" are an unsettled check (`service_start_pending`):
      * the app is about to start the service it already installed. Afterwards they are settled, so
      * a service still stopped once the start has run carries its own failure instead of leaving
      * the surface checking something nothing is going to start.
@@ -94,22 +138,21 @@ export type DesktopLocalSetupInput = Readonly<{
     backgroundServiceStartAttempted?: boolean;
 }>;
 
-/** R14/UD5: the ephemeral in-run facts that decide how a blocking fact is presented. */
+/** R14/UD5: the ephemeral in-run facts that decide how a fact is presented. */
 export type DesktopSetupEntryContext = Readonly<{
     authenticatedThisRun: boolean;
     /**
-     * UD4 — whether this app run has already put the shell in front of the user. It is the fact
-     * the entry policy actually needs: `authenticatedThisRun` is set once at sign-in and never
-     * cleared, so on its own it would still claim "first run" for maintenance that happens hours
-     * later, and take the opaque ground away from an app the user is already working in.
+     * Whether this app run's first-run setup has already settled — the Home panel has gone away
+     * once, ready or declined. `authenticatedThisRun` is set once at sign-in and never cleared, so
+     * on its own it would still claim "first run" for maintenance that happens hours later.
      */
-    hasPresentedShell: boolean;
+    firstRunSettled: boolean;
     /**
      * The user was asked something this attempt needed — to move this device's background service
      * to the selected Relay (UD5), or to vouch for a command line this app's install path did not
      * place — and said no. The computer is still not ready for this relay, so nothing claims
-     * ready; but the app must not hold a blocking surface over a choice the user just made, so the
-     * shell stays visible and the existing drift banner carries the state.
+     * ready; but the panel must not keep asking about a choice the user just made, so it steps
+     * aside and the existing drift banner carries the state.
      */
     userDeclinedThisAttempt?: boolean;
 }>;
@@ -117,10 +160,10 @@ export type DesktopSetupEntryContext = Readonly<{
 export type DesktopLocalSetupState = 'checking' | 'setup' | 'ready' | 'blocked';
 
 /**
- * `ground`: the opaque first-run ground (UD4). `veil`: blocking maintenance over the shell the
- * user is already in. `shell`: the ordinary authenticated shell.
+ * R11 — setup never blocks the app. `panel`: the Home shows the non-blocking setup panel (progress,
+ * an honest failure, Retry, the way to continue without this computer). `hidden`: nothing to show.
  */
-export type DesktopLocalSetupPresentation = 'ground' | 'shell' | 'veil';
+export type DesktopLocalSetupPresentation = 'panel' | 'hidden';
 
 export type DesktopLocalSetupReason =
     | 'relay_mismatch'
@@ -131,6 +174,7 @@ export type DesktopLocalSetupReason =
     | 'daemon_not_converged'
     | 'runtime_unknown'
     | 'inspection_failed'
+    | 'cli_choice_required'
     | 'credentials_unverified'
     | 'reachability_pending'
     | 'service_start_pending'
@@ -201,26 +245,35 @@ function resolveSetupReason(facts: DesktopLocalReadinessFacts, expected: Desktop
 
 /**
  * Whether this computer's daemon still needs to be paired for the relay it is configured for: the
- * relay could not confirm its credentials, or it has no machine of its own yet.
+ * relay rejected its credentials or it has none, or it has no machine of its own yet.
+ *
+ * `unknown` is not one of those (U9): offline, the CLI could not ask the relay, which says nothing
+ * about the credentials. Reading it as "needs to sign in" put a false claim and an Authenticate
+ * action on every surface describing this computer until the app relaunched.
  *
  * It is the one projection of "needs auth" the desktop surfaces share — the drift classifier and
  * the local-daemon settings row — so the banner and the row beside it cannot describe the same
  * computer differently. Readiness is never this: that is `verifyCurrentTarget` alone (INV8/INV10).
  */
 export function daemonNeedsAuthFromFacts(facts: DesktopLocalReadinessFacts): boolean {
+    if (facts.auth.credentialState === 'unknown') {
+        return false;
+    }
     return facts.auth.credentialState !== 'valid' || facts.auth.machineId === null;
 }
 
 /**
- * H6 — the installed service is the app's own on-demand one and is simply not running yet.
+ * H6/D6 — the installed service is the app's own and is simply not running.
  *
- * That is not drift: the settings toggle promised "this computer answers while the app is open",
- * so the app starting the service it already installed is the promise being kept. Every other fact
- * has to be aligned first — this is only ever reached for `daemon_not_converged`, i.e. the relay,
- * credentials, account, machine id and installation all match what the app expects.
+ * That is not drift. For an on-demand service it is the settings toggle's promise ("this computer
+ * answers while the app is open") being kept; for an at-login one that something stopped, it is
+ * the same quiet start — the same fact must not get a heavier surface because of how the service
+ * starts at login (D6). Every other fact has to be aligned first — this is only ever reached for
+ * `daemon_not_converged`, i.e. the relay, credentials, account, machine id and installation all
+ * match what the app expects.
  */
-function onDemandServiceNeedsStart(facts: DesktopLocalReadinessFacts): boolean {
-    return facts.service.installed && !facts.service.running && facts.service.autostart === 'on-demand';
+function installedServiceNeedsStart(facts: DesktopLocalReadinessFacts): boolean {
+    return facts.service.installed && !facts.service.running;
 }
 
 /**
@@ -244,40 +297,42 @@ export function desktopLocalRuntimeConverged(
  * **and** by the machine answering a read-only RPC (INV10); credentials on disk beside a live PID
  * prove nothing, and neither does convergence alone.
  *
- * One rule decides presentation, and it turns on whether the facts have SETTLED (R14/UD4):
- * while a check is still running nothing is wrong yet, so the user keeps the ordinary shell —
- * except on a first run, where no shell has been presented and the opaque ground is the whole
- * surface. Once a fact settles against the app — setup needed, credentials unverifiable, the
- * inspection failed, the machine unreachable — it is presented, never hidden: the ground on a
- * first run, the veil over the shell afterwards. A settled failure behind a bare shell is how a
- * failed setup became silently permanent, and the veil is what carries its Retry.
+ * One rule decides presentation, and it turns on whether the facts have SETTLED (R14): while a
+ * check is still running nothing is wrong yet, so the Home shows nothing — except on a first run,
+ * where the panel says this computer is being checked. Once a fact settles against the app —
+ * setup needed, credentials unverifiable, the inspection failed, the machine unreachable — the
+ * panel presents it, never hides it: a settled failure with nothing on screen is how a failed
+ * setup became silently permanent. The app itself is usable throughout (R11).
  */
 export function deriveDesktopLocalSetupSnapshot(
     input: DesktopLocalSetupInput,
     entryContext: DesktopSetupEntryContext,
 ): DesktopLocalSetupSnapshot {
-    // The user just answered this attempt's question with "no". Holding a blocking surface over
-    // a choice they made would be a retry trap, so the shell comes back and the existing drift /
-    // repair entry carries the state until they return to it.
-    const firstRun = entryContext.authenticatedThisRun && !entryContext.hasPresentedShell;
-    const settled: DesktopLocalSetupPresentation = entryContext.userDeclinedThisAttempt
-        ? 'shell'
-        : (firstRun ? 'ground' : 'veil');
+    // The user just answered this attempt's question with "no". Presenting it again would be a
+    // retry trap, so the panel steps aside and the existing drift / repair entry carries the state
+    // until they return to it.
+    const firstRun = entryContext.authenticatedThisRun && !entryContext.firstRunSettled;
+    const settled: DesktopLocalSetupPresentation = entryContext.userDeclinedThisAttempt ? 'hidden' : 'panel';
     const unsettled: DesktopLocalSetupPresentation = firstRun && !entryContext.userDeclinedThisAttempt
-        ? 'ground'
-        : 'shell';
+        ? 'panel'
+        : 'hidden';
 
     if (input.inspection.status === 'pending' || !input.expected.accountId) {
         return { state: 'checking', presentation: unsettled, reason: null };
     }
     if (input.inspection.status === 'failed') {
+        // R12 — the read failed on a `happier` nobody chose yet (or the kept one). Re-reading can
+        // never change that; the answer can, and setup's first step asks for it.
+        if (input.inspection.error.code === 'cli_choice_required') {
+            return { state: 'setup', presentation: settled, reason: 'cli_choice_required' };
+        }
         return { state: 'blocked', presentation: settled, reason: 'inspection_failed' };
     }
 
     const reason = resolveSetupReason(input.inspection.facts, input.expected);
     if (reason === null) {
         if (input.reachability === 'reachable') {
-            return { state: 'ready', presentation: 'shell', reason: null };
+            return { state: 'ready', presentation: 'hidden', reason: null };
         }
         if (input.reachability === 'unreachable') {
             return { state: 'blocked', presentation: settled, reason: 'machine_unreachable' };
@@ -286,12 +341,12 @@ export function deriveDesktopLocalSetupSnapshot(
     }
     if (reason === 'credentials_unverified') {
         // The relay could not be reached to say whether the stored credentials are still good.
-        // That is a fact about the CHECK, not about this computer, and on a relaunch it clears
-        // itself the next time the network answers — so nothing is ready, and nothing takes the
-        // app away either.
+        // That is a fact about the CHECK, not about this computer. Nothing re-reads on its own, so
+        // it lasts until the next inspection (a relaunch, Retry, or Refresh in Settings) — nothing
+        // is ready, and nothing is presented over it either.
         //
-        // A first run has no shell to fall back to, and nothing re-inspects on its own, so leaving
-        // it unsettled there is an opaque ground that checks forever with no action. The executor
+        // A first run has nothing set up to fall back to, and nothing re-inspects on its own, so
+        // leaving it unsettled there is a panel that checks forever with no action. The executor
         // is the owner of "validate the credentials for this relay": it pairs if the relay answers
         // now, and fails by name — with a Retry — if it does not.
         return firstRun
@@ -300,7 +355,7 @@ export function deriveDesktopLocalSetupSnapshot(
     }
     if (reason === 'daemon_not_converged'
         && !input.backgroundServiceStartAttempted
-        && onDemandServiceNeedsStart(input.inspection.facts)) {
+        && installedServiceNeedsStart(input.inspection.facts)) {
         return { state: 'checking', presentation: unsettled, reason: 'service_start_pending' };
     }
     return { state: 'setup', presentation: settled, reason };

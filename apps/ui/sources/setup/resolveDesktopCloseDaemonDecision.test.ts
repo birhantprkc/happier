@@ -46,6 +46,16 @@ describe('resolveDesktopCloseDaemonDecision', () => {
             autostart: 'on-demand',
             activeLocalSessionCount: 0,
             canSeeDaemonSessions: false,
+        })).toBe('askUnknown');
+    });
+
+    it('says it cannot tell, rather than claiming sessions are running, when it cannot see them (U11)', () => {
+        // Same ask, different truth: the "sessions are still running" question is only true when
+        // the app actually saw them.
+        expect(resolveDesktopCloseDaemonDecision({
+            autostart: 'on-demand',
+            activeLocalSessionCount: 2,
+            canSeeDaemonSessions: true,
         })).toBe('ask');
     });
 });

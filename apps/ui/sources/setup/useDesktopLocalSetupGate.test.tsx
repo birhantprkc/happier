@@ -1,3 +1,4 @@
+import type { SetupCliChoicePromptPayload } from '@happier-dev/protocol';
 import { RPC_METHODS } from '@happier-dev/protocol/rpc';
 import * as React from 'react';
 import renderer from 'react-test-renderer';
@@ -32,6 +33,10 @@ const state = vi.hoisted(() => ({
     onSetupSucceeded: null as ((run: unknown) => void) | null,
     /** Everything the gate wired into the one setup task, so a test can drive its callbacks. */
     setupTaskOptions: null as SetupTaskOptionsProbe | null,
+    /** The setup task's run, as the task hook would report it. */
+    setupTaskSnapshot: null as unknown,
+    /** D5 — the daemon this device chose to keep as it is. */
+    keptBackgroundService: null as { relayKey: string; accountId: string | null } | null,
 }));
 
 /**
@@ -78,6 +83,8 @@ const spies = vi.hoisted(() => ({
     startBackgroundService: vi.fn(async () => {}),
     /** The one ask before an override CLI is handed the account content key. */
     presentUnmanagedCliConsent: vi.fn(async (_decision: Readonly<{ cliCommand: string | null }>) => false),
+    /** R12's one-CLI question — a modal, the presentation boundary. */
+    presentCliChoice: vi.fn(async (_prompt: unknown): Promise<'managed' | 'own' | null> => null),
     /** UD5's service-ownership ask, raised by the executor through the CLI's own preview. */
     presentSetupServiceConsent: vi.fn(async (_prompt: unknown) => true),
     /** The coordinator's one readiness proof (INV8 + INV10). */
@@ -100,6 +107,7 @@ type SetupTaskOptionsProbe = Readonly<{
     authRequestApproval?: Readonly<{ expectedRelayUrl: string; expectedAccountId: string; serverId?: string }>;
     onUnmanagedCliConsentRequired?: (decision: Readonly<{ cliCommand: string | null }>) => Promise<boolean>;
     onServiceConsentRequired?: (prompt: unknown) => Promise<boolean>;
+    onCliChoiceRequired?: (prompt: SetupCliChoicePromptPayload) => Promise<'managed' | 'own' | null>;
 }>;
 
 vi.mock('@/sync/runtime/orchestration/serverScopedRpc/serverScopedMachineRpc', () => ({
@@ -113,14 +121,14 @@ vi.mock('@/sync/runtime/orchestration/serverScopedRpc/serverScopedMachineRpc', (
 const DRIFTED_INSPECTION: DesktopLocalInspection = {
     status: 'resolved',
     facts: {
-        acquisition: { command: '/managed/happier', provenance: 'managed' },
+        acquisition: { command: '/managed/happier', provenance: 'managed', version: null, channel: null },
         server: {
             serverUrl: 'https://old.example.test',
             publicServerUrl: null,
             localServerUrl: null,
             comparableKey: null,
         },
-        auth: { credentialState: 'valid', validatedAccountId: 'acct_app', accountId: 'acct_app', machineId: 'machine-1' },
+        auth: { credentialState: 'valid', validatedAccountId: 'acct_app', accountId: 'acct_app', accountLabel: null, machineId: 'machine-1' },
         service: { installed: true, running: true, autostart: 'at-login', targetMode: 'default-following' },
         runtimeConvergence: {
             controlReachable: true,
@@ -128,6 +136,8 @@ const DRIFTED_INSPECTION: DesktopLocalInspection = {
             machineIdMatches: true,
             cliVersionMatches: true,
         },
+        cliUpdate: null,
+        cliChoice: { mode: null, otherCli: null },
     },
 };
 
@@ -135,14 +145,14 @@ const DRIFTED_INSPECTION: DesktopLocalInspection = {
 const READY_INSPECTION: DesktopLocalInspection = {
     status: 'resolved',
     facts: {
-        acquisition: { command: '/managed/happier', provenance: 'managed' },
+        acquisition: { command: '/managed/happier', provenance: 'managed', version: null, channel: null },
         server: {
             serverUrl: 'https://relay.example.test',
             publicServerUrl: null,
             localServerUrl: null,
             comparableKey: null,
         },
-        auth: { credentialState: 'valid', validatedAccountId: 'acct_app', accountId: 'acct_app', machineId: 'machine-1' },
+        auth: { credentialState: 'valid', validatedAccountId: 'acct_app', accountId: 'acct_app', accountLabel: null, machineId: 'machine-1' },
         service: { installed: true, running: true, autostart: 'at-login', targetMode: 'default-following' },
         runtimeConvergence: {
             controlReachable: true,
@@ -150,6 +160,8 @@ const READY_INSPECTION: DesktopLocalInspection = {
             machineIdMatches: true,
             cliVersionMatches: true,
         },
+        cliUpdate: null,
+        cliChoice: { mode: null, otherCli: null },
     },
 };
 
@@ -161,14 +173,14 @@ const READY_INSPECTION: DesktopLocalInspection = {
 const UNCONFIGURED_INSPECTION: DesktopLocalInspection = {
     status: 'resolved',
     facts: {
-        acquisition: { command: '/managed/happier', provenance: 'managed' },
+        acquisition: { command: '/managed/happier', provenance: 'managed', version: null, channel: null },
         server: {
             serverUrl: 'https://relay.example.test',
             publicServerUrl: null,
             localServerUrl: null,
             comparableKey: null,
         },
-        auth: { credentialState: 'missing', validatedAccountId: null, accountId: null, machineId: null },
+        auth: { credentialState: 'missing', validatedAccountId: null, accountId: null, accountLabel: null, machineId: null },
         service: { installed: false, running: false, autostart: null, targetMode: null },
         runtimeConvergence: {
             controlReachable: false,
@@ -176,6 +188,8 @@ const UNCONFIGURED_INSPECTION: DesktopLocalInspection = {
             machineIdMatches: false,
             cliVersionMatches: false,
         },
+        cliUpdate: null,
+        cliChoice: { mode: null, otherCli: null },
     },
 };
 
@@ -191,6 +205,8 @@ const ON_DEMAND_STOPPED_INSPECTION: DesktopLocalInspection = {
             machineIdMatches: false,
             cliVersionMatches: false,
         },
+        cliUpdate: null,
+        cliChoice: { mode: null, otherCli: null },
     },
 };
 
@@ -260,10 +276,11 @@ vi.mock('@/components/systemTasks/useThisComputerSetupTask', () => ({
         state.setupTaskOptions = options;
         return {
             activeTaskId: null,
-            activeTaskSnapshot: null,
+            activeTaskSnapshot: state.setupTaskSnapshot,
             cancel: () => {},
             completedMachineId: null,
             isStarting: false,
+            launch: async () => 'task_setup_1',
             runner: null,
             start: async () => 'task_setup_1',
             startError: null,
@@ -292,6 +309,7 @@ vi.mock('@/sync/domains/state/storage', () => ({
         },
         getState: () => ({ settings: state.settings }),
     },
+    useLocalSetting: (name: string) => (name === 'desktopKeptBackgroundService' ? state.keptBackgroundService : undefined),
 }));
 
 vi.mock('./directRelaySelectionIntent', () => ({
@@ -326,6 +344,10 @@ vi.mock('./presentRelayReconciliationConsent', () => ({
 
 vi.mock('./presentSetupServiceConsent', () => ({
     presentSetupServiceConsent: (prompt: unknown) => spies.presentSetupServiceConsent(prompt),
+}));
+
+vi.mock('./presentCliChoice', () => ({
+    presentCliChoice: (prompt: unknown) => spies.presentCliChoice(prompt),
 }));
 
 vi.mock('./presentUnmanagedCliConsent', () => ({
@@ -381,6 +403,8 @@ describe('useDesktopLocalSetupGate — what may mutate the local daemon (R8/INV7
         state.storageListeners.clear();
         state.onSetupSucceeded = null;
         state.setupTaskOptions = null;
+        state.setupTaskSnapshot = null;
+        state.keptBackgroundService = null;
         spies.presentUnmanagedCliConsent.mockClear();
         spies.presentUnmanagedCliConsent.mockImplementation(async () => false);
         observedGate = null;
@@ -398,6 +422,19 @@ describe('useDesktopLocalSetupGate — what may mutate the local daemon (R8/INV7
 
         expect(spies.startSetup).toHaveBeenCalledTimes(1);
         expect(spies.reconcile).not.toHaveBeenCalled();
+    });
+
+    it('starts setup — whose first step is the one-CLI question — when the read failed on a CLI nobody chose yet (R12)', async () => {
+        // A Retry that only re-reads can never get past this; the executor asks the question.
+        spies.inspect.mockImplementation(async () => ({
+            status: 'failed',
+            error: { code: 'cli_choice_required', message: 'The Happier CLI at /usr/local/bin/happier could not answer' },
+        }) as DesktopLocalInspection);
+
+        await renderGate();
+
+        expect(spies.startSetup).toHaveBeenCalledTimes(1);
+        expect(observedGate?.snapshot).toMatchObject({ state: 'setup', presentation: 'panel', reason: 'cli_choice_required' });
     });
 
     it('routes a relaunch whose daemon is still on another relay through reconciliation, never a silent repoint (B2)', async () => {
@@ -465,9 +502,9 @@ describe('useDesktopLocalSetupGate — what may mutate the local daemon (R8/INV7
         expect(spies.startSetup).not.toHaveBeenCalled();
     });
 
-    it('releases the shell for an ambient relay switch instead of holding a veil over nothing (B1)', async () => {
+    it('shows no setup panel for an ambient relay switch, instead of a panel over nothing (B1)', async () => {
         // A notification moved the app to a relay this computer's daemon is not on. Nothing may be
-        // repointed for it (INV7), so nothing runs — and a blocking veil with no run, no progress
+        // repointed for it (INV7), so nothing runs — and a setup panel with no run, no progress
         // and no action is not an honest way to say so. It is the same answer as declining the
         // move: not ready, not claiming to be, and the drift banner carries it.
         spies.inspect.mockImplementation(async () => DRIFTED_INSPECTION);
@@ -478,7 +515,7 @@ describe('useDesktopLocalSetupGate — what may mutate the local daemon (R8/INV7
 
         expect(spies.reconcile).not.toHaveBeenCalled();
         expect(spies.startSetup).not.toHaveBeenCalled();
-        expect(observedGate?.snapshot).toMatchObject({ state: 'setup', presentation: 'shell' });
+        expect(observedGate?.snapshot).toMatchObject({ state: 'setup', presentation: 'hidden' });
     });
 
     it('acts on a direct Relay/Home pick of the relay the app is already on (B1)', async () => {
@@ -491,7 +528,7 @@ describe('useDesktopLocalSetupGate — what may mutate the local daemon (R8/INV7
         state.settings = { serverSelectionActiveTargetKind: 'server', serverSelectionActiveTargetId: 'custom-2' };
 
         await renderGate();
-        expect(observedGate?.snapshot.presentation).toBe('shell');
+        expect(observedGate?.snapshot.presentation).toBe('hidden');
         expect(spies.reconcile).not.toHaveBeenCalled();
 
         await renderer.act(async () => {
@@ -501,7 +538,7 @@ describe('useDesktopLocalSetupGate — what may mutate the local daemon (R8/INV7
         expect(spies.reconcile).toHaveBeenCalledTimes(1);
         // The refusal was about the ambient switch, not about this relay forever: the answer the
         // user just gave releases it, so the surface is not stuck in a declined state.
-        expect(observedGate?.snapshot.presentation).not.toBe('shell');
+        expect(observedGate?.snapshot.presentation).not.toBe('hidden');
     });
 
     it('performs no daemon mutation for an ambient server change that lands back on the durable preference', async () => {
@@ -601,7 +638,7 @@ describe('useDesktopLocalSetupGate — what may mutate the local daemon (R8/INV7
         expect(observedGate?.snapshot.state).toBe('ready');
     });
 
-    it('fails closed on the setup ground when the machine does not answer (INV10)', async () => {
+    it('fails closed on the Home panel when the machine does not answer (INV10)', async () => {
         state.authenticatedThisRun = true;
         spies.machineRpc.mockImplementation(async () => {
             throw new Error('Machine RPC timed out after 30000ms while using active scope for capabilities.describe');
@@ -612,7 +649,7 @@ describe('useDesktopLocalSetupGate — what may mutate the local daemon (R8/INV7
 
         expect(observedGate?.verification).toEqual({ status: 'blocked', code: 'machine_unreachable' });
         expect(observedGate?.snapshot.state).not.toBe('ready');
-        expect(observedGate?.snapshot).toMatchObject({ presentation: 'ground', reason: 'machine_unreachable' });
+        expect(observedGate?.snapshot).toMatchObject({ presentation: 'panel', reason: 'machine_unreachable' });
     });
 
     it('is unaffected by a client clock far ahead of or far behind the relay (A0)', async () => {
@@ -676,15 +713,14 @@ describe('useDesktopLocalSetupGate — what may mutate the local daemon (R8/INV7
         expect(observedGate?.snapshot.state).not.toBe('ready');
     });
 
-    it('keeps the user\'s context under the veil once the shell has been presented (UD4/F4)', async () => {
+    it('presents later maintenance on the panel once the first run has settled (R11/F4)', async () => {
         state.authenticatedThisRun = true;
         await renderGate();
         await completeSetup();
-        expect(observedGate?.snapshot).toMatchObject({ state: 'ready', presentation: 'shell' });
+        expect(observedGate?.snapshot).toMatchObject({ state: 'ready', presentation: 'hidden' });
 
-        // Hours later, still the same app run: the user picks a different Relay themselves. The
-        // opaque ground belongs to a first run only — this is maintenance over an app they are
-        // using.
+        // Hours later, still the same app run: the user picks a different Relay themselves. This
+        // is maintenance in an app they are using; the panel carries it, nothing blocks.
         state.activeServer = { serverId: 'custom-3', serverUrl: 'https://new.example.test', activeLocalRelayUrl: null, generation: 2 };
         state.settings = { serverSelectionActiveTargetKind: 'server', serverSelectionActiveTargetId: 'custom-3' };
         state.directRelaySelectionIntent = 'custom-3';
@@ -692,18 +728,18 @@ describe('useDesktopLocalSetupGate — what may mutate the local daemon (R8/INV7
             refreshIdentity?.();
         });
 
-        expect(observedGate?.snapshot).toMatchObject({ state: 'setup', presentation: 'veil' });
+        expect(observedGate?.snapshot).toMatchObject({ state: 'setup', presentation: 'panel' });
     });
 
-    it('releases the shell when the user keeps the background service already on this computer (F5)', async () => {
+    it('takes the panel away when the user keeps the background service already on this computer (F5)', async () => {
         // "Keep it as is" is a decision, exactly like keeping the service where it is on a relay
-        // move. Holding the opaque ground over it and offering a Retry that reopens the same
-        // question is a trap, so the shell comes back and setup stays available later.
+        // move. Keeping a panel over it with a Retry that reopens the same question is a trap, so
+        // the panel steps aside and setup stays available later.
         state.authenticatedThisRun = true;
         spies.presentSetupServiceConsent.mockImplementation(async () => false);
 
         await renderGate();
-        expect(observedGate?.snapshot.presentation).toBe('ground');
+        expect(observedGate?.snapshot.presentation).toBe('panel');
 
         let approved: boolean | undefined;
         await renderer.act(async () => {
@@ -718,10 +754,10 @@ describe('useDesktopLocalSetupGate — what may mutate the local daemon (R8/INV7
 
         expect(approved).toBe(false);
         expect(spies.presentSetupServiceConsent).toHaveBeenCalledTimes(1);
-        expect(observedGate?.snapshot.presentation).toBe('shell');
+        expect(observedGate?.snapshot.presentation).toBe('hidden');
     });
 
-    it('quietly starts its own on-demand service on relaunch, with no veil and no executor (H6)', async () => {
+    it('quietly starts its own on-demand service on relaunch, with no panel and no executor (H6)', async () => {
         // The settings toggle promised this computer answers while the app is open. Keeping that
         // promise is a check, not maintenance: the service is already installed for this relay and
         // account, so the app runs the CLI's own start command and proves the result. Running the
@@ -736,7 +772,7 @@ describe('useDesktopLocalSetupGate — what may mutate the local daemon (R8/INV7
         expect(spies.startBackgroundService).toHaveBeenCalledTimes(1);
         expect(spies.startSetup).not.toHaveBeenCalled();
         expect(spies.reconcile).not.toHaveBeenCalled();
-        expect(observedGate?.snapshot).toMatchObject({ state: 'checking', presentation: 'shell' });
+        expect(observedGate?.snapshot).toMatchObject({ state: 'checking', presentation: 'hidden' });
     });
 
     it('reveals once the quietly started service proves itself (H6)', async () => {
@@ -767,7 +803,7 @@ describe('useDesktopLocalSetupGate — what may mutate the local daemon (R8/INV7
         // A ready app, then any other reader re-reads: Machines › Refresh, the background-service
         // toggle after its install, a settings verify/adopt. The daemon has stopped since. The
         // verdict was about facts that no longer describe this computer, and holding onto it left
-        // the trigger gated shut — a blocking veil over the whole app with no run, no progress and
+        // the trigger gated shut — a setup panel with no run, no progress and
         // no Retry, recoverable only by restarting the app.
         spies.inspect.mockImplementation(async () => READY_INSPECTION);
 
@@ -776,17 +812,20 @@ describe('useDesktopLocalSetupGate — what may mutate the local daemon (R8/INV7
         expect(observedGate?.snapshot.state).toBe('ready');
         expect(observedGate?.verification.status).toBe('verified');
 
+        // Running, but no longer the version this app installed: a stopped service would get the
+        // quiet start instead (D6), so the executor case needs a daemon that is up and wrong.
         const stopped: DesktopLocalInspection = {
             status: 'resolved',
             facts: {
                 ...READY_INSPECTION.facts,
-                service: { ...READY_INSPECTION.facts.service, running: false },
                 runtimeConvergence: {
-                    controlReachable: false,
+                    controlReachable: true,
                     serviceOwnsRunningDaemon: false,
-                    machineIdMatches: false,
+                    machineIdMatches: true,
                     cliVersionMatches: false,
                 },
+                cliUpdate: null,
+                cliChoice: { mode: null, otherCli: null },
             },
         };
         spies.inspect.mockImplementation(async () => stopped);
@@ -841,7 +880,72 @@ describe('useDesktopLocalSetupGate — what may mutate the local daemon (R8/INV7
         expect(inspectionStore.value).toMatchObject({ status: 'resolved' });
     });
 
-    it('releases the blocking surface when the user keeps the service where it is', async () => {
+    it('asks before claiming a computer whose CLI a person signed in from a terminal as another account (U3)', async () => {
+        // No app-owned service at all: the CLI was set up from a terminal as account B. Treating
+        // it as a first install replaced B's credentials with no question.
+        spies.inspect.mockImplementation(async () => ({
+            status: 'resolved',
+            facts: {
+                ...UNCONFIGURED_INSPECTION.facts,
+                auth: { credentialState: 'valid', validatedAccountId: 'acct_terminal', accountId: 'acct_terminal', accountLabel: 'bob', machineId: 'machine-b' },
+            },
+        }) as DesktopLocalInspection);
+
+        await renderGate();
+
+        expect(spies.reconcile).toHaveBeenCalledTimes(1);
+        expect(spies.startSetup).not.toHaveBeenCalled();
+    });
+
+    it('does not put a panel or a question in front of a daemon this device chose to keep (D5)', async () => {
+        spies.inspect.mockImplementation(async () => DRIFTED_INSPECTION);
+        state.keptBackgroundService = { relayKey: 'https://old.example.test', accountId: 'acct_app' };
+        state.reconcileOutcome = null;
+
+        await renderGate();
+
+        expect(observedGate?.snapshot).toMatchObject({ state: 'setup', presentation: 'hidden' });
+    });
+
+    it('offers a way out of a blocked state that Retry cannot fix (U4)', async () => {
+        // The machine was revoked from another device: convergence passes, the relay refuses it,
+        // and Retry re-proves the same failure forever. The gate's own decline path takes the
+        // panel away; nothing claims ready.
+        spies.inspect.mockImplementation(async () => READY_INSPECTION);
+        spies.machineRpc.mockImplementation(async () => {
+            throw new Error('machine revoked');
+        });
+        state.authenticatedThisRun = true;
+
+        await renderGate();
+        await renderer.act(async () => {});
+        expect(observedGate?.snapshot).toMatchObject({ state: 'blocked', presentation: 'panel', reason: 'machine_unreachable' });
+
+        await renderer.act(async () => {
+            observedGate?.continueWithoutThisComputer();
+        });
+
+        expect(observedGate?.snapshot).toMatchObject({ state: 'blocked', presentation: 'hidden' });
+    });
+
+    it('keeps the verify stage while a succeeded run is being proved, never dropping back to checking (U5)', async () => {
+        state.authenticatedThisRun = true;
+        await renderGate();
+        expect(spies.startSetup).toHaveBeenCalledTimes(1);
+
+        // The run succeeded; its proof re-reads, and that read is held in flight.
+        state.setupTaskSnapshot = { taskId: 'task_setup_1', status: 'succeeded', events: [], result: { ok: true, data: {} } };
+        spies.inspect.mockImplementation(() => new Promise(() => {}));
+        await renderer.act(async () => {
+            state.onSetupSucceeded?.(state.setupTaskSnapshot);
+        });
+
+        expect(observedGate?.verification.status).toBe('verifying');
+        expect(observedGate?.inspection.status).toBe('resolved');
+        expect(observedGate?.snapshot.state).not.toBe('checking');
+    });
+
+    it('takes the panel away when the user keeps the service where it is', async () => {
         state.activeServer = { serverId: 'custom-3', serverUrl: 'https://new.example.test', activeLocalRelayUrl: null, generation: 2 };
         state.settings = { serverSelectionActiveTargetKind: 'server', serverSelectionActiveTargetId: 'custom-3' };
         state.directRelaySelectionIntent = 'custom-3';
@@ -850,7 +954,7 @@ describe('useDesktopLocalSetupGate — what may mutate the local daemon (R8/INV7
         const screen = await renderGate();
 
         expect(spies.reconcile).toHaveBeenCalledTimes(1);
-        expect(screen.findByType('GateProbe' as never).props.presentation).toBe('shell');
+        expect(screen.findByType('GateProbe' as never).props.presentation).toBe('hidden');
         expect(screen.findByType('GateProbe' as never).props.state).toBe('setup');
     });
 });
@@ -905,9 +1009,9 @@ describe('useDesktopLocalSetupGate — override-CLI approval is attended, never 
         });
     });
 
-    it('releases the shell when the human declines an override CLI, instead of looping on Retry', async () => {
+    it('takes the panel away when the human declines an override CLI, instead of looping on Retry', async () => {
         await renderGate();
-        expect(observedGate?.snapshot.presentation).toBe('ground');
+        expect(observedGate?.snapshot.presentation).toBe('panel');
 
         let declined: boolean | undefined;
         await renderer.act(async () => {
@@ -917,11 +1021,40 @@ describe('useDesktopLocalSetupGate — override-CLI approval is attended, never 
         expect(declined).toBe(false);
         expect(spies.presentUnmanagedCliConsent).toHaveBeenCalledTimes(1);
         expect(spies.presentUnmanagedCliConsent.mock.calls[0]?.[0]).toEqual({ cliCommand: '/repo/apps/cli/bin/happier.mjs' });
-        // Setup is deferred, not retried: the shell is visible and the drift banner carries it.
-        expect(observedGate?.snapshot.presentation).toBe('shell');
+        // Setup is deferred, not retried: the panel steps aside and the drift banner carries it.
+        expect(observedGate?.snapshot.presentation).toBe('hidden');
     });
 
-    it('keeps the blocking surface when the human approves the override CLI', async () => {
+    it('takes the panel away when the one-CLI question is dismissed, and keeps it for an answer (R12)', async () => {
+        const prompt = {
+            command: '/usr/local/bin/happier',
+            version: '0.2.13',
+            origin: 'npm' as const,
+            removalCommand: 'npm uninstall -g @happier-dev/cli',
+            updateCommand: 'npm install -g @happier-dev/cli@latest',
+            belowSetupFloor: false,
+            missing: false,
+            keepBlockedBy: null,
+        };
+        spies.presentCliChoice.mockImplementation(async () => 'own');
+        await renderGate();
+        let answer: string | null | undefined;
+        await renderer.act(async () => {
+            answer = await state.setupTaskOptions?.onCliChoiceRequired?.(prompt);
+        });
+        expect(answer).toBe('own');
+        expect(spies.presentCliChoice).toHaveBeenCalledWith(prompt);
+        expect(observedGate?.snapshot.presentation).toBe('panel');
+
+        spies.presentCliChoice.mockImplementation(async () => null);
+        await renderer.act(async () => {
+            answer = await state.setupTaskOptions?.onCliChoiceRequired?.(prompt);
+        });
+        expect(answer).toBeNull();
+        expect(observedGate?.snapshot.presentation).toBe('hidden');
+    });
+
+    it('keeps the setup panel when the human approves the override CLI', async () => {
         spies.presentUnmanagedCliConsent.mockImplementation(async () => true);
 
         await renderGate();
@@ -931,6 +1064,77 @@ describe('useDesktopLocalSetupGate — override-CLI approval is attended, never 
         });
 
         expect(approved).toBe(true);
-        expect(observedGate?.snapshot.presentation).toBe('ground');
+        expect(observedGate?.snapshot.presentation).toBe('panel');
+    });
+});
+
+describe('DesktopLocalSetupRuntime — the lifecycle runs at the shell, the Home only presents it (R11)', () => {
+    beforeEach(() => {
+        spies.startSetup.mockClear();
+        spies.reconcile.mockClear();
+        spies.inspect.mockReset();
+        spies.inspect.mockImplementation(async () => UNCONFIGURED_INSPECTION);
+        inspectionStore.reset();
+        intentListeners.clear();
+        spies.verifyCurrentTarget.mockReset();
+        spies.verifyCurrentTarget.mockImplementation(fakeVerifyCurrentTarget);
+        state.activeServer = { serverId: 'custom-2', serverUrl: 'https://relay.example.test', activeLocalRelayUrl: null, generation: 1 };
+        state.accountId = 'acct_app';
+        state.observed = { serverId: 'custom-2', relayUrl: 'https://relay.example.test', localRelayUrl: null, accountId: 'acct_app' };
+        state.directRelaySelectionIntent = null;
+        state.intentGeneration = 0;
+        state.reconcileOutcome = { taskId: 'task_setup_1' };
+        // The moment right after signing in, before anything about this computer is known.
+        state.authenticatedThisRun = true;
+        state.setupTaskOptions = null;
+        state.setupTaskSnapshot = null;
+        state.keptBackgroundService = null;
+    });
+
+    afterEach(() => {
+        standardCleanup();
+    });
+
+    async function renderShell(home: boolean) {
+        const { DesktopLocalSetupRuntime } = await import('./DesktopLocalSetupRuntime');
+        const { DesktopLocalSetupPanel } = await import('./DesktopLocalSetupPanel');
+        const element = (withHome: boolean) => React.createElement(
+            React.Fragment,
+            null,
+            React.createElement(DesktopLocalSetupRuntime),
+            withHome ? React.createElement(DesktopLocalSetupPanel) : null,
+        );
+        const screen = await renderScreen(element(home));
+        return { screen, showHome: (withHome: boolean) => screen.update(element(withHome)) };
+    }
+
+    it('starts setup with no Home on screen, and the Home presents that same run whenever it is shown', async () => {
+        // A cold deep link (a session, settings, the inbox) never renders the Home route.
+        const { screen, showHome } = await renderShell(false);
+        expect(spies.startSetup).toHaveBeenCalledTimes(1);
+        expect(screen.findByTestId('desktop-setup-panel:panel')).toBeNull();
+
+        await showHome(true);
+        expect(screen.findByTestId('desktop-setup-panel:panel')).not.toBeNull();
+
+        // Leaving the Home and coming back neither restarts nor duplicates the lifecycle.
+        await showHome(false);
+        await showHome(true);
+        expect(spies.startSetup).toHaveBeenCalledTimes(1);
+        expect(screen.findByTestId('desktop-setup-panel:panel')).not.toBeNull();
+    });
+
+    it('shows nothing on the Home once the machine is proved ready, and nothing at all without a lifecycle', async () => {
+        spies.inspect.mockImplementation(async () => READY_INSPECTION);
+        const { screen } = await renderShell(true);
+        expect(spies.machineRpc).toHaveBeenCalled();
+        const panel = screen.findByTestId('desktop-setup-panel:panel');
+        // Proved ready: nothing to present (at most the panel's own departure beat).
+        expect(panel == null || panel.props.pointerEvents === 'none').toBe(true);
+
+        standardCleanup();
+        const { DesktopLocalSetupPanel } = await import('./DesktopLocalSetupPanel');
+        const bare = await renderScreen(React.createElement(DesktopLocalSetupPanel));
+        expect(bare.findByTestId('desktop-setup-panel:panel')).toBeNull();
     });
 });

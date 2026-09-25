@@ -33,6 +33,10 @@ vi.mock('expo-image', () => ({
     Image: 'Image',
 }));
 
+vi.mock('@/components/updates/UpdatesPopoverButton', () => ({
+    UpdatesEntry: (props: Record<string, unknown>) => React.createElement('UpdatesEntry', props),
+}));
+
 vi.mock('@/components/navigation/ConnectionStatusControl', () => ({
     ConnectionStatusControl: 'ConnectionStatusControl',
 }));
@@ -107,7 +111,6 @@ describe('DesktopSidebarChrome', () => {
                 renderHeaderOverflowVisual={() => <View testID="desktop-sidebar-overflow-visual" />}
                 popoverBoundaryRef={{ current: null }}
                 desktopWindowControls={<View testID="injected-desktop-window-controls" />}
-                desktopUpdateIndicator={<View testID="injected-desktop-update-indicator" />}
             />,
         );
 
@@ -129,7 +132,10 @@ describe('DesktopSidebarChrome', () => {
         expect(contentRow.children).toEqual([brandGroup, actionsRow]);
         expect(brandGroup.findByProps({ accessibilityLabel: 'common.home' })).toBeTruthy();
         expect(actionsRow.findAll((child) => child.props?.testID === 'desktop-update-indicator-host')).toHaveLength(0);
-        expect(screen.findByTestId('desktop-sidebar-title-container')!.findByProps({ testID: 'injected-desktop-update-indicator' })).toBeTruthy();
+        // The title stays and the Updates pill trails it (R13 (e)): an update never hides the title.
+        const titleContainer = screen.findByTestId('desktop-sidebar-title-container')!;
+        expect(titleContainer.findByProps({ testID: 'desktop-sidebar-title-text' })).toBeTruthy();
+        expect(titleContainer.findByProps({ testID: 'desktop-sidebar-updates-pill' }).props.variant).toBe('pill');
     });
 
     it('starts window dragging from non-interactive sidebar top strip clicks', async () => {

@@ -132,6 +132,19 @@ function subscribe(cacheKey: string, cb: (state: MachineCapabilitiesCacheState) 
     };
 }
 
+/**
+ * Observe one machine's cached capabilities without fetching — for a surface that lists several
+ * machines at once and so cannot call the per-machine hook in a loop.
+ */
+export function subscribeMachineCapabilitiesCacheState(
+    machineId: string,
+    serverId: string | null | undefined,
+    cacheKeySalt: string | number | null | undefined,
+    listener: () => void,
+): () => void {
+    return subscribe(toCacheKey(machineId, serverId, cacheKeySalt), () => listener());
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }

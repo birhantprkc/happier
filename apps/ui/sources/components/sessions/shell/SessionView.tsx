@@ -1,3 +1,5 @@
+import { resolveNewSessionCapabilityProbeContext } from '@/components/sessions/new/modules/newSessionCapabilityProbeContext';
+import type { SessionModelDiscoveryContext } from '@/components/sessions/agentInput/components/AgentInputModelDiscoveryDetail';
 import Color from 'color';
 import { isRecoveredHistoryTranscriptObservationProvenance } from '@happier-dev/protocol';
 
@@ -25,6 +27,8 @@ import { useSessionFileUploadAvailability } from '@/components/sessions/files/us
 import { useSessionAgentInputExtraActionChips } from '@/components/sessions/agentInput/sessionActions/useSessionAgentInputExtraActionChips';
 import {
     useSessionConnectedServicesAuthSwitch,
+    readConnectedServicesBindingsFromMetadata,
+    buildSessionConnectedServicesBindings,
     type SessionConnectedServicesAuthSwitchRestartState,
 } from '@/components/sessions/agentInput/hooks/useSessionConnectedServicesAuthSwitch';
 import { useExistingSessionMcpSelection } from '@/components/sessions/agentInput/hooks/useExistingSessionMcpSelection';
@@ -216,7 +220,7 @@ import { submitSessionUserMessage } from '@/sync/domains/session/input/submitSes
 import { createSyncBackedSubmitPort } from '@/sync/domains/session/input/syncBackedSubmitPort';
 import { isSessionLocallyAttached } from '@/sync/domains/session/control/sessionLocalControl';
 import { resolveSessionWorkspacePresentation } from '@/sync/domains/session/listing/sessionWorkspacePresentation';
-import { isModelSelectableForSession } from '@/sync/domains/models/modelOptions';
+import { isModelSelectableForSession, type SessionModelOptionsContext } from '@/sync/domains/models/modelOptions';
 import { getInactiveSessionUiState } from '@/components/sessions/model/inactiveSessionUi';
 import { useSessionMachineReachability } from '@/components/sessions/model/useSessionMachineReachability';
 import { useCLIDetection } from '@/hooks/auth/useCLIDetection';
@@ -3931,6 +3935,25 @@ function SessionViewLoaded({
         cwd: (session.metadata?.path as string | undefined) ?? null,
         profileId: liveComposerState.profileId ?? null,
     }), [capabilityServerId, liveComposerState.profileId, machineId, session.metadata?.path, settings]);
+    const resolveSessionModelDiscoveryContext = React.useCallback((): SessionModelDiscoveryContext => {
+        const backendTarget = sessionActionDefaultBackend?.backendTarget
+            ?? { kind: 'builtInAgent' as const, agentId: liveComposerState.agentId };
+        return {
+            backendTarget,
+            selectedMachineId: controlMachineTarget?.machineId ?? machineId ?? null,
+            capabilityServerId,
+            cwd: liveAuthoringContext.snapshot.directory,
+            profileId: liveComposerState.profileId ?? null,
+            probeContext: resolveNewSessionCapabilityProbeContext({ backendTarget, settings, sessionMetadata: session.metadata }),
+            connectedServices: buildSessionConnectedServicesBindings({
+                supportedServiceIds: getAgentCore(liveComposerState.agentId).connectedServices?.supportedServiceIds ?? [],
+                bindingsByServiceId: readConnectedServicesBindingsFromMetadata(session.metadata, liveComposerState.agentId),
+            }),
+            enabled: hasWriteAccess,
+        };
+    }, [capabilityServerId, controlMachineTarget?.machineId, hasWriteAccess, liveAuthoringContext.snapshot.directory,
+        liveComposerState.agentId, liveComposerState.profileId, machineId, session.metadata,
+        sessionActionDefaultBackend?.backendTarget, settings]);
     const currentAgentLabel = t(getAgentCore(liveComposerState.agentId).displayNameKey);
     // `sessions.agentSwitching` is server-represented and fails closed. The
     // canonical decision runtime reads the server bit as
@@ -4713,15 +4736,15 @@ function SessionViewLoaded({
     }, [liveComposerState.agentId, optimisticSessionConfigOptionOverrides]);
 
     // Function to update model mode (only for agents that expose model selection in the UI)
-    const updateModelMode = React.useCallback((mode: ModelMode) => {
-        if (!isModelSelectableForSession(agentId, session.metadata ?? null, mode)) return;
-        storage.getState().updateSessionModelMode(sessionId, mode);
+    const updateModelMode = React.useCallback((mode: ModelMode, modelOptionsContext?: SessionModelOptionsContext) => {
+        if (!hasWriteAccess || !isModelSelectableForSession(agentId, session.metadata ?? null, mode, modelOptionsContext)) return;
+        storage.getState().updateSessionModelMode(sessionId, mode, modelOptionsContext);
         fireAndForget(sync.publishSessionModelOverrideToMetadata({
             sessionId,
             modelId: mode,
             updatedAt: nowServerMs(),
         }), { tag: 'SessionView.updateModelMode' });
-    }, [agentId, sessionId, session.metadata]);
+    }, [agentId, hasWriteAccess, sessionId, session.metadata]);
 
     // Handle resuming an inactive session
     const handleResumeSession = React.useCallback(async (opts?: { silent?: boolean; initialTranscriptAfterSeq?: number }): Promise<boolean> => {
@@ -6373,6 +6396,7 @@ function SessionViewLoaded({
                 acpConfigOptionOverridesOverride={optimisticSessionConfigOptionOverrides}
                 modelMode={modelMode}
                 onModelModeChange={updateModelMode}
+                modelDiscoveryContext={resolveSessionModelDiscoveryContext}
                 metadata={session.metadata}
                 profileId={liveComposerState.profileId ?? undefined}
                 onProfileClick={liveComposerState.profileId !== null ? () => {

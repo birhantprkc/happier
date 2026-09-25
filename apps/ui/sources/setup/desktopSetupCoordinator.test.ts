@@ -20,6 +20,8 @@ const mocks = vi.hoisted(() => ({
     accountId: 'acct_app' as string | null,
     alwaysMove: false,
     rememberAlwaysMove: vi.fn(() => {}),
+    kept: null as { relayKey: string; accountId: string | null } | null,
+    rememberKept: vi.fn((_identity: unknown) => {}),
     machineRpc: vi.fn(async (_params: unknown) => ({ ok: true }) as unknown),
 }));
 
@@ -42,6 +44,8 @@ vi.mock('@/sync/domains/scope/activeServerAccountScope', () => ({
 vi.mock('./desktopRelayMovePreference', () => ({
     readAlwaysMoveDefaultFollowingService: () => mocks.alwaysMove,
     rememberAlwaysMoveDefaultFollowingService: () => mocks.rememberAlwaysMove(),
+    readKeptBackgroundService: () => mocks.kept,
+    rememberKeptBackgroundService: (identity: unknown) => mocks.rememberKept(identity),
 }));
 
 const AMBIENT_RESULT = {
@@ -135,6 +139,8 @@ describe('desktopSetupCoordinator', () => {
         mocks.accountId = 'acct_app';
         mocks.alwaysMove = false;
         mocks.rememberAlwaysMove.mockClear();
+        mocks.kept = null;
+        mocks.rememberKept.mockClear();
         mocks.machineRpc.mockReset();
         mocks.machineRpc.mockImplementation(async () => ({ ok: true }));
         mocks.activeServer = {
@@ -384,7 +390,14 @@ describe('desktopSetupCoordinator', () => {
         const startExecutor = vi.fn(async (_spec: SystemTaskSpec) => 'task_setup_1');
 
         await expect(desktopSetupCoordinator.reconcile({ start: startExecutor, confirm })).resolves.toBeNull();
-        expect(confirm).toHaveBeenCalledWith({ relayUrl: 'https://other.example.test' });
+        // Relay-move copy names both relay hosts (U2).
+        expect(confirm).toHaveBeenCalledWith({
+            kind: 'relay',
+            fromRelayHost: 'hand-configured.example.test',
+            toRelayHost: 'other.example.test',
+        });
+        // "Keep it as is" is remembered on this device for that daemon (D5).
+        expect(mocks.rememberKept).toHaveBeenCalledWith({ relayKey: 'https://hand-configured.example.test', accountId: 'acct_app' });
         expect(startExecutor).not.toHaveBeenCalled();
     });
 
@@ -592,6 +605,172 @@ describe('desktopSetupCoordinator', () => {
 
         await desktopSetupCoordinator.verifyCurrentTarget({ fresh: true });
         expect(mocks.runner.start).toHaveBeenCalledTimes(2);
+    });
+
+    it('projects the account label and the CLI version and update facts (K1/R17)', async () => {
+        resolveWith({
+            ...AMBIENT_RESULT,
+            data: {
+                ...AMBIENT_RESULT.data,
+                acquisition: { ...AMBIENT_RESULT.data.acquisition, version: '0.2.13' },
+                auth: { ...AMBIENT_RESULT.data.auth, accountLabel: 'alice' },
+                cli: { update: { currentVersion: '0.2.13', latestVersion: '0.2.14', updateAvailable: true, managed: true } },
+            },
+        });
+        const { desktopSetupCoordinator } = await importCoordinator();
+
+        await expect(desktopSetupCoordinator.inspect()).resolves.toMatchObject({
+            status: 'resolved',
+            facts: {
+                acquisition: { version: '0.2.13' },
+                auth: { accountLabel: 'alice' },
+                cliUpdate: { currentVersion: '0.2.13', latestVersion: '0.2.14', updateAvailable: true, managed: true },
+            },
+        });
+    });
+
+    it('keeps the new facts unknown when an older CLI does not report them', async () => {
+        resolveWith(AMBIENT_RESULT);
+        const { desktopSetupCoordinator } = await importCoordinator();
+
+        await expect(desktopSetupCoordinator.inspect()).resolves.toMatchObject({
+            status: 'resolved',
+            facts: { acquisition: { version: null }, auth: { accountLabel: null }, cliUpdate: null },
+        });
+    });
+
+    it('asks before moving this computer to the account the app signed in to later in the same run (U1/D1)', async () => {
+        // Sign out of A, sign in to C: the observation was taken as A and the daemon is A, so
+        // measured against the observation nothing contradicted anything and C claimed this
+        // computer with no question.
+        resolveWith({
+            ...AMBIENT_RESULT,
+            data: { ...AMBIENT_RESULT.data, auth: { ...AMBIENT_RESULT.data.auth, accountId: 'acct_a', validatedAccountId: 'acct_a', accountLabel: 'alice' } },
+        });
+        mocks.accountId = 'acct_a';
+        const { desktopSetupCoordinator } = await importCoordinator();
+        await desktopSetupCoordinator.inspect();
+
+        mocks.accountId = 'acct_c_0123456789';
+        mocks.alwaysMove = true;
+        const confirm = vi.fn(async () => 'keep' as const);
+        const startExecutor = vi.fn(async (_spec: SystemTaskSpec) => 'task_setup_1');
+
+        await expect(desktopSetupCoordinator.reconcile({ start: startExecutor, confirm })).resolves.toBeNull();
+        expect(confirm).toHaveBeenCalledWith({
+            kind: 'account',
+            fromAccountLabel: 'alice',
+            toAccountLabel: 'acct_c_0…',
+            relayHost: 'relay.example.test',
+            fromRelayHost: null,
+        });
+        expect(startExecutor).not.toHaveBeenCalled();
+    });
+
+    it('asks the account question on an explicit setup too, and starts nothing when kept (D1)', async () => {
+        resolveWith({
+            ...AMBIENT_RESULT,
+            data: { ...AMBIENT_RESULT.data, auth: { ...AMBIENT_RESULT.data.auth, accountId: 'acct_other', validatedAccountId: 'acct_other' } },
+        });
+        const { desktopSetupCoordinator } = await importCoordinator();
+        await desktopSetupCoordinator.inspect();
+        const confirm = vi.fn(async () => 'keep' as const);
+        const startExecutor = vi.fn(async (_spec: SystemTaskSpec) => 'task_setup_1');
+
+        await expect(desktopSetupCoordinator.startSetup({ start: startExecutor, confirm })).resolves.toBeNull();
+        expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ kind: 'account', fromAccountLabel: 'acct_oth…' }));
+        expect(startExecutor).not.toHaveBeenCalled();
+
+        confirm.mockImplementation(async () => 'move' as never);
+        await expect(desktopSetupCoordinator.startSetup({ start: startExecutor, confirm })).resolves.toEqual({ taskId: 'task_setup_1' });
+        expect(confirm).toHaveBeenCalledTimes(2);
+        // The answer travels with the run for exactly that account, so the executor — which
+        // enforces D1 on the credentials it would replace — does not ask the same question again.
+        expect((startExecutor.mock.calls[0]?.[0] as SystemTaskSpec).params).toMatchObject({ replaceAccountId: 'acct_other' });
+    });
+
+    it('carries Settings\' request to ask the one-CLI question again into the run it starts (R12)', async () => {
+        resolveWith(AMBIENT_RESULT);
+        const { desktopSetupCoordinator } = await importCoordinator();
+        await desktopSetupCoordinator.inspect();
+        const startExecutor = vi.fn(async (_spec: SystemTaskSpec) => 'task_setup_1');
+
+        await desktopSetupCoordinator.startSetup({ start: startExecutor, reconsiderCli: true });
+        await desktopSetupCoordinator.startSetup({ start: startExecutor });
+
+        expect((startExecutor.mock.calls[0]?.[0] as SystemTaskSpec).params).toMatchObject({ reconsiderCli: true });
+        expect((startExecutor.mock.calls[1]?.[0] as SystemTaskSpec).params).not.toHaveProperty('reconsiderCli');
+    });
+
+    it('re-reads facts that could not see the daemon\'s account before deciding, then asks the account question (D1)', async () => {
+        // The relay was unreachable when the ambient read ran, so the daemon's account is unknown.
+        // Deciding on that read found no account to contradict and let the executor claim this
+        // computer for the app's account with `--replace-existing` once the relay answered.
+        const unknownAccount = {
+            ...AMBIENT_RESULT,
+            data: {
+                ...AMBIENT_RESULT.data,
+                auth: { ...AMBIENT_RESULT.data.auth, authenticated: false, accountId: null, credentialState: 'unknown', validatedAccountId: null },
+            },
+        };
+        const otherAccount = {
+            ...AMBIENT_RESULT,
+            data: { ...AMBIENT_RESULT.data, auth: { ...AMBIENT_RESULT.data.auth, accountId: 'acct_other', validatedAccountId: 'acct_other', accountLabel: 'bob' } },
+        };
+        const results: unknown[] = [unknownAccount, otherAccount];
+        mocks.runner.start.mockImplementation(async () => 'task_status_1');
+        mocks.runner.subscribe.mockImplementation(((_taskId: string, _onEvent: unknown, onResult: unknown) => {
+            if (typeof onResult === 'function') {
+                (onResult as (value: unknown) => void)(results.shift() ?? otherAccount);
+            }
+            return () => {};
+        }) as never);
+        const { desktopSetupCoordinator } = await importCoordinator();
+        await desktopSetupCoordinator.inspect();
+        const confirm = vi.fn(async () => 'keep' as const);
+        const startExecutor = vi.fn(async (_spec: SystemTaskSpec) => 'task_setup_1');
+
+        await expect(desktopSetupCoordinator.startSetup({ start: startExecutor, confirm })).resolves.toBeNull();
+        expect(mocks.runner.start).toHaveBeenCalledTimes(2);
+        expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ kind: 'account', fromAccountLabel: 'bob' }));
+        expect(startExecutor).not.toHaveBeenCalled();
+    });
+
+    it('decides once on a fresh read that still cannot see the account, leaving the offline failure to the executor', async () => {
+        resolveWith({
+            ...AMBIENT_RESULT,
+            data: {
+                ...AMBIENT_RESULT.data,
+                auth: { ...AMBIENT_RESULT.data.auth, authenticated: false, accountId: null, credentialState: 'unknown', validatedAccountId: null },
+            },
+        });
+        const { desktopSetupCoordinator } = await importCoordinator();
+        await desktopSetupCoordinator.inspect();
+        const confirm = vi.fn(async () => 'keep' as const);
+        const startExecutor = vi.fn(async (_spec: SystemTaskSpec) => 'task_setup_1');
+
+        await expect(desktopSetupCoordinator.reconcile({ start: startExecutor, confirm })).resolves.toEqual({ taskId: 'task_setup_1' });
+        expect(mocks.runner.start).toHaveBeenCalledTimes(2);
+        expect(confirm).not.toHaveBeenCalled();
+    });
+
+    it('does not ask again about a daemon this device already chose to keep (D5)', async () => {
+        resolveWith({
+            ...AMBIENT_RESULT,
+            data: {
+                ...AMBIENT_RESULT.data,
+                server: { ...AMBIENT_RESULT.data.server, serverUrl: 'https://hand-configured.example.test', publicServerUrl: null, comparableKey: 'https://hand-configured.example.test' },
+            },
+        });
+        mocks.kept = { relayKey: 'https://hand-configured.example.test', accountId: 'acct_app' };
+        const { desktopSetupCoordinator } = await importCoordinator();
+        await desktopSetupCoordinator.inspect();
+        const confirm = vi.fn(async () => 'move' as const);
+        const startExecutor = vi.fn(async (_spec: SystemTaskSpec) => 'task_setup_1');
+
+        await expect(desktopSetupCoordinator.reconcile({ start: startExecutor, confirm })).resolves.toBeNull();
+        expect(confirm).not.toHaveBeenCalled();
+        expect(startExecutor).not.toHaveBeenCalled();
     });
 
     it('refuses to start setup without an explicit relay and account rather than falling back to ambient state (R3/B6)', async () => {

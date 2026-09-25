@@ -1,0 +1,266 @@
+import type { CliUpdateFacts } from '@happier-dev/protocol';
+
+import { isInstallableDepUpdateAvailable } from '@/capabilities/installablesUpdateAvailable';
+import type { InstallableDepDataLike } from '@/capabilities/installablesRegistry';
+
+import {
+    buildUpdateItemId,
+    isNewerVersion,
+    type UpdateItem,
+    type UpdateItemAction,
+    type UpdateItemState,
+    type UpdateItemStep,
+    type UpdateSubject,
+} from './updateItem';
+
+/**
+ * What the row's executor says about its own run: the shared CLI-update action, the machine
+ * capability invoke in flight, or the remote system-task start. Never a UI-kept "is updating" flag.
+ */
+export type UpdateRunObservation = Readonly<{
+    running: boolean;
+    step: UpdateItemStep;
+    /** One sentence from the executor's failure code; `null` when the last run did not fail. */
+    errorMessage: string | null;
+    /** The failed run's log file on its machine, when the executor reported one. */
+    logPath?: string | null;
+}>;
+
+/** The command that updates a Happier CLI whose daemon predates K5 facts (0.2 `self update` is POSIX-only). */
+const LEGACY_CLI_UPDATE_COMMAND = 'happier self update';
+
+function baseItem(params: Readonly<{
+    machineId: string;
+    subject: UpdateSubject;
+    title: string;
+    currentVersion: string | null;
+    latestVersion: string | null;
+}>): UpdateItem {
+    return {
+        id: buildUpdateItemId(params.machineId, params.subject),
+        subject: params.subject,
+        machineId: params.machineId,
+        title: params.title,
+        currentVersion: params.currentVersion,
+        latestVersion: params.latestVersion,
+        state: 'unknown',
+        progressPercent: null,
+        step: null,
+        managedBy: 'happier',
+        action: { kind: 'none' },
+        failure: null,
+        skipped: false,
+        vendorUpdater: false,
+    };
+}
+
+function versionState(current: string | null, latest: string | null): UpdateItemState {
+    if (!latest || !current) return 'unknown';
+    return isNewerVersion(current, latest) ? 'available' : 'upToDate';
+}
+
+/**
+ * The shared shape of every executor-backed row: offline freezes the row, a run in flight is
+ * `running`, a failure offers Retry, a newer version offers Update, and a row the app may not
+ * update names the person's own way (`manual`).
+ */
+function resolveRow(item: UpdateItem, params: Readonly<{
+    online: boolean;
+    task: UpdateRunObservation;
+    canRun: boolean;
+    manual: UpdateItemAction | null;
+}>): UpdateItem {
+    const state = versionState(item.currentVersion, item.latestVersion);
+    if (!params.online) {
+        return { ...item, state: 'offline', action: { kind: 'none' } };
+    }
+    if (params.task.running) {
+        return { ...item, state: 'running', step: params.task.step, action: { kind: 'none' } };
+    }
+    if (params.task.errorMessage && params.canRun) {
+        return {
+            ...item,
+            state: 'failed',
+            failure: { kind: 'message', message: params.task.errorMessage },
+            action: { kind: 'run', verb: 'retry' },
+            logPath: params.task.logPath ?? null,
+        };
+    }
+    if (params.manual) {
+        return { ...item, state, managedBy: 'user', action: state === 'available' || state === 'unknown' ? params.manual : { kind: 'none' } };
+    }
+    if (state === 'available' && params.canRun) {
+        return { ...item, state, action: { kind: 'run', verb: 'update' } };
+    }
+    return { ...item, state };
+}
+
+export function buildThisComputerCliUpdateItem(params: Readonly<{
+    machineId: string;
+    title: string;
+    /** This computer's inspection (`cli.update` + provenance); `null` while nothing has answered. */
+    facts: Readonly<{ currentVersion: string | null; latestVersion: string | null; managed: boolean | null; updateCommand: string | null }> | null;
+    task: UpdateRunObservation;
+}>): UpdateItem | null {
+    if (!params.facts) return null;
+    const item = baseItem({
+        machineId: params.machineId,
+        subject: { kind: 'happier-cli' },
+        title: params.title,
+        currentVersion: params.facts.currentVersion,
+        latestVersion: params.facts.latestVersion,
+    });
+    const managed = params.facts.managed === true;
+    return resolveRow(item, {
+        online: true,
+        task: params.task,
+        canRun: managed,
+        manual: managed ? null : { kind: 'manual', command: params.facts.updateCommand },
+    });
+}
+
+export function buildRemoteCliUpdateItem(params: Readonly<{
+    machineId: string;
+    title: string;
+    online: boolean;
+    platform: string | null;
+    /** `happyCliVersion` from machine metadata — every released daemon writes it. */
+    happyCliVersion: string | null;
+    /** K5 facts from machine metadata; `null` for daemons that predate them. */
+    facts: CliUpdateFacts | null;
+    /**
+     * The daemon lists `cli.update.v1` in its `tool.systemTasks` kinds (presence = capability);
+     * `null` while no detect is cached. Only a known `false` withholds the action.
+     */
+    remoteUpdateAdvertised: boolean | null;
+    task: UpdateRunObservation;
+}>): UpdateItem {
+    const facts = params.facts;
+    const currentVersion = facts?.currentVersion ?? params.happyCliVersion;
+    const item = baseItem({
+        machineId: params.machineId,
+        subject: { kind: 'happier-cli' },
+        title: params.title,
+        currentVersion,
+        latestVersion: facts?.latestVersion ?? null,
+    });
+
+    if (!facts) {
+        // An older daemon: its version, and the command that updates it — never "up to date".
+        const command = params.platform === 'win32' ? null : LEGACY_CLI_UPDATE_COMMAND;
+        if (!params.online) return { ...item, state: 'offline' };
+        return { ...item, state: 'unknown', managedBy: 'happier', action: { kind: 'manual', command } };
+    }
+
+    const last = facts.lastUpdate;
+    if (params.online && !params.task.running && last && last.targetVersion !== currentVersion) {
+        if (last.outcome === 'pendingReconnect') {
+            // Installed and restarting there: waiting to reconnect is not failure.
+            return { ...item, state: 'running', step: 'reconnecting' };
+        }
+        if (last.outcome === 'rolledBack' && currentVersion) {
+            return {
+                ...item,
+                state: 'failed',
+                failure: { kind: 'rolledBack', kept: currentVersion, target: last.targetVersion },
+                action: params.remoteUpdateAdvertised !== false ? { kind: 'run', verb: 'retry' } : { kind: 'none' },
+            };
+        }
+        if (last.outcome === 'failed' && last.message) {
+            return {
+                ...item,
+                state: 'failed',
+                failure: { kind: 'message', message: last.message },
+                action: params.remoteUpdateAdvertised !== false ? { kind: 'run', verb: 'retry' } : { kind: 'none' },
+            };
+        }
+    }
+
+    const canRun = facts.installSource === 'managed' && facts.canUpdateRemotely && params.remoteUpdateAdvertised !== false;
+    const manual: UpdateItemAction | null = facts.installSource !== 'managed'
+        ? { kind: 'manual', command: facts.updateCommand }
+        : canRun ? null : { kind: 'manual', command: facts.updateCommand };
+    const resolved = resolveRow(item, { online: params.online, task: params.task, canRun, manual });
+    // A managed CLI the app cannot reach remotely is still Happier's own: only the action differs.
+    return facts.installSource === 'managed' ? { ...resolved, managedBy: 'happier' } : resolved;
+}
+
+type AgentCliUpdateData = Readonly<{
+    available?: unknown;
+    version?: unknown;
+    latestVersion?: unknown;
+    installSource?: unknown;
+    updateSupported?: unknown;
+    updateCommand?: unknown;
+}>;
+
+function readString(value: unknown): string | null {
+    return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+/**
+ * An agent CLI on a machine, from its `cli.<agentId>` detect. K6 adds `latestVersion`,
+ * `installSource`, `updateSupported` and `updateCommand`; without them the row shows the version
+ * and claims nothing.
+ */
+export function buildAgentCliUpdateItem(params: Readonly<{
+    machineId: string;
+    agentId: string;
+    title: string;
+    online: boolean;
+    data: AgentCliUpdateData | null;
+    task: UpdateRunObservation;
+}>): UpdateItem | null {
+    const data = params.data;
+    if (!data || data.available !== true) return null;
+    const item = baseItem({
+        machineId: params.machineId,
+        subject: { kind: 'agent-cli', agentId: params.agentId },
+        title: params.title,
+        currentVersion: readString(data.version),
+        latestVersion: readString(data.latestVersion),
+    });
+    // K6 old-daemon rule: Update only when the daemon says `updateSupported: true` — an older one
+    // ignores the update intent and would run a plain install beside the person's own CLI.
+    const updateSupported = data.updateSupported === true;
+    const installSource = readString(data.installSource);
+    const command = readString(data.updateCommand);
+    const userManaged = !updateSupported && ((installSource != null && installSource !== 'managed') || command != null);
+    const resolved = resolveRow(item, {
+        online: params.online,
+        task: params.task,
+        canRun: updateSupported,
+        manual: userManaged ? { kind: 'manual', command } : null,
+    });
+    return updateSupported && installSource === 'native' ? { ...resolved, vendorUpdater: true } : resolved;
+}
+
+/** A helper installable (GitHub CLI, codex-acp, …) from the installables registry's detect data. */
+export function buildInstallableUpdateItem(params: Readonly<{
+    machineId: string;
+    installableKey: string;
+    title: string;
+    online: boolean;
+    data: InstallableDepDataLike | null;
+    task: UpdateRunObservation;
+}>): UpdateItem | null {
+    const data = params.data;
+    if (!data?.installed) return null;
+    const check = data.latestVersionCheck;
+    const latestVersion = check && check.ok ? check.latestVersion : null;
+    const item = baseItem({
+        machineId: params.machineId,
+        subject: { kind: 'installable', key: params.installableKey },
+        title: params.title,
+        currentVersion: data.installedVersion,
+        latestVersion,
+    });
+    const resolved = resolveRow(item, { online: params.online, task: params.task, canRun: true, manual: null });
+    if (resolved.state === 'unknown' && check && !check.ok) {
+        return { ...resolved, failure: { kind: 'latestUnknown' } };
+    }
+    if (resolved.state === 'available' && !isInstallableDepUpdateAvailable(data)) {
+        return { ...resolved, state: 'upToDate', action: { kind: 'none' } };
+    }
+    return resolved;
+}

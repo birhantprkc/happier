@@ -13,7 +13,16 @@
     "core:window:allow-set-badge-count",
     "core:window:allow-set-badge-label",
     "dialog:allow-open",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        { "url": "https://*" },
+        { "url": "http://*" },
+        { "url": "mailto:*" }
+      ]
+    },
     "allow-desktop-fetch-update",
+    "allow-desktop-download-update",
     "allow-desktop-install-update",
     "allow-desktop-pick-ssh-identity-file",
     "allow-desktop-get-autostart-enabled",

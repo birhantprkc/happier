@@ -62,9 +62,9 @@ function factsWithAutostart(autostart: 'at-login' | 'on-demand' | null): Desktop
     return {
         status: 'resolved',
         facts: {
-            acquisition: { command: '/managed/happier', provenance: 'managed' },
+            acquisition: { command: '/managed/happier', provenance: 'managed', version: null, channel: null },
             server: { serverUrl: 'https://relay.example.test', publicServerUrl: null, localServerUrl: null, comparableKey: null },
-            auth: { credentialState: 'valid', validatedAccountId: 'acct_app', accountId: 'acct_app', machineId: 'machine-1' },
+            auth: { credentialState: 'valid', validatedAccountId: 'acct_app', accountId: 'acct_app', accountLabel: null, machineId: 'machine-1' },
             service: { installed: true, running: true, autostart, targetMode: 'default-following' },
             runtimeConvergence: {
                 controlReachable: true,
@@ -72,6 +72,8 @@ function factsWithAutostart(autostart: 'at-login' | 'on-demand' | null): Desktop
                 machineIdMatches: true,
                 cliVersionMatches: true,
             },
+            cliUpdate: null,
+            cliChoice: { mode: null, otherCli: null },
         },
     };
 }

@@ -40,7 +40,9 @@ export function useLocalDaemonControl(options: Readonly<{
     // `daemon.service.status.v1` with its own projection beside the coordinator's, so the gate and
     // the row could describe the same computer differently, and a fresh read by either reached
     // neither the other nor the drift banner rendered beside it.
-    const { inspection, refresh: refreshStatus } = useDesktopLocalInspection(!isUnavailable);
+    // Opening this section is looking at this computer, so it re-reads once (R17: an update the
+    // daily background check found since app open shows here).
+    const { inspection, refresh: refreshStatus } = useDesktopLocalInspection(!isUnavailable, { refreshOnOpen: true });
     const facts = inspection.status === 'resolved' ? inspection.facts : null;
     const inspectionErrorMessage = inspection.status === 'failed' ? (inspection.error.message || inspection.error.code) : null;
     // The account this repair is for, read from the same owner the executor spec is built from, so
@@ -91,12 +93,14 @@ export function useLocalDaemonControl(options: Readonly<{
     }, [runAction]);
 
     const startSetupTask = setupTask.start;
-    const repairBackgroundService = React.useCallback(async () => {
+    // Repair and R12's "change who manages the command line" are the same setup run; the change
+    // only asks the executor to put the one-CLI question again.
+    const runSetup = React.useCallback(async (options: Readonly<{ reconsiderCli?: boolean }> = {}) => {
         if (isUnavailable || !activeServerSnapshot.serverUrl) {
             return null;
         }
         try {
-            const taskId = await startSetupTask();
+            const taskId = await startSetupTask(options);
             setBridgeUnavailable(false);
             setLastErrorMessage(null);
             return taskId;
@@ -110,6 +114,8 @@ export function useLocalDaemonControl(options: Readonly<{
             return null;
         }
     }, [activeServerSnapshot.serverUrl, isUnavailable, startSetupTask]);
+    const repairBackgroundService = React.useCallback(async () => await runSetup(), [runSetup]);
+    const changeCommandLine = React.useCallback(async () => await runSetup({ reconsiderCli: true }), [runSetup]);
 
     React.useEffect(() => {
         if (!startSnapshot?.result || handledStartResultTaskIdRef.current === startSnapshot.taskId) {
@@ -167,6 +173,7 @@ export function useLocalDaemonControl(options: Readonly<{
         lastErrorMessage: lastErrorMessage ?? inspectionErrorMessage,
         refreshStatus,
         repairBackgroundService,
+        changeCommandLine,
         startDaemonService,
         facts,
         isBusy,

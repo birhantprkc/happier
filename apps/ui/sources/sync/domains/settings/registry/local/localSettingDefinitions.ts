@@ -398,6 +398,12 @@ export const LOCAL_SETTING_DEFINITIONS = defineSettingDefinitions({
         storageScope: 'local',
         analytics: { trackCurrentState: true, trackChanges: true, valueKind: 'boolean', privacy: 'safe', identityScope: 'device_user' },
     },
+    desktopKeptBackgroundService: {
+        schema: z.object({ relayKey: z.string().min(1), accountId: z.string().min(1).nullable() }).nullable().catch(null),
+        default: null,
+        description: 'The background service this device chose to keep as it is: its relay and account (D5)',
+        storageScope: 'local',
+    },
     desktopPetOverlayEnabledOverride: {
         schema: PetEnabledOverrideSchema,
         default: 'inherit',

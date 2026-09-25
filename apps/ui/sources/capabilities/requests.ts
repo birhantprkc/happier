@@ -21,3 +21,18 @@ export const CAPABILITIES_REQUEST_MACHINE_DETAILS: CapabilitiesDetectRequest = {
     checklistId: CHECKLIST_IDS.MACHINE_DETAILS,
     overrides: buildCliLoginStatusOverrides(),
 };
+
+/**
+ * What the Updates surface asks each online machine while it is open: every agent CLI with its
+ * latest version (K6) and every helper installable that has its own latest-version check.
+ */
+export function buildUpdatesCapabilitiesRequest(installableRequests: readonly CapabilitiesDetectRequest[]): CapabilitiesDetectRequest {
+    return {
+        requests: [
+            ...AGENT_IDS.map((agentId) => ({ id: buildAgentCliCapabilityId(agentId), params: { includeLatestVersion: true } })),
+            // K5: whether this daemon can update its own CLI (`cli.update.v1` among the kinds).
+            { id: 'tool.systemTasks' as const },
+            ...installableRequests.flatMap((request) => request.requests ?? []),
+        ],
+    };
+}

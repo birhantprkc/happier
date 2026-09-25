@@ -15,7 +15,12 @@ import { isSessionActive } from '@/utils/sessions/sessionUtils';
  * this function: they deliver no exit handoff at all, or deliver one the app is killed before
  * answering. Nothing stops the service without an answer, so those paths leave it running.
  */
-export type DesktopCloseDaemonDecision = 'stop' | 'ask' | 'leaveRunning';
+/**
+ * `ask` — agent sessions are running here. `askUnknown` — the app cannot see this daemon's
+ * sessions at all (another account, or signed out), so it asks without claiming any are running
+ * (U11).
+ */
+export type DesktopCloseDaemonDecision = 'stop' | 'ask' | 'askUnknown' | 'leaveRunning';
 
 export function resolveDesktopCloseDaemonDecision(input: Readonly<{
     /**
@@ -39,9 +44,12 @@ export function resolveDesktopCloseDaemonDecision(input: Readonly<{
         // is not a reason to take the computer off the air on a guess.
         return 'leaveRunning';
     }
-    if (!input.canSeeDaemonSessions || input.activeLocalSessionCount > 0) {
+    if (!input.canSeeDaemonSessions) {
         // Zero-because-invisible is not "nothing to lose", so it is put to the user rather than
-        // decided for them.
+        // decided for them — without claiming sessions it never saw.
+        return 'askUnknown';
+    }
+    if (input.activeLocalSessionCount > 0) {
         return 'ask';
     }
     return 'stop';

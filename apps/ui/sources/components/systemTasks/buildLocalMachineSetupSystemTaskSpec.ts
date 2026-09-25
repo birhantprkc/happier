@@ -14,6 +14,14 @@ export type LocalMachineSetupTarget = Readonly<{
     activeLocalRelayUrl: string | null;
     channel: LocalMachineSetupChannel;
     expectedAccountId: string;
+    /**
+     * D1 — the account the person just agreed this computer may leave. The executor enforces the
+     * account question on the credentials it would replace; this carries the answer for exactly
+     * that account so it is not asked twice.
+     */
+    replaceAccountId?: string | null;
+    /** R12 — ask the one-CLI question again even though this computer already answered it. */
+    reconsiderCli?: boolean;
 }>;
 
 export function buildLocalMachineSetupSystemTaskSpec(target: LocalMachineSetupTarget): SystemTaskSpec {
@@ -26,6 +34,8 @@ export function buildLocalMachineSetupSystemTaskSpec(target: LocalMachineSetupTa
             activeLocalRelayUrl: target.activeLocalRelayUrl,
             channel: target.channel,
             expectedAccountId: target.expectedAccountId,
+            ...(target.replaceAccountId ? { replaceAccountId: target.replaceAccountId } : {}),
+            ...(target.reconsiderCli ? { reconsiderCli: true } : {}),
             surface: 'desktop.ui',
         },
     };

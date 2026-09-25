@@ -19,6 +19,11 @@ import { isTauriDesktop } from '@/utils/platform/tauri';
 export type DesktopBackgroundServiceAutostartState = Readonly<{
     supported: boolean;
     mode: DesktopBackgroundServiceAutostartMode | null;
+    /**
+     * Whether a background service is installed here at all; `null` until the inspection answers.
+     * `false` is not "unknown mode" — there is nothing to report on until this computer is set up.
+     */
+    installed: boolean | null;
     loading: boolean;
     error: string | null;
     setMode: (mode: DesktopBackgroundServiceAutostartMode) => Promise<void>;
@@ -63,6 +68,7 @@ export function useDesktopBackgroundServiceAutostart(): DesktopBackgroundService
     return {
         supported,
         mode: facts?.service.autostart ?? null,
+        installed: facts ? facts.service.installed : null,
         loading: supported && (writing || inspection.status === 'pending'),
         error: error ?? readError,
         setMode,

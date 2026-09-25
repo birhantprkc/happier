@@ -5,7 +5,7 @@ import { buildDesktopTrayState } from './buildDesktopTrayState';
 describe('buildDesktopTrayState', () => {
     const translate = (key: string) => key;
 
-    it('maps healthy connection health to a healthy tray state', () => {
+    it('describes healthy connection health with its machine counts', () => {
         expect(buildDesktopTrayState({
             health: {
                 kind: 'healthy',
@@ -16,13 +16,14 @@ describe('buildDesktopTrayState', () => {
             },
             t: translate,
         })).toEqual({
-            status: 'healthy',
             label: 'status.connected',
             detail: 'status.online · 3/3',
+            openLabel: 'settingsDesktop.trayOpen',
+            quitLabel: 'settingsDesktop.trayQuit',
         });
     });
 
-    it('promotes healthy tray state to attention required when relay drift is present', () => {
+    it('describes relay drift as action required even when connection health is healthy', () => {
         expect(buildDesktopTrayState({
             health: {
                 kind: 'healthy',
@@ -31,16 +32,48 @@ describe('buildDesktopTrayState', () => {
                 statusLabelKey: 'status.connected',
                 machineLabelKey: 'status.online',
             },
-            relayDriftBannerTitle: 'Relay drift detected',
+            thisComputerSentence: 'This computer is connected to self.example.test as bob.',
             t: translate,
         })).toEqual({
-            status: 'attention_required',
             label: 'status.actionRequired',
-            detail: 'Relay drift detected',
+            detail: 'This computer is connected to self.example.test as bob.',
+            openLabel: 'settingsDesktop.trayOpen',
+            quitLabel: 'settingsDesktop.trayQuit',
         });
     });
 
-    it('maps action-required health kinds without drifting from the canonical status keys', () => {
+    it('explains "no machines" by what this computer is connected to, instead of the generic hint (U7)', () => {
+        expect(buildDesktopTrayState({
+            health: {
+                kind: 'no_machine',
+                machineCount: 0,
+                onlineCount: 0,
+                statusLabelKey: 'status.actionRequired',
+                machineLabelKey: 'newSession.noMachinesFound',
+            },
+            thisComputerSentence: 'This computer is connected to self.example.test as bob.',
+            t: translate,
+        })).toMatchObject({
+            label: 'status.actionRequired',
+            detail: 'This computer is connected to self.example.test as bob.',
+        });
+    });
+
+    it('keeps a server-level failure its own description even when this computer has something to say', () => {
+        expect(buildDesktopTrayState({
+            health: {
+                kind: 'server_unreachable',
+                machineCount: 0,
+                onlineCount: 0,
+                statusLabelKey: 'status.disconnected',
+                machineLabelKey: 'status.unknown',
+            },
+            thisComputerSentence: 'This computer is connected to self.example.test as bob.',
+            t: translate,
+        })).toMatchObject({ label: 'status.disconnected', detail: 'status.unknown' });
+    });
+
+    it('describes action-required health kinds with the canonical status keys', () => {
         expect(buildDesktopTrayState({
             health: {
                 kind: 'machine_offline',
@@ -51,13 +84,14 @@ describe('buildDesktopTrayState', () => {
             },
             t: translate,
         })).toEqual({
-            status: 'machine_offline',
             label: 'status.actionRequired',
             detail: 'status.offline · 0/4',
+            openLabel: 'settingsDesktop.trayOpen',
+            quitLabel: 'settingsDesktop.trayQuit',
         });
     });
 
-    it('maps unreachable server health to a disconnected tray state', () => {
+    it('omits machine counts when there are no machines', () => {
         expect(buildDesktopTrayState({
             health: {
                 kind: 'server_unreachable',
@@ -68,43 +102,25 @@ describe('buildDesktopTrayState', () => {
             },
             t: translate,
         })).toEqual({
-            status: 'server_unreachable',
             label: 'status.disconnected',
             detail: 'status.unknown',
+            openLabel: 'settingsDesktop.trayOpen',
+            quitLabel: 'settingsDesktop.trayQuit',
         });
     });
 
-    it('maps planned server restart health to a connecting tray state', () => {
-        expect(buildDesktopTrayState({
-            health: {
-                kind: 'server_restarting',
-                machineCount: 2,
-                onlineCount: 2,
-                statusLabelKey: 'status.connecting',
-                machineLabelKey: 'status.online',
-            },
-            t: translate,
-        })).toEqual({
-            status: 'connecting',
-            label: 'status.connecting',
-            detail: 'status.online · 2/2',
-        });
-    });
-
-    it('maps machine_not_ready health to an attention-required tray state (Rust tray enum does not accept machine_not_ready)', () => {
-        expect(buildDesktopTrayState({
-            health: {
-                kind: 'machine_not_ready',
-                machineCount: 2,
-                onlineCount: 2,
-                statusLabelKey: 'status.actionRequired',
-                machineLabelKey: 'status.online',
-            },
-            t: translate,
-        })).toEqual({
-            status: 'attention_required',
-            label: 'status.actionRequired',
-            detail: 'status.online · 2/2',
-        });
+    it('carries the one Updates item label only while there is something to act on (R13 (e))', () => {
+        const health = {
+            kind: 'healthy' as const,
+            machineCount: 1,
+            onlineCount: 1,
+            statusLabelKey: 'status.connected' as const,
+            machineLabelKey: 'status.online' as const,
+        };
+        expect(buildDesktopTrayState({ health, updatesLabel: 'Updates available (2)…', t: translate }).updatesLabel)
+            .toBe('Updates available (2)…');
+        expect(buildDesktopTrayState({ health, thisComputerSentence: 'Drift.', updatesLabel: 'Updating…', t: translate }).updatesLabel)
+            .toBe('Updating…');
+        expect('updatesLabel' in buildDesktopTrayState({ health, updatesLabel: null, t: translate })).toBe(false);
     });
 });

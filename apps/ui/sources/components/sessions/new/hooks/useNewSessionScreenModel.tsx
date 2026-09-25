@@ -1900,8 +1900,9 @@ export function useNewSessionScreenModel(params?: Readonly<{ draftId?: string }>
         : undefined;
     const modelOptionsProbe = React.useMemo(() => ({
         phase: modelOptionsProbeState.phase,
+        error: modelOptionsProbeState.error,
         onRefresh: modelOptionsProbeState.onRefresh,
-    }), [modelOptionsProbeState.onRefresh, modelOptionsProbeState.phase]);
+    }), [modelOptionsProbeState.onRefresh, modelOptionsProbeState.phase, modelOptionsProbeState.error]);
     const acpSessionModeProbe = React.useMemo(() => ({
         phase: acpSessionModeProbeState.phase,
         onRefresh: acpSessionModeProbeState.onRefresh,

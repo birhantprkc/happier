@@ -8,6 +8,8 @@ import { resolveInstallablePolicy } from '@happier-dev/protocol/installablesPoli
 
 import { getInstallablesRegistryEntries } from './installablesRegistry';
 import { planInstallablesBackgroundActions } from './installablesBackgroundPlan';
+import { buildAgentCliCapabilityId } from './agentCliCapabilityId';
+import { isLatestVersionCheckDue } from '@/updates/latestVersionCheckFreshness';
 
 type MachineCapabilitiesSnapshotLike = ReturnType<typeof getMachineCapabilitiesSnapshot>;
 
@@ -50,6 +52,21 @@ function isActionBlocked(actionKey: string, nowMs: number): boolean {
 
 function readResultsFromSnapshot(snapshot: MachineCapabilitiesSnapshotLike): Partial<Record<CapabilityId, CapabilityDetectResult>> | null {
     return snapshot?.response?.results ?? null;
+}
+
+/**
+ * Only a daemon that reports K6 update facts (`updateSupported`) answers `includeLatestVersion` for
+ * an agent CLI; an older one would ignore it, so it is never asked. `latestVersion: null` means the
+ * lookup found nothing, which retries on the failure cadence.
+ */
+function shouldPrefetchAgentCliLatestVersion(result: CapabilityDetectResult | null): boolean {
+    if (!result || result.ok !== true || !result.data || typeof result.data !== 'object') return false;
+    const data = result.data as Record<string, unknown>;
+    if (data.available !== true || typeof data.updateSupported !== 'boolean') return false;
+    if (!('latestVersion' in data)) return true;
+    const checkedAt = typeof result.checkedAt === 'number' ? result.checkedAt : 0;
+    if (checkedAt <= 0) return true;
+    return isLatestVersionCheckDue({ checkedAt, ok: typeof data.latestVersion === 'string', now: Date.now() });
 }
 
 function buildDetectRequestsForInstallables(capabilityIds: readonly CapabilityId[]): { requests: Array<{ id: CapabilityId }> } {
@@ -99,6 +116,23 @@ export async function ensureAgentInstallablesBackground(
         prefetchMachineCapabilities: depsOverrides.prefetchMachineCapabilities ?? prefetchMachineCapabilities,
         machineCapabilitiesInvoke: depsOverrides.machineCapabilitiesInvoke ?? machineCapabilitiesInvoke,
     };
+
+    // 0) K6 — the agent CLI's own latest version, on the shared latest-version cadence, so the
+    //    Updates summary can count an agent update without anyone opening Updates first.
+    const agentCapabilityId = buildAgentCliCapabilityId(opts.agentId);
+    const agentResult = readResultsFromSnapshot(deps.getMachineCapabilitiesSnapshot(opts.machineId, opts.serverId))?.[agentCapabilityId] ?? null;
+    if (shouldPrefetchAgentCliLatestVersion(agentResult)) {
+        try {
+            await deps.prefetchMachineCapabilities({
+                machineId: opts.machineId,
+                serverId: opts.serverId,
+                request: { requests: [{ id: agentCapabilityId, params: { includeLatestVersion: true } }] },
+                timeoutMs: 12_000,
+            });
+        } catch {
+            // Best-effort, like every step here: the row keeps its last answer.
+        }
+    }
 
     const experiments = getAgentResumeExperimentsFromSettings(opts.agentId, opts.settings);
     const relevantKeys = getNewSessionRelevantInstallableDepKeys({

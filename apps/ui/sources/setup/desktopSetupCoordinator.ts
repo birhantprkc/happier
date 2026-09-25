@@ -12,18 +12,32 @@ import { resolveWebappUrlFromServerUrl } from '@/sync/domains/server/url/resolve
 import { machineRpcWithServerScope } from '@/sync/runtime/orchestration/serverScopedRpc/serverScopedMachineRpc';
 import { resolvePreferredPublicReleaseRingLabelForCurrentApp } from '@/sync/runtime/currentAppVariant';
 
+import { toRelayHostDisplay } from '@/sync/domains/server/url/serverUrlDisplay';
+
 import {
     readAlwaysMoveDefaultFollowingService,
+    readKeptBackgroundService,
     rememberAlwaysMoveDefaultFollowingService,
+    rememberKeptBackgroundService,
 } from './desktopRelayMovePreference';
 import {
+    daemonRelayMatchesExpectation,
     desktopLocalRuntimeConverged,
+    type DesktopCliChannel,
+    type DesktopCliChoiceFacts,
+    type DesktopCliUpdateFacts,
     type DesktopLocalInspection,
     type DesktopLocalReadinessFacts,
     type DesktopSetupExpectation,
 } from './deriveDesktopLocalSetupSnapshot';
-import type { RelayReconciliationConsentAnswer } from './presentRelayReconciliationConsent';
-import { resolveRelayReconciliationConsent } from './relayReconciliationConsent';
+import type { RelayReconciliationConsentAnswer, ThisComputerMoveRequest } from './presentRelayReconciliationConsent';
+import {
+    identifyKeptBackgroundService,
+    keptBackgroundServiceApplies,
+    resolveRelayReconciliationConsent,
+    type RelayReconciliationDecision,
+} from './relayReconciliationConsent';
+import { resolveAppAccountLabel, resolveDaemonAccountLabel } from './thisComputerLabels';
 
 /**
  * The single desktop-side owner of local setup (plan §3.3).
@@ -36,11 +50,14 @@ import { resolveRelayReconciliationConsent } from './relayReconciliationConsent'
  * new target against the same immutable facts. A failed inspection is reported, not guessed
  * around, and the next `inspect()` retries it.
  *
- * `startSetup()` is the only path that builds the explicit-target executor spec (R3): it awaits
- * an in-flight inspection so two acquisitions never contend (C3), then hands the spec to the
- * caller's runner adapter, reporting whether the acquisition milestone is already met.
+ * `startSetup()` and `reconcile()` are the only paths that build the explicit-target executor spec
+ * (R3), and the one place this computer's daemon is asked about before it moves (UD5/D1): each
+ * awaits an in-flight inspection so two acquisitions never contend (C3), asks the one question the
+ * facts call for, then hands the spec to the caller's runner adapter.
  *
- * No persistence, no lock, no event bus, no generations, no scheduler.
+ * The only thing it keeps beyond this app open is the person's own answers, through the existing
+ * device-local preference owner ("always move", "keep it as is"). No lock, no event bus, no
+ * generations, no scheduler.
  */
 export type DesktopSetupStartOutcome = Readonly<{
     taskId: string;
@@ -117,16 +134,27 @@ export type DesktopSetupCoordinator = Readonly<{
      * second read (D3/C3).
      */
     verifyCurrentTarget: (options?: Readonly<{ fresh?: boolean }>) => Promise<DesktopSetupVerificationOutcome>;
-    startSetup: (params: Readonly<{ start: (spec: SystemTaskSpec) => Promise<string> }>) => Promise<DesktopSetupStartOutcome>;
     /**
-     * R8/L7 — a **direct** Relay/Home preference change, or authentication completing after one.
-     * Runs the same preflight and the same idempotent executor as `startSetup`, after UD5 consent.
-     * Resolves `null` when the user chose to keep the service where it is.
+     * An explicit "set up / connect this computer". The person asked for the move, so a relay move
+     * needs no second question — but an ACCOUNT move still asks (D1), because the account the
+     * daemon is signed in as loses this computer. Resolves `null` when they chose to keep it.
      */
-    reconcile: (params: Readonly<{
-        start: (spec: SystemTaskSpec) => Promise<string>;
-        confirm: (request: Readonly<{ relayUrl: string }>) => Promise<RelayReconciliationConsentAnswer>;
-    }>) => Promise<DesktopSetupStartOutcome | null>;
+    startSetup: (params: DesktopSetupStartParams) => Promise<DesktopSetupStartOutcome | null>;
+    /**
+     * R8/L7 — a **direct** Relay/Home preference change, a relaunch whose daemon is elsewhere, or
+     * authentication completing after one. Runs the same preflight and the same idempotent executor
+     * as `startSetup`, after UD5/D1 consent — unless this device already chose to keep this daemon
+     * as it is (D5). Resolves `null` when the service stays where it is.
+     */
+    reconcile: (params: DesktopSetupStartParams) => Promise<DesktopSetupStartOutcome | null>;
+}>;
+
+export type DesktopSetupStartParams = Readonly<{
+    start: (spec: SystemTaskSpec) => Promise<string>;
+    /** The one ask. Defaults to the canonical presenter; a test or a headless caller may replace it. */
+    confirm?: (request: ThisComputerMoveRequest) => Promise<RelayReconciliationConsentAnswer>;
+    /** R12 — Settings › This computer › Command line's change action: ask the one-CLI question again. */
+    reconsiderCli?: boolean;
 }>;
 
 function readString(value: unknown): string | null {
@@ -163,6 +191,40 @@ function readCredentialState(value: unknown): DesktopLocalReadinessFacts['auth']
     return value === 'missing' || value === 'rejected' || value === 'valid' || value === 'unknown' ? value : null;
 }
 
+/** K1 — all four fields or nothing: a partial update answer proves no update. */
+function readCliUpdate(value: unknown): DesktopCliUpdateFacts | null {
+    const record = readRecord(value);
+    const currentVersion = readString(record.currentVersion);
+    if (!currentVersion || typeof record.updateAvailable !== 'boolean' || typeof record.managed !== 'boolean') {
+        return null;
+    }
+    return {
+        currentVersion,
+        latestVersion: readString(record.latestVersion),
+        updateAvailable: record.updateAvailable,
+        managed: record.managed,
+    };
+}
+
+/** R12 — unknown stays unknown: an unreadable answer is "nobody was asked, nothing else found". */
+function readCliChoice(value: unknown): DesktopCliChoiceFacts {
+    const record = readRecord(value);
+    const mode = record.mode === 'managed' || record.mode === 'own' ? record.mode : null;
+    const other = readRecord(record.otherCli);
+    const command = readString(other.command);
+    return {
+        mode,
+        otherCli: command
+            ? {
+                command,
+                origin: other.origin === 'npm' || other.origin === 'brew' ? other.origin : 'unknown',
+                removalCommand: readString(other.removalCommand),
+                updateCommand: readString(other.updateCommand),
+            }
+            : null,
+    };
+}
+
 function readRuntimeConvergence(value: unknown): DesktopLocalReadinessFacts['runtimeConvergence'] {
     const record = readRecord(value);
     const keys = ['controlReachable', 'serviceOwnsRunningDaemon', 'machineIdMatches', 'cliVersionMatches'] as const;
@@ -175,6 +237,10 @@ function readRuntimeConvergence(value: unknown): DesktopLocalReadinessFacts['run
         machineIdMatches: record.machineIdMatches === true,
         cliVersionMatches: record.cliVersionMatches === true,
     };
+}
+
+function readCliChannel(value: unknown): DesktopCliChannel | null {
+    return value === 'stable' || value === 'preview' || value === 'publicdev' ? value : null;
 }
 
 /** Projects `daemon.service.status.v1`'s result into the facts the entry policy reads. */
@@ -190,7 +256,7 @@ export function readDesktopLocalReadinessFacts(data: unknown): DesktopLocalReadi
     const auth = readRecord(record.auth);
     const service = readRecord(record.service);
     return {
-        acquisition: { command, provenance },
+        acquisition: { command, provenance, version: readString(acquisition.version), channel: readCliChannel(acquisition.channel) },
         server: {
             serverUrl: readString(server.serverUrl),
             publicServerUrl: readString(server.publicServerUrl),
@@ -201,6 +267,7 @@ export function readDesktopLocalReadinessFacts(data: unknown): DesktopLocalReadi
             credentialState: readCredentialState(auth.credentialState),
             validatedAccountId: readString(auth.validatedAccountId),
             accountId: readString(auth.accountId),
+            accountLabel: readString(auth.accountLabel),
             machineId: readString(auth.machineId),
         },
         service: {
@@ -210,6 +277,8 @@ export function readDesktopLocalReadinessFacts(data: unknown): DesktopLocalReadi
             targetMode: readServiceTargetMode(service.targetMode),
         },
         runtimeConvergence: readRuntimeConvergence(record.runtimeConvergence),
+        cliUpdate: readCliUpdate(readRecord(record.cli).update),
+        cliChoice: readCliChoice(readRecord(record.cli).choice),
     };
 }
 
@@ -268,10 +337,36 @@ function readCurrentExpectation(): DesktopSetupObservedExpectation {
     };
 }
 
+/**
+ * The move a consent question is about, named from the facts the decision used: hosts for a relay
+ * move, both accounts for an account move (U2/D1).
+ */
+function buildMoveRequest(
+    decision: Exclude<RelayReconciliationDecision, 'start'>,
+    inspection: DesktopLocalInspection,
+    target: DesktopSetupExpectation,
+): ThisComputerMoveRequest {
+    const facts = inspection.status === 'resolved' ? inspection.facts : null;
+    const toRelayHost = toRelayHostDisplay(target.relayUrl);
+    const fromRelayHost = facts?.server.serverUrl ? toRelayHostDisplay(facts.server.serverUrl) : null;
+    if (decision === 'confirm_relay' || !facts || !target.accountId) {
+        return { kind: 'relay', fromRelayHost, toRelayHost };
+    }
+    return {
+        kind: 'account',
+        fromAccountLabel: resolveDaemonAccountLabel(facts.auth) ?? '',
+        toAccountLabel: resolveAppAccountLabel(target.accountId),
+        relayHost: toRelayHost,
+        fromRelayHost: daemonRelayMatchesExpectation(facts, target) ? null : fromRelayHost,
+    };
+}
+
 export function createDesktopSetupCoordinator(deps: Readonly<{
     runner: () => SystemTaskRunner;
     /** INV10's canonical owner. Read-only, so it keeps its production default. */
     machineRpc?: (params: Readonly<{ machineId: string; serverId: string }>) => Promise<unknown>;
+    /** The one consent presenter (UD5/D1). */
+    confirm?: (request: ThisComputerMoveRequest) => Promise<RelayReconciliationConsentAnswer>;
 }>): DesktopSetupCoordinator {
     let inspection: Promise<DesktopLocalInspection> | null = null;
     let observedExpectation: DesktopSetupObservedExpectation | null = null;
@@ -367,33 +462,97 @@ export function createDesktopSetupCoordinator(deps: Readonly<{
         return { status: 'verified', machineId, inspection };
     };
 
-    const startSetup: DesktopSetupCoordinator['startSetup'] = async (params) => {
-        const target = resolveDesktopSetupTarget();
+    /**
+     * Asks the one question the decision named and records the answer. `true` means go ahead.
+     * "Keep it as is" is remembered for exactly the daemon it was said about (D5); "always" is a
+     * relay answer and is never offered for an account move.
+     */
+    const askToMove = async (
+        decision: Exclude<RelayReconciliationDecision, 'start'>,
+        ambient: DesktopLocalInspection,
+        target: DesktopSetupExpectation,
+        confirm: DesktopSetupStartParams['confirm'],
+    ): Promise<boolean> => {
+        // The presenter is loaded when a question is actually asked: the modal stack is not
+        // something the ambient read, or any coordinator reader, should pay for.
+        const ask = confirm ?? deps.confirm ?? (await import('./presentRelayReconciliationConsent')).presentRelayReconciliationConsent;
+        const answer = await ask(buildMoveRequest(decision, ambient, target));
+        if (answer === 'keep') {
+            const kept = identifyKeptBackgroundService(ambient);
+            if (kept) rememberKeptBackgroundService(kept);
+            return false;
+        }
+        if (answer === 'always' && decision === 'confirm_relay') {
+            rememberAlwaysMoveDefaultFollowingService();
+        }
+        return true;
+    };
+
+    const readAmbient = async (): Promise<DesktopLocalInspection> => {
         // Awaiting an in-flight ambient read keeps two adjacent acquisitions from contending (C3).
-        // Its outcome is not consulted: a failed or rejected inspection must not block setup or
-        // repair, and a successful one proves nothing about the executor's own progress.
-        if (inspection) await inspection.catch(() => null);
-        const taskId = await params.start(buildLocalMachineSetupSystemTaskSpec(target));
+        // A failed or rejected inspection must not block setup or repair: it decides nothing.
+        const settled = inspection ? await inspection.catch(() => null) : null;
+        if (settled && settled.status === 'resolved' && settled.facts.auth.credentialState !== 'unknown') {
+            return settled;
+        }
+        // D1 is decided on facts that could see the daemon's account. Facts read while the relay
+        // was unreachable — or no facts at all — cannot, and the executor validates the account
+        // itself the moment the relay answers, so it would claim this computer with no question.
+        // One fresh read through the one inspection owner; if the relay still cannot be reached,
+        // the executor's own `auth status` answers `auth_unavailable` and it stops by name.
+        return await inspect({ fresh: true }).catch(() => settled ?? PENDING_INSPECTION);
+    };
+
+    const launch = async (params: DesktopSetupStartParams, target: LocalMachineSetupTarget): Promise<DesktopSetupStartOutcome> => {
+        const taskId = await params.start(buildLocalMachineSetupSystemTaskSpec({
+            ...target,
+            ...(params.reconsiderCli ? { reconsiderCli: true } : {}),
+        }));
         return { taskId };
     };
 
-    const reconcile: DesktopSetupCoordinator['reconcile'] = async (params) => {
-        const ambient = inspection ? await inspection.catch(() => null) : null;
+    /** The validated account an answered account move is about, carried to the executor (D1). */
+    const consentedAccountId = (decision: RelayReconciliationDecision, ambient: DesktopLocalInspection): string | null => (
+        decision === 'confirm_account' && ambient.status === 'resolved' ? ambient.facts.auth.validatedAccountId : null
+    );
+
+    const startSetup: DesktopSetupCoordinator['startSetup'] = async (params) => {
+        const target = resolveDesktopSetupTarget();
+        const ambient = await readAmbient();
+        const expectation: DesktopSetupExpectation = {
+            relayUrl: target.activeRelayUrl,
+            localRelayUrl: target.activeLocalRelayUrl,
+            accountId: target.expectedAccountId,
+        };
         const decision = resolveRelayReconciliationConsent({
-            inspection: ambient ?? { status: 'pending' },
+            inspection: ambient,
             observedExpectation,
+            target: expectation,
             alwaysMoveDefaultFollowingService: readAlwaysMoveDefaultFollowingService(),
         });
-        if (decision === 'confirm') {
-            const answer = await params.confirm({ relayUrl: readCurrentExpectation().relayUrl });
-            if (answer === 'keep') {
-                return null;
-            }
-            if (answer === 'always') {
-                rememberAlwaysMoveDefaultFollowingService();
-            }
+        // An explicit request is the relay answer; only the account move is asked again (D1).
+        if (decision === 'confirm_account' && !(await askToMove(decision, ambient, expectation, params.confirm))) {
+            return null;
         }
-        return await startSetup(params);
+        return await launch(params, { ...target, replaceAccountId: consentedAccountId(decision, ambient) });
+    };
+
+    const reconcile: DesktopSetupCoordinator['reconcile'] = async (params) => {
+        const ambient = await readAmbient();
+        const target = readCurrentExpectation();
+        if (keptBackgroundServiceApplies({ inspection: ambient, target, kept: readKeptBackgroundService() })) {
+            return null;
+        }
+        const decision = resolveRelayReconciliationConsent({
+            inspection: ambient,
+            observedExpectation,
+            target,
+            alwaysMoveDefaultFollowingService: readAlwaysMoveDefaultFollowingService(),
+        });
+        if (decision !== 'start' && !(await askToMove(decision, ambient, target, params.confirm))) {
+            return null;
+        }
+        return await launch(params, { ...resolveDesktopSetupTarget(), replaceAccountId: consentedAccountId(decision, ambient) });
     };
 
     return {

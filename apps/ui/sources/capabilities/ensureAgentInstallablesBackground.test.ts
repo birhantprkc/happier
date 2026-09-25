@@ -342,4 +342,39 @@ describe('ensureAgentInstallablesBackground', () => {
             expect(machineCapabilitiesInvoke).toHaveBeenCalledTimes(2);
         });
     });
+
+    describe('agent CLI latest version (K6, R13 (e): the Updates pill learns of agent updates here)', () => {
+        const settings = settingsParse({} as any);
+        const agentResult = (data: Record<string, unknown>, checkedAt: number) => ({
+            'cli.claude': { ok: true as const, checkedAt, data: { available: true, version: '2.1.3', ...data } },
+        });
+        const run = async (results: MachineCapabilitiesSnapshot['response']['results']) => {
+            const prefetchMachineCapabilities = vi.fn(async (_params: { request: CapabilitiesDetectRequest }) => {});
+            await ensureAgentInstallablesBackground(
+                { agentId: 'claude', machineId: 'm1', serverId: 's1', settings, resumeSessionId: '' },
+                {
+                    prefetchMachineCapabilities,
+                    getMachineCapabilitiesSnapshot: () => ({ response: { protocolVersion: 1 as const, results } }),
+                    machineCapabilitiesInvoke: vi.fn(async (): Promise<MachineCapabilitiesInvokeResult> => ({ supported: true, response: { ok: true, result: null } })),
+                },
+            );
+            return prefetchMachineCapabilities.mock.calls
+                .flatMap(([params]) => params.request.requests ?? [])
+                .filter((request) => request.id === 'cli.claude');
+        };
+
+        it('asks a K6 daemon for the latest version when it has none, on the shared cadence', async () => {
+            const now = Date.now();
+            expect(await run(agentResult({ updateSupported: true, installSource: 'managed' }, now)))
+                .toEqual([{ id: 'cli.claude', params: { includeLatestVersion: true } }]);
+            // Fresh answer: nothing to ask.
+            expect(await run(agentResult({ updateSupported: true, latestVersion: '2.1.4' }, now))).toEqual([]);
+            // Older than the freshness window: ask again.
+            expect(await run(agentResult({ updateSupported: true, latestVersion: '2.1.4' }, now - 25 * 60 * 60 * 1000))).toHaveLength(1);
+        });
+
+        it('never asks a daemon that predates K6 (it would ignore the request)', async () => {
+            expect(await run(agentResult({}, Date.now()))).toEqual([]);
+        });
+    });
 });

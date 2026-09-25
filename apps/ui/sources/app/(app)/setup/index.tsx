@@ -337,9 +337,10 @@ function PostAuthSetupRoute() {
     const remoteMachineContinuation = livePending?.branch === 'remoteMachine' ? livePending : null;
     /**
      * R9/INV1: after authentication exactly one owner performs "make this computer ready" — the
-     * `DesktopLocalSetupGate` the authenticated root renders, driven by `desktopSetupCoordinator`.
-     * This route must never be a second one, so a desktop visit whose only business is local
-     * setup goes to that gate instead of rendering another setup surface. The remote-machine
+     * `DesktopLocalSetupRuntime` the authenticated desktop shell mounts, driven by
+     * `desktopSetupCoordinator` and presented on the Home. This route must never be a second one,
+     * so a desktop visit whose only business is local setup goes to the Home instead of rendering
+     * another setup surface. The remote-machine
      * branch keeps its post-auth job here: resuming provider follow-up after a relay adoption
      * (`MachineSetupFlowScreen`'s switch-to-remote-relay action).
      */

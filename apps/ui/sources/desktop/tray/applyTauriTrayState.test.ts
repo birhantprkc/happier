@@ -15,9 +15,10 @@ describe('applyTauriTrayState', () => {
         const { applyTauriTrayState } = await import('./applyTauriTrayState');
 
         const state = {
-            status: 'healthy',
             label: 'Connected',
             detail: '3 machines online',
+            openLabel: 'Open Happier',
+            quitLabel: 'Quit Happier',
         } as const;
 
         await applyTauriTrayState(state);

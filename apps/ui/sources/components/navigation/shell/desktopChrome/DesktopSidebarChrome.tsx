@@ -16,10 +16,10 @@ import { desktopSidebarChromeStyles } from './desktopSidebarChromeStyles';
 import { DesktopShellWindowControlsHost } from './DesktopShellWindowControlsHost';
 import { SidebarCollapseIcon } from '../SidebarIcons';
 import { SidebarLogoButton } from '../SidebarLogoButton';
-import type { AppUpdateStatusTagProps } from '@/components/ui/feedback/AppUpdateStatusTag';
 import { Icon } from '@/components/ui/icons/Icon';
 import { ActionOperationActivityButton } from '@/components/inbox/actionOperations/ActionOperationActivityButton';
 import { InboxPopoverButton } from '@/components/inbox/InboxPopoverButton';
+import { UpdatesEntry } from '@/components/updates/UpdatesPopoverButton';
 import type { InboxSummary } from '@/hooks/inbox/useInboxSummary';
 
 type DesktopSidebarChromeProps = Readonly<{
@@ -37,26 +37,9 @@ type DesktopSidebarChromeProps = Readonly<{
     renderHeaderOverflowVisual: () => React.ReactNode;
     popoverBoundaryRef: React.RefObject<any>;
     desktopWindowControls?: React.ReactNode;
-    desktopUpdateIndicator?: React.ReactNode;
     inboxSummary?: InboxSummary | null;
     inboxEnabled?: boolean;
 }>;
-
-function renderUpdateIndicatorWithFallback(
-    indicator: React.ReactNode,
-    fallback: React.ReactNode,
-    props: Pick<AppUpdateStatusTagProps, 'fallback' | 'labelVariant'>,
-): React.ReactNode {
-    if (!indicator) {
-        return fallback;
-    }
-
-    if (!React.isValidElement<AppUpdateStatusTagProps>(indicator)) {
-        return indicator;
-    }
-
-    return React.cloneElement(indicator, props);
-}
 
 export const DesktopSidebarChrome = React.memo((props: DesktopSidebarChromeProps) => {
     const styles = desktopSidebarChromeStyles;
@@ -82,11 +65,6 @@ export const DesktopSidebarChrome = React.memo((props: DesktopSidebarChromeProps
             ? ['projects', 'newSession']
             : ['projects', 'settings', 'newSession'];
     }, [hasDesktopWindowControls]);
-    const titleFallback = (
-        <Text testID="desktop-sidebar-title-text" style={styles.titleText} numberOfLines={1}>
-            {t('sidebar.sessionsTitle')}
-        </Text>
-    );
 
     const renderTopUtilityAction = React.useCallback((action: ItemAction) => {
         const color = action.color ?? theme.colors.chrome.header.foreground;
@@ -262,19 +240,20 @@ export const DesktopSidebarChrome = React.memo((props: DesktopSidebarChromeProps
                     />
                     <View testID="desktop-sidebar-title-container" style={styles.titleContainerLeft}>
                         <View style={styles.titleRow}>
-                            {renderUpdateIndicatorWithFallback(
-                                props.desktopUpdateIndicator,
-                                titleFallback,
-                                {
-                                    fallback: titleFallback,
-                                    labelVariant: 'full',
-                                },
-                            )}
+                            <Text testID="desktop-sidebar-title-text" style={styles.titleText} numberOfLines={1}>
+                                {t('sidebar.sessionsTitle')}
+                            </Text>
                             {props.environmentBadge ? (
                                 <View style={styles.envBadge}>
                                     <Text style={styles.envBadgeText}>{props.environmentBadge}</Text>
                                 </View>
                             ) : null}
+                            {/* The one Updates entry: trails the title (which truncates first), hidden at zero. */}
+                            <UpdatesEntry
+                                variant="pill"
+                                testID="desktop-sidebar-updates-pill"
+                                compactLabel={props.sidebarWidthPx != null && props.sidebarWidthPx < DESKTOP_SIDEBAR_CHROME_ACTIONS_COMPACT_THRESHOLD_PX}
+                            />
                         </View>
                         <View style={styles.statusControlWrapper}>
                             <ConnectionStatusControl
