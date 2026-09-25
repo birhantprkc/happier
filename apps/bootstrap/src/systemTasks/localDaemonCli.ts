@@ -3,8 +3,11 @@ import { DoctorSnapshotDaemonStatusSchema, type DoctorSnapshotDaemonStatus } fro
 import type { PublicReleaseRingId } from '@happier-dev/release-runtime/releaseRings';
 
 import {
+  readLocalHappierCliChoiceFacts,
+  resolveLocalHappierCliReleaseRing,
   resolveVersionedLocalHappierCli,
   runLocalHappierJsonCommand,
+  type LocalHappierCliChoiceFacts,
   type SetupCapableLocalHappierCli,
 } from './happierCli.js';
 import type { LocalFirstPartyCommandProvenance } from './localFirstPartyCommand.js';
@@ -23,6 +26,8 @@ export type ConfiguredRelay = Readonly<{
 export type AuthStatusSnapshot = Readonly<{
   authenticated: boolean;
   accountId: string | null;
+  /** The label the relay's profile gave the validated account; absent when it gave none. */
+  accountLabel?: string | null;
   machineId: string | null;
 }>;
 
@@ -69,6 +74,11 @@ export type DaemonStatusSnapshot = Readonly<{
     provenance: LocalFirstPartyCommandProvenance;
     /** The version that CLI reports for itself, so a reader can tell which contract answered. */
     version: string;
+    /**
+     * The release channel whose managed CLI this is — the default channel's when the app adopted
+     * it (D2), else the app's own. `null` for an override CLI, which belongs to no channel.
+     */
+    channel: PublicReleaseRingId | null;
   }>;
   server: Readonly<{
     activeServerId: string | null;
@@ -85,6 +95,8 @@ export type DaemonStatusSnapshot = Readonly<{
     accountId: string | null;
     credentialState: DaemonCredentialState | null;
     validatedAccountId: string | null;
+    /** The validated account's readable name (username, else display name); `null` when unknown. */
+    accountLabel: string | null;
   }>;
   service: Readonly<{
     installed: boolean;
@@ -105,6 +117,28 @@ export type DaemonStatusSnapshot = Readonly<{
     serviceLabel: string | null;
   }>;
   runtimeConvergence: DaemonRuntimeConvergence | null;
+  cli: Readonly<{
+    /**
+     * The answering CLI's update state from its cached daily check (plan R17/K1). `managed` says
+     * whether this app's install path placed that CLI (`acquisition.provenance`), i.e. whether the
+     * app may update it in place (`cli.update.v1`). `null` when the CLI cached no check yet or
+     * predates the field.
+     */
+    update: DaemonCliUpdateState | null;
+    /**
+     * R12 — this computer's one-CLI answer and the CLI that is not the managed one (the kept CLI,
+     * or an old copy still on PATH), with the commands that remove or update it. Read from the
+     * app's own records, not the answering CLI, so any CLI version reports it.
+     */
+    choice: LocalHappierCliChoiceFacts;
+  }>;
+}>;
+
+export type DaemonCliUpdateState = Readonly<{
+  currentVersion: string;
+  latestVersion: string | null;
+  updateAvailable: boolean;
+  managed: boolean;
 }>;
 
 export type AuthPairingRequest = Readonly<{
@@ -130,6 +164,8 @@ export type ServiceInstallPreview = Readonly<{
     message: string;
     competingServices: readonly string[];
     servicesToRemove: readonly string[];
+    /** The installed service runs another CLI and installing switches it to the managed one (K3). */
+    runtimeReplacement: Readonly<{ current: string; replacement: string }> | null;
   }> | null;
 }>;
 
@@ -140,6 +176,113 @@ export type ServiceInstallApplyFlags = Readonly<{
 
 const DEFAULT_DAEMON_READY_TIMEOUT_MS = 15_000;
 const DEFAULT_DAEMON_READY_POLL_MS = 500;
+
+/**
+ * A resolved CLI and the environment a command spawns it with. Every command this module issues
+ * answers for "this computer" under one context rule (plan R13 a): without `processEnv` it runs with
+ * the inherited relay selectors cleared (`createSelectedCliInvocation`), so the app's status reads,
+ * the service toggle, `cli.update.v1` and a setup run's apply all address this Happier home's
+ * persisted selection — the relay setup writes and the background service serves. Only a setup
+ * scope's `target` invocation carries an explicit environment.
+ */
+export type LocalHappierCliInvocation = SetupCapableLocalHappierCli & Readonly<{
+  processEnv?: NodeJS.ProcessEnv;
+}>;
+
+/**
+ * The one execution context of a setup run (plan R13 a), built once from the target relay the app
+ * selected and threaded through every command the run issues.
+ *
+ * A stack/dev launch exports a server selection of its own — `HAPPIER_ACTIVE_SERVER_ID` (the CLI's
+ * configuration prefers that persisted profile over a URL it does not match),
+ * `HAPPIER_DAEMON_LIFECYCLE_SCOPE_ID` (where daemon state is read) and the URL selectors — so an
+ * inherited selector would let a run judge relay Y and then write to relay X. Both invocations
+ * clear every one of them:
+ *
+ * - `target` adds the target through the CLI's env server selection without persisting it, for
+ *   the reads that must answer for the target before the run may select it (service-install
+ *   dry-run, the target's saved credentials).
+ * - `selected` answers for the relay this Happier home's persisted selection names — before
+ *   `server set`, the relay the default-following service serves; from `server set` on, the target
+ *   — which is exactly what the background service itself reads.
+ */
+export type SetupCliScope = Readonly<{
+  target: LocalHappierCliInvocation;
+  selected: LocalHappierCliInvocation;
+}>;
+
+const INHERITED_RELAY_SELECTOR_ENV_KEYS = [
+  'HAPPIER_SERVER_URL',
+  'HAPPIER_WEBAPP_URL',
+  'HAPPIER_LOCAL_SERVER_URL',
+  'HAPPIER_PUBLIC_SERVER_URL',
+  'HAPPIER_ACTIVE_SERVER_ID',
+  'HAPPIER_DAEMON_LIFECYCLE_SCOPE_ID',
+] as const;
+
+function clearInheritedRelaySelectors(processEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const selectedEnv: NodeJS.ProcessEnv = { ...processEnv };
+  for (const key of INHERITED_RELAY_SELECTOR_ENV_KEYS) {
+    delete selectedEnv[key];
+  }
+  return selectedEnv;
+}
+
+/**
+ * The `selected` half of a setup scope on its own: `cli` with every inherited relay selector
+ * cleared, so it answers for this Happier home's persisted selection — the relay the background
+ * service itself serves. It is also what every invocation without an explicit env runs with.
+ */
+export function createSelectedCliInvocation(params: Readonly<{
+  cli: SetupCapableLocalHappierCli;
+  processEnv: NodeJS.ProcessEnv;
+}>): LocalHappierCliInvocation {
+  return { ...params.cli, processEnv: clearInheritedRelaySelectors(params.processEnv) };
+}
+
+/**
+ * The `target` half's environment on its own: the inherited relay selectors cleared and `target`
+ * added through the CLI's env server selection, nothing persisted. For a command that names its
+ * relay but lets `runLocalHappierJsonCommand` resolve the CLI (the remote-bootstrap approval).
+ */
+export function scopeProcessEnvToTargetRelay(target: RelayProfileTarget, processEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return {
+    ...clearInheritedRelaySelectors(processEnv),
+    HAPPIER_SERVER_URL: target.serverUrl,
+    HAPPIER_WEBAPP_URL: target.webappUrl,
+    ...(target.localServerUrl ? { HAPPIER_LOCAL_SERVER_URL: target.localServerUrl } : {}),
+  };
+}
+
+export function createSetupCliScope(params: Readonly<{
+  cli: SetupCapableLocalHappierCli;
+  target: RelayProfileTarget;
+  processEnv: NodeJS.ProcessEnv;
+}>): SetupCliScope {
+  return {
+    target: { ...params.cli, processEnv: scopeProcessEnvToTargetRelay(params.target, params.processEnv) },
+    selected: createSelectedCliInvocation(params),
+  };
+}
+
+/**
+ * Runs one JSON command through `invocation`'s CLI and environment — this process's environment
+ * with the inherited relay selectors cleared when the invocation names none (one context rule).
+ */
+async function runInvocationJsonCommand(params: Readonly<{
+  args: readonly string[];
+  releaseRing: PublicReleaseRingId;
+  invocation?: LocalHappierCliInvocation;
+  allowJsonFailure?: boolean;
+}>): Promise<unknown> {
+  return await runLocalHappierJsonCommand({
+    args: params.args,
+    releaseRing: params.releaseRing,
+    ...(params.invocation ? { cli: params.invocation } : {}),
+    processEnv: params.invocation?.processEnv ?? clearInheritedRelaySelectors(process.env),
+    ...(params.allowJsonFailure ? { allowJsonFailure: true } : {}),
+  });
+}
 
 function readNonEmptyString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
@@ -162,13 +305,13 @@ function readRequiredBoolean(value: unknown, field: string): boolean {
 
 export async function readAuthStatus(
   releaseRing: PublicReleaseRingId,
-  cli?: SetupCapableLocalHappierCli,
+  cli?: LocalHappierCliInvocation,
 ): Promise<AuthStatusSnapshot> {
-  const parsed = await runLocalHappierJsonCommand({
+  const parsed = await runInvocationJsonCommand({
     args: ['auth', 'status', '--json'],
     releaseRing,
     allowJsonFailure: true,
-    cli,
+    invocation: cli,
   });
   if (!parsed || typeof parsed !== 'object') {
     throw new systemTasks.SystemTaskExecutionError('invalid_cli_response', 'Received an invalid auth status response.');
@@ -180,6 +323,7 @@ export async function readAuthStatus(
     data?: {
       authenticated?: unknown;
       accountId?: unknown;
+      accountLabel?: unknown;
       machineId?: unknown;
     };
   };
@@ -213,6 +357,7 @@ export async function readAuthStatus(
   return {
     authenticated,
     accountId,
+    accountLabel: readNonEmptyString(record.data?.accountLabel),
     machineId: readNonEmptyString(record.data?.machineId),
   };
 }
@@ -220,9 +365,9 @@ export async function readAuthStatus(
 export async function configureRelay(
   releaseRing: PublicReleaseRingId,
   profile: RelayProfileTarget,
-  cli?: SetupCapableLocalHappierCli,
+  cli?: LocalHappierCliInvocation,
 ): Promise<ConfiguredRelay> {
-  const parsed = await runLocalHappierJsonCommand({
+  const parsed = await runInvocationJsonCommand({
     args: [
       'server',
       'set',
@@ -234,7 +379,7 @@ export async function configureRelay(
       '--json',
     ],
     releaseRing,
-    cli,
+    invocation: cli,
   });
   const active = parsed && typeof parsed === 'object'
     ? (parsed as { data?: { active?: { serverUrl?: unknown; comparableKey?: unknown } } }).data?.active
@@ -249,9 +394,9 @@ export async function configureRelay(
 
 export async function requestAuthPairing(
   releaseRing: PublicReleaseRingId,
-  cli?: SetupCapableLocalHappierCli,
+  cli?: LocalHappierCliInvocation,
 ): Promise<AuthPairingRequest> {
-  const parsed = await runLocalHappierJsonCommand({ args: ['auth', 'request', '--json'], releaseRing, cli });
+  const parsed = await runInvocationJsonCommand({ args: ['auth', 'request', '--json'], releaseRing, invocation: cli });
   const record = parsed && typeof parsed === 'object'
     ? (parsed as { publicKey?: unknown; publicKeyB64Url?: unknown; pairingRequirement?: unknown })
     : {};
@@ -267,11 +412,11 @@ export async function requestAuthPairing(
 export async function waitForAuthPairing(
   releaseRing: PublicReleaseRingId,
   params: Readonly<{ publicKey: string; replaceExisting: boolean }>,
-  cli?: SetupCapableLocalHappierCli,
+  cli?: LocalHappierCliInvocation,
 ): Promise<AuthPairingClaim> {
   let parsed: unknown;
   try {
-    parsed = await runLocalHappierJsonCommand({
+    parsed = await runInvocationJsonCommand({
       args: [
         'auth',
         'wait',
@@ -281,7 +426,7 @@ export async function waitForAuthPairing(
         '--json',
       ],
       releaseRing,
-      cli,
+      invocation: cli,
     });
   } catch (error) {
     if (error instanceof systemTasks.SystemTaskExecutionError && error.code === 'cli_command_timeout') {
@@ -305,6 +450,16 @@ function readServiceLabels(value: unknown): readonly string[] {
   return value
     .map((entry) => (entry && typeof entry === 'object' ? readNonEmptyString((entry as { label?: unknown }).label) : null))
     .filter((label): label is string => label !== null);
+}
+
+function readRuntimeReplacement(value: unknown): Readonly<{ current: string; replacement: string }> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as { current?: unknown; replacement?: unknown };
+  const current = readNonEmptyString(record.current);
+  const replacement = readNonEmptyString(record.replacement);
+  return current && replacement ? { current, replacement } : null;
 }
 
 /**
@@ -331,16 +486,21 @@ function buildServiceInstallArgs(params: Readonly<{
  * Preview the most complete apply desktop setup may perform (replace competing services, take
  * over a manual daemon). Each of those effects only appears in the response when the CLI would
  * actually perform it, so the response tells the executor exactly what needs consent.
+ *
+ * Setup previews before `server set` (no mutation before consent), so it passes its scope's
+ * `target` invocation: ownership and takeover are per-relay facts, and judging them against the
+ * CLI's previous relay would block on a pinned service that does not conflict, or ask to take over
+ * a manual daemon the apply can never reach.
  */
 export async function previewServiceInstall(
   releaseRing: PublicReleaseRingId,
-  cli?: SetupCapableLocalHappierCli,
+  cli?: LocalHappierCliInvocation,
 ): Promise<ServiceInstallPreview> {
-  const parsed = await runLocalHappierJsonCommand({
+  const parsed = await runInvocationJsonCommand({
     args: [...buildServiceInstallArgs({ flags: { replaceExisting: true, takeover: true } }), '--dry-run'],
     releaseRing,
     allowJsonFailure: true,
-    cli,
+    invocation: cli,
   });
   if (!parsed || typeof parsed !== 'object') {
     throw new systemTasks.SystemTaskExecutionError('invalid_cli_response', 'Received an invalid service install preview.');
@@ -356,6 +516,7 @@ export async function previewServiceInstall(
       message?: unknown;
       competingServices?: unknown;
       servicesToRemove?: unknown;
+      runtimeReplacement?: unknown;
     } | null;
   };
   if (record.ok === false) {
@@ -383,6 +544,7 @@ export async function previewServiceInstall(
           message: String(conflict.message).trim(),
           competingServices: readServiceLabels(conflict.competingServices),
           servicesToRemove: readServiceLabels(conflict.servicesToRemove),
+          runtimeReplacement: readRuntimeReplacement(conflict.runtimeReplacement),
         }
       : null,
   };
@@ -391,9 +553,9 @@ export async function previewServiceInstall(
 export async function installService(
   releaseRing: PublicReleaseRingId,
   flags: ServiceInstallApplyFlags,
-  cli?: SetupCapableLocalHappierCli,
+  cli?: LocalHappierCliInvocation,
 ): Promise<void> {
-  await runLocalHappierJsonCommand({ args: buildServiceInstallArgs({ flags }), releaseRing, cli });
+  await runInvocationJsonCommand({ args: buildServiceInstallArgs({ flags }), releaseRing, invocation: cli });
 }
 
 /**
@@ -404,12 +566,12 @@ export async function installService(
 export async function controlDaemonService(
   releaseRing: PublicReleaseRingId,
   params: Readonly<{ action: 'start' | 'stop' | 'restart'; takeover: boolean }>,
-  cli?: SetupCapableLocalHappierCli,
+  cli?: LocalHappierCliInvocation,
 ): Promise<void> {
-  await runLocalHappierJsonCommand({
+  await runInvocationJsonCommand({
     args: ['daemon', 'service', params.action, ...(params.takeover ? ['--takeover'] : []), '--json'],
     releaseRing,
-    cli,
+    invocation: cli,
   });
 }
 
@@ -422,12 +584,12 @@ export async function controlDaemonService(
 export async function setDaemonServiceAutostart(
   releaseRing: PublicReleaseRingId,
   autostart: DaemonServiceAutostartMode,
-  cli?: SetupCapableLocalHappierCli,
+  cli?: LocalHappierCliInvocation,
 ): Promise<void> {
-  await runLocalHappierJsonCommand({
+  await runInvocationJsonCommand({
     args: buildServiceInstallArgs({ autostart }),
     releaseRing,
-    cli,
+    invocation: cli,
   });
 }
 
@@ -459,17 +621,19 @@ function parseDaemonStatusResponse(parsed: unknown): DoctorSnapshotDaemonStatus 
 
 /**
  * The ambient inspection. `cli` is the CLI a caller already resolved; pass it when the same caller
- * reads status more than once so the acquisition and version read happen once for that run.
+ * reads status more than once so the acquisition and version read happen once for that run. Like
+ * every command here it answers for this home's persisted selection, never a launch's pinned relay,
+ * so the app proves ready exactly the relay setup wrote.
  *
  * Absent optional facts are projected to `null` rather than left off: the result crosses to the
  * app, where "the CLI that answered proved no mode" has to be a value a reader can see.
  */
 export async function readDaemonStatus(
   releaseRing: PublicReleaseRingId,
-  cli?: SetupCapableLocalHappierCli,
+  cli?: LocalHappierCliInvocation,
 ): Promise<DaemonStatusSnapshot> {
-  const resolvedCli = cli ?? await resolveVersionedLocalHappierCli({ releaseRing });
-  const parsed = await runLocalHappierJsonCommand({ args: ['daemon', 'status', '--json'], releaseRing, cli: resolvedCli });
+  const resolvedCli: LocalHappierCliInvocation = cli ?? await resolveVersionedLocalHappierCli({ releaseRing });
+  const parsed = await runInvocationJsonCommand({ args: ['daemon', 'status', '--json'], releaseRing, invocation: resolvedCli });
   const status = parseDaemonStatusResponse(parsed);
 
   return {
@@ -478,7 +642,14 @@ export async function readDaemonStatus(
     needsAuth: status.auth.needsAuth,
     machineId: status.auth.machineId,
     serverComparableKey: status.server.comparableKey,
-    acquisition: { command: resolvedCli.command, provenance: resolvedCli.provenance, version: resolvedCli.version },
+    acquisition: {
+      command: resolvedCli.command,
+      provenance: resolvedCli.provenance,
+      version: resolvedCli.version,
+      channel: resolvedCli.provenance === 'managed'
+        ? resolveLocalHappierCliReleaseRing({ appRing: releaseRing, processEnv: process.env })
+        : null,
+    },
     server: {
       activeServerId: status.server.activeServerId,
       serverUrl: status.server.serverUrl,
@@ -494,6 +665,7 @@ export async function readDaemonStatus(
       accountId: status.auth.accountId,
       credentialState: status.auth.credentialState ?? null,
       validatedAccountId: status.auth.validatedAccountId ?? null,
+      accountLabel: status.auth.accountLabel ?? null,
     },
     service: {
       installed: status.service.installed,
@@ -508,6 +680,12 @@ export async function readDaemonStatus(
       serviceLabel: status.daemon.serviceLabel ?? null,
     },
     runtimeConvergence: status.runtimeConvergence ?? null,
+    cli: {
+      update: status.cliUpdate
+        ? { ...status.cliUpdate, managed: resolvedCli.provenance === 'managed' }
+        : null,
+      choice: readLocalHappierCliChoiceFacts(process.env),
+    },
   };
 }
 

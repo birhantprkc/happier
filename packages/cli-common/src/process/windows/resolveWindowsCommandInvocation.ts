@@ -89,7 +89,16 @@ export function resolveWindowsCommandPath(commandPath: string, env: NodeJS.Proce
   return null;
 }
 
-export function resolveWindowsCommandOnPath(command: string, env: NodeJS.ProcessEnv = process.env): string | null {
+/**
+ * The first `command` on PATH, trying each PATHEXT spelling per directory. `accept` skips matches the
+ * caller already knows are not the one it looks for (the managed `happier.exe` when looking for a
+ * `happier` the user installed), so the search goes on to the next match instead of stopping there.
+ */
+export function resolveWindowsCommandOnPath(
+  command: string,
+  env: NodeJS.ProcessEnv = process.env,
+  accept: (candidate: string) => boolean = () => true,
+): string | null {
   const cmd = asNonEmptyString(command);
   if (!cmd) return null;
 
@@ -104,7 +113,7 @@ export function resolveWindowsCommandOnPath(command: string, env: NodeJS.Process
     for (const name of candidates) {
       const full = join(trimmedDir, name);
       try {
-        if (existsSync(full)) return full;
+        if (existsSync(full) && accept(full)) return full;
       } catch {
         // ignore
       }

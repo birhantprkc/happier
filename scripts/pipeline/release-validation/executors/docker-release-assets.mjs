@@ -316,10 +316,12 @@ export function resolveDockerReleaseAssetsExecution({ repoRoot, platform, source
 }
 
 /**
- * @param {{ exec?: ExecFileSyncLike }} [opts]
+ * The one Docker availability check for the Docker-backed suites (`suiteId` names the caller).
+ * @param {{ exec?: ExecFileSyncLike; suiteId?: string }} [opts]
  */
 export function assertDockerReleaseAssetsAvailable(opts = {}) {
   const exec = opts.exec ?? execFileSync;
+  const suiteId = opts.suiteId ?? 'docker-release-assets';
   try {
     exec('docker', ['info'], {
       encoding: 'utf8',
@@ -333,7 +335,7 @@ export function assertDockerReleaseAssetsAvailable(opts = {}) {
     ).trim();
     throw new Error(
       [
-        'docker-release-assets requires Docker to be running.',
+        `${suiteId} requires Docker to be running.`,
         'Fix: start Docker Desktop or the local Docker engine, then retry.',
         message ? `Raw error: ${message}` : null,
       ]

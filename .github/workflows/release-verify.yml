@@ -94,6 +94,12 @@ on:
         required: false
         default: ''
         type: string
+      # The candidate desktop build: a build-tauri run whose `tauri-updates-linux-x86_64` artifact
+      # holds the Linux bundle desktop-setup installs. Empty = no desktop candidate.
+      candidate_desktop_run_id:
+        required: false
+        default: ''
+        type: string
       server_api_version_url:
         required: false
         default: ''
@@ -210,6 +216,7 @@ jobs:
       run_daemon_continuity: ${{ steps.profile.outputs.run_daemon_continuity }}
       run_session_continuity: ${{ steps.profile.outputs.run_session_continuity }}
       run_release_assets_docker: ${{ steps.profile.outputs.run_release_assets_docker }}
+      run_desktop_setup: ${{ steps.profile.outputs.run_desktop_setup }}
       run_self_host_systemd: ${{ steps.profile.outputs.run_self_host_systemd }}
       run_self_host_launchd: ${{ steps.profile.outputs.run_self_host_launchd }}
       run_self_host_schtasks: ${{ steps.profile.outputs.run_self_host_schtasks }}
@@ -235,6 +242,7 @@ jobs:
           WAIVE_VALIDATION_SUITES: ${{ inputs.waive_validation_suites }}
           CANDIDATE_CLI_VERSION: ${{ inputs.candidate_cli_version }}
           CANDIDATE_SERVER_VERSION: ${{ inputs.candidate_server_version }}
+          CANDIDATE_DESKTOP_RUN_ID: ${{ inputs.candidate_desktop_run_id }}
           RELEASE_CHANNEL: ${{ inputs.channel }}
           RISK_CLI_UPGRADE: ${{ inputs.risk_cli_upgrade }}
           RISK_SESSION_CONTINUITY: ${{ inputs.risk_session_continuity }}
@@ -245,6 +253,8 @@ jobs:
             --profile "$VALIDATION_PROFILE" \
             --has-cli-candidate "$([[ -n "$CANDIDATE_CLI_VERSION" ]] && echo true || echo false)" \
             --has-server-candidate "$([[ -n "$CANDIDATE_SERVER_VERSION" ]] && echo true || echo false)" \
+            --has-desktop-candidate "$([[ -n "$CANDIDATE_DESKTOP_RUN_ID" ]] && echo true || echo false)" \
+            --candidate-channel "$RELEASE_CHANNEL" \
             --has-published-relay-predecessor "$([[ "$RELEASE_CHANNEL" == preview || "$RELEASE_CHANNEL" == production ]] && echo true || echo false)" \
             --risk-cli-upgrade "$RISK_CLI_UPGRADE" \
             --risk-session-continuity "$RISK_SESSION_CONTINUITY" \
@@ -253,10 +263,35 @@ jobs:
             --waive-suites "$WAIVE_VALIDATION_SUITES" \
             --github-output "$GITHUB_OUTPUT"
 
+  stage_desktop_candidate:
+    name: Stage the candidate Linux desktop bundle
+    if: ${{ inputs.candidate_desktop_run_id != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      # The only cross-run read: the bundle is re-published into this run, so tests.yml downloads
+      # it with no token scope and none of its other callers has to grant one.
+      - name: Download the candidate build's Linux desktop bundle
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.candidate_desktop_run_id }}
+          name: tauri-updates-linux-x86_64
+          path: desktop-candidate
+      - name: Stage it for desktop-setup
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: desktop-setup-candidate
+          path: desktop-candidate/*.deb
+          if-no-files-found: error
+
   verify:
     name: Verify (tests.yml)
-    needs: [verify_candidate, resolve_validation_profile]
-    if: ${{ always() && (needs.verify_candidate.result == 'success' || needs.verify_candidate.result == 'skipped') && needs.resolve_validation_profile.result == 'success' }}
+    needs: [verify_candidate, resolve_validation_profile, stage_desktop_candidate]
+    if: ${{ always() && (needs.verify_candidate.result == 'success' || needs.verify_candidate.result == 'skipped') && needs.resolve_validation_profile.result == 'success' && (needs.stage_desktop_candidate.result == 'success' || needs.stage_desktop_candidate.result == 'skipped') }}
     permissions:
       contents: read
       actions: read
@@ -290,6 +325,9 @@ jobs:
       run_release_assets_docker: ${{ fromJSON(needs.resolve_validation_profile.outputs.run_release_assets_docker) }}
       relay_upgrade_to_source: ${{ inputs.candidate_server_version != '' && 'published-tag' || 'local-build' }}
       relay_upgrade_to_ref: ${{ inputs.candidate_server_version != '' && format('server-v{0}', inputs.candidate_server_version) || '.' }}
+      run_desktop_setup: ${{ fromJSON(needs.resolve_validation_profile.outputs.run_desktop_setup) }}
+      desktop_setup_artifact: ${{ inputs.candidate_desktop_run_id != '' && 'desktop-setup-candidate' || '' }}
+      desktop_setup_cli_ref: ${{ inputs.candidate_cli_version != '' && format('cli-v{0}', inputs.candidate_cli_version) || '' }}
       run_self_host_systemd: ${{ fromJSON(needs.resolve_validation_profile.outputs.run_self_host_systemd) }}
       run_self_host_launchd: ${{ fromJSON(needs.resolve_validation_profile.outputs.run_self_host_launchd) }}
       run_self_host_schtasks: ${{ fromJSON(needs.resolve_validation_profile.outputs.run_self_host_schtasks) }}

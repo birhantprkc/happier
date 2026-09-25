@@ -92,6 +92,7 @@ test('reusable tests calls make their run flags authoritative regardless of the 
     ['mobile-e2e-android', 'run_mobile_e2e_android'],
     ['mobile-e2e-ios', 'run_mobile_e2e_ios'],
     ['release-assets-docker', 'run_release_assets_docker'],
+    ['desktop-setup', 'run_desktop_setup'],
     ['e2e-core-slow', 'run_e2e_core_slow'],
     ['providers', 'run_providers'],
     ['release_actor_guard', 'run_providers'],

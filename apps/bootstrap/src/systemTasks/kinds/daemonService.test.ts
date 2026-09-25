@@ -1,4 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 const { runLocalHappierJsonCommandMock, resolveVersionedLocalHappierCliMock } = vi.hoisted(() => ({
   runLocalHappierJsonCommandMock: vi.fn(),
@@ -20,6 +24,8 @@ const RESOLVED_CLI = {
   provenance: 'managed' as const,
   version: '0.2.13',
 };
+
+import { writeHappierCliChoice } from '@happier-dev/cli-common/firstPartyRuntime';
 
 import { createDaemonServiceStartHandler, createDaemonServiceStatusHandler } from './daemonService.js';
 
@@ -83,6 +89,14 @@ describe('daemonService system task handlers', () => {
   });
 
   it('reports acquisition explicitly and carries every ambient daemon fact the CLI emitted', async () => {
+    // An empty Happier home: no default channel's CLI to adopt, so the app's channel answers.
+    const emptyHome = mkdtempSync(join(tmpdir(), 'hsetup-status-channel-'));
+    vi.stubEnv('HAPPIER_HOME_DIR', emptyHome);
+    vi.stubEnv('PATH', '');
+    onTestFinished(() => {
+      vi.unstubAllEnvs();
+      rmSync(emptyHome, { recursive: true, force: true });
+    });
     runLocalHappierJsonCommandMock.mockResolvedValueOnce(AMBIENT_STATUS_JSON);
     const handler = createDaemonServiceStatusHandler();
 
@@ -104,8 +118,9 @@ describe('daemonService system task handlers', () => {
       daemonRunning: true,
       needsAuth: false,
       machineId: 'machine-b',
-      // Which CLI answered, where it came from, and the version it reports for itself.
-      acquisition: { command: '/home/user/.happier/cli/current/happier', provenance: 'managed', version: '0.2.13' },
+      // Which CLI answered, where it came from, the version it reports for itself, and the channel
+      // whose CLI it is (D2: the default channel's when that one is installed, else the app's).
+      acquisition: { command: '/home/user/.happier/cli/current/happier', provenance: 'managed', version: '0.2.13', channel: 'preview' },
       server: {
         activeServerId: 'custom',
         serverUrl: 'https://relay.example.test',
@@ -121,6 +136,7 @@ describe('daemonService system task handlers', () => {
         accountId: 'acct_b',
         credentialState: 'valid',
         validatedAccountId: 'acct_b',
+        accountLabel: null,
       },
       service: { installed: true, running: true, targetMode: 'default-following', autostart: null },
       daemon: {
@@ -135,7 +151,97 @@ describe('daemonService system task handlers', () => {
         machineIdMatches: false,
         cliVersionMatches: true,
       },
+      // R12: nobody was asked and no other CLI exists here.
+      cli: { update: null, choice: { mode: null, otherCli: null } },
     });
+  });
+
+  /** R12: which CLI this computer chose, and the copy the person may still want to remove or update. */
+  it('reports the computer\'s CLI choice and names the other CLI with the commands that remove or update it', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'hsetup-status-cli-choice-'));
+    const npmBin = join(home, 'npm-global', 'bin');
+    const packageRoot = join(home, 'npm-global', 'lib', 'node_modules', '@happier-dev', 'cli');
+    mkdirSync(join(packageRoot, 'bin'), { recursive: true });
+    writeFileSync(join(packageRoot, 'package.json'), JSON.stringify({ name: '@happier-dev/cli' }), 'utf8');
+    writeFileSync(join(packageRoot, 'bin', 'happier.mjs'), '#!/bin/sh\n', 'utf8');
+    chmodSync(join(packageRoot, 'bin', 'happier.mjs'), 0o755);
+    mkdirSync(npmBin, { recursive: true });
+    symlinkSync(join(packageRoot, 'bin', 'happier.mjs'), join(npmBin, 'happier'));
+    vi.stubEnv('HAPPIER_HOME_DIR', join(home, 'happier'));
+    vi.stubEnv('PATH', npmBin);
+    onTestFinished(() => {
+      vi.unstubAllEnvs();
+      rmSync(home, { recursive: true, force: true });
+    });
+    const otherCli = {
+      command: join(npmBin, 'happier'),
+      origin: 'npm',
+      removalCommand: 'npm uninstall -g @happier-dev/cli',
+      updateCommand: 'npm install -g @happier-dev/cli@latest',
+    };
+
+    await writeHappierCliChoice({ choice: { mode: 'managed' }, processEnv: process.env });
+    runLocalHappierJsonCommandMock.mockResolvedValueOnce(AMBIENT_STATUS_JSON);
+    const { result: managed } = await collectResult(createDaemonServiceStatusHandler(), { target: { kind: 'local' } });
+    expect(managed).toMatchObject({ cli: { choice: { mode: 'managed', otherCli } } });
+
+    await writeHappierCliChoice({ choice: { mode: 'own', command: join(npmBin, 'happier') }, processEnv: process.env });
+    runLocalHappierJsonCommandMock.mockResolvedValueOnce(AMBIENT_STATUS_JSON);
+    const { result: own } = await collectResult(createDaemonServiceStatusHandler(), { target: { kind: 'local' } });
+    expect(own).toMatchObject({ cli: { choice: { mode: 'own', otherCli } } });
+  });
+
+  /** K1: the account label and the CLI's cached update state, with `managed` from the resolver. */
+  it('reports the validated account label and the CLI update state of the CLI that answered', async () => {
+    runLocalHappierJsonCommandMock.mockResolvedValueOnce({
+      ...AMBIENT_STATUS_JSON,
+      auth: { ...AMBIENT_STATUS_JSON.auth, accountLabel: 'bea' },
+      cliUpdate: { currentVersion: '0.2.13', latestVersion: '0.2.14', updateAvailable: true },
+    });
+    const { result } = await collectResult(createDaemonServiceStatusHandler(), {
+      target: { kind: 'local' },
+      surface: 'desktop.ui',
+    });
+    expect(result).toMatchObject({
+      auth: { accountLabel: 'bea' },
+      cli: { update: { currentVersion: '0.2.13', latestVersion: '0.2.14', updateAvailable: true, managed: true } },
+    });
+
+    resolveVersionedLocalHappierCliMock.mockResolvedValueOnce({ ...RESOLVED_CLI, provenance: 'override' });
+    runLocalHappierJsonCommandMock.mockResolvedValueOnce({
+      ...AMBIENT_STATUS_JSON,
+      cliUpdate: { currentVersion: '0.2.13', latestVersion: null, updateAvailable: false },
+    });
+    const { result: overrideResult } = await collectResult(createDaemonServiceStatusHandler(), {
+      target: { kind: 'local' },
+      surface: 'desktop.ui',
+    });
+    expect(overrideResult).toMatchObject({
+      auth: { accountLabel: null },
+      cli: { update: { latestVersion: null, updateAvailable: false, managed: false } },
+    });
+  });
+
+  it('names a status read that fails on a CLI nobody chose yet as the one-CLI question, not a failure to retry (R12)', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'hsetup-status-cli-choice-required-'));
+    const npmBin = join(home, 'npm-global', 'bin');
+    mkdirSync(npmBin, { recursive: true });
+    writeFileSync(join(npmBin, 'happier'), '#!/bin/sh\n', 'utf8');
+    chmodSync(join(npmBin, 'happier'), 0o755);
+    vi.stubEnv('HAPPIER_HOME_DIR', join(home, 'happier'));
+    vi.stubEnv('HAPPIER_STACK_REPO_DIR', join(home, 'elsewhere'));
+    vi.stubEnv('HAPPIER_BOOTSTRAP_CLI_PATH', '');
+    vi.stubEnv('HAPPIER_BOOTSTRAP_HAPPIER_PATH', '');
+    vi.stubEnv('PATH', npmBin);
+    onTestFinished(() => {
+      vi.unstubAllEnvs();
+      rmSync(home, { recursive: true, force: true });
+    });
+    const { SystemTaskExecutionError } = await import('@happier-dev/cli-common/systemTasks');
+    resolveVersionedLocalHappierCliMock.mockRejectedValueOnce(new SystemTaskExecutionError('cli_version_unavailable', 'no output'));
+
+    await expect(collectResult(createDaemonServiceStatusHandler(), { target: { kind: 'local' } }))
+      .rejects.toMatchObject({ code: 'cli_choice_required' });
   });
 
   it('reports runtimeConvergence as unknown when an older CLI does not emit it', async () => {

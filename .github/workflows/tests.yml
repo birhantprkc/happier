@@ -168,6 +168,20 @@ on:
         required: false
         default: '.'
         type: string
+      run_desktop_setup:
+        required: false
+        default: false
+        type: boolean
+      # An artifact the caller uploaded earlier in this workflow run holding the candidate Linux
+      # desktop bundle (release-verify stages it from the candidate's build-tauri run).
+      desktop_setup_artifact:
+        required: false
+        default: ''
+        type: string
+      desktop_setup_cli_ref:
+        required: false
+        default: ''
+        type: string
       run_self_host_systemd:
         required: false
         default: false
@@ -1708,6 +1722,93 @@ jobs:
             --to-source "${RELAY_UPGRADE_TO_SOURCE}" \
             --to-ref "${RELAY_UPGRADE_TO_REF}"
 
+  desktop-setup:
+    if: ${{ inputs.select_jobs_explicitly && inputs.run_desktop_setup }}
+    name: Desktop setup (Linux x86_64, Docker systemd)
+    # Linux desktop bundles ship for x86_64 only; the suite runs their hsetup on this host's arch.
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Require the desktop and CLI candidates
+        env:
+          DESKTOP_SETUP_ARTIFACT: ${{ inputs.desktop_setup_artifact }}
+          DESKTOP_SETUP_CLI_REF: ${{ inputs.desktop_setup_cli_ref }}
+        run: |
+          set -euo pipefail
+          # Selected means it must execute: a selection without its inputs fails here instead of
+          # reporting a suite that never ran.
+          if [ -z "$DESKTOP_SETUP_ARTIFACT" ] || [ -z "$DESKTOP_SETUP_CLI_REF" ]; then
+            echo "::error::desktop-setup was selected without a desktop candidate (desktop_setup_artifact='${DESKTOP_SETUP_ARTIFACT}') or a CLI candidate tag (desktop_setup_cli_ref='${DESKTOP_SETUP_CLI_REF}')." >&2
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ inputs.checkout_sha != '' && inputs.checkout_sha || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify exact requested checkout
+        env:
+          CHECKOUT_SHA: ${{ inputs.checkout_sha }}
+        run: |
+          set -euo pipefail
+          if [ -n "$CHECKOUT_SHA" ]; then
+            test "$(git rev-parse HEAD)" = "$CHECKOUT_SHA"
+          fi
+
+      - name: Download the candidate Linux desktop bundle
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ inputs.desktop_setup_artifact }}
+          path: dist/desktop-setup-candidate
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.x
+          cache: yarn
+          cache-dependency-path: yarn.lock
+
+      - name: Enable Corepack
+        uses: ./.github/actions/enable-corepack-yarn
+
+      - name: Install dependencies
+        env:
+          YARN_PRODUCTION: "false"
+          npm_config_production: "false"
+        uses: ./.github/actions/install-yarn-dependencies
+        with:
+          args: --frozen-lockfile --ignore-engines
+
+      - name: Run desktop-setup validation
+        env:
+          DESKTOP_SETUP_CLI_REF: ${{ inputs.desktop_setup_cli_ref }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mapfile -t debs < <(find dist/desktop-setup-candidate -maxdepth 1 -type f -name '*.deb' -print)
+          if [ "${#debs[@]}" -ne 1 ]; then
+            echo "::error::expected exactly one Linux desktop .deb in the candidate artifact, found ${#debs[@]}" >&2
+            exit 1
+          fi
+          desktop_artifact="${debs[0]}"
+          node scripts/pipeline/run.mjs release-validate \
+            --suite desktop-setup \
+            --platform linux \
+            --source published-tag \
+            --ref "${DESKTOP_SETUP_CLI_REF}" \
+            --desktop-artifact "${desktop_artifact}"
+
+      - name: Upload desktop-setup summary
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: desktop-setup-summary
+          path: output/desktop-setup-*/summary.json
+          if-no-files-found: ignore
+
   self-host-systemd-e2e:
     if: ${{ inputs.select_jobs_explicitly && inputs.run_self_host_systemd }}
     needs: [trusted_ref_guard]
@@ -2643,7 +2744,7 @@ jobs:
   ci_summary:
     name: CI result summary (all lanes)
     if: always()
-    needs: [ci_plan, ui-e2e, mobile-e2e-android, mobile-e2e-ios, ui-unit, ui-integration, ui, shared-packages-unit, server, server-db-contract, cli, stack, release-contracts, installers-smoke-linux, installers-smoke-macos, installers-smoke-windows, binary-smoke, build-smoke, cli-update-continuity, daemon-continuity, session-continuity, release-assets-docker, self-host-systemd-e2e, self-host-launchd-e2e, self-host-schtasks-e2e, self-host-daemon-e2e, typecheck, cli-daemon-e2e, e2e-core, e2e-core-slow, trusted_ref_guard, release_actor_guard, providers, stress]
+    needs: [ci_plan, ui-e2e, mobile-e2e-android, mobile-e2e-ios, ui-unit, ui-integration, ui, shared-packages-unit, server, server-db-contract, cli, stack, release-contracts, installers-smoke-linux, installers-smoke-macos, installers-smoke-windows, binary-smoke, build-smoke, cli-update-continuity, daemon-continuity, session-continuity, release-assets-docker, desktop-setup, self-host-systemd-e2e, self-host-launchd-e2e, self-host-schtasks-e2e, self-host-daemon-e2e, typecheck, cli-daemon-e2e, e2e-core, e2e-core-slow, trusted_ref_guard, release_actor_guard, providers, stress]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -2670,6 +2771,7 @@ jobs:
           REQUEST_RUN_DAEMON_CONTINUITY: ${{ inputs.run_daemon_continuity }}
           REQUEST_RUN_SESSION_CONTINUITY: ${{ inputs.run_session_continuity }}
           REQUEST_RUN_RELEASE_ASSETS_DOCKER: ${{ inputs.run_release_assets_docker }}
+          REQUEST_RUN_DESKTOP_SETUP: ${{ inputs.run_desktop_setup }}
           REQUEST_RUN_SELF_HOST_SYSTEMD: ${{ inputs.run_self_host_systemd }}
           REQUEST_RUN_SELF_HOST_LAUNCHD: ${{ inputs.run_self_host_launchd }}
           REQUEST_RUN_SELF_HOST_SCHTASKS: ${{ inputs.run_self_host_schtasks }}
@@ -2712,6 +2814,7 @@ jobs:
             REQUEST_RUN_DAEMON_CONTINUITY: ['daemon-continuity'],
             REQUEST_RUN_SESSION_CONTINUITY: ['session-continuity'],
             REQUEST_RUN_RELEASE_ASSETS_DOCKER: ['release-assets-docker'],
+            REQUEST_RUN_DESKTOP_SETUP: ['desktop-setup'],
             REQUEST_RUN_SELF_HOST_SYSTEMD: ['self-host-systemd-e2e'],
             REQUEST_RUN_SELF_HOST_LAUNCHD: ['self-host-launchd-e2e'],
             REQUEST_RUN_SELF_HOST_SCHTASKS: ['self-host-schtasks-e2e'],

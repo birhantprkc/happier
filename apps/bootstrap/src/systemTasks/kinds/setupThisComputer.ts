@@ -2,25 +2,44 @@ import { systemTasks } from '@happier-dev/cli-common';
 import type { FirstPartyAcquisitionOptions } from '@happier-dev/cli-common/firstPartyRuntime';
 import { reportCliAcquisitionProgress } from '../cliAcquisitionProgress.js';
 import {
+  createSetupAccountConsentPromptData,
+  createSetupCliChoicePromptData,
   createSetupPairingPromptData,
   createSetupServiceConsentPromptData,
+  readSetupCliChoiceAnswer,
+  SETUP_ACCOUNT_CONSENT_PROMPT_KIND,
+  SETUP_CLI_CHOICE_PROMPT_KIND,
   SETUP_PAIRING_PROMPT_KIND,
   SETUP_SERVICE_CONSENT_PROMPT_KIND,
+  setupReplacesValidatedAccount,
 } from '@happier-dev/protocol';
-import { ensureHappierCliPathExposure, resolveFirstPartyInstallLayout } from '@happier-dev/cli-common/firstPartyRuntime';
+import {
+  ensureHappierCliPathExposure,
+  removeHappierCliPathExposure,
+  resolveFirstPartyInstallLayout,
+  writeHappierCliChoice,
+  type HappierCliChoice,
+  type HappierCliPathRemovalResult,
+} from '@happier-dev/cli-common/firstPartyRuntime';
 import type { InteractiveSystemTaskContext, InteractiveSystemTaskKind } from '@happier-dev/cli-common/systemTasks';
 import type { PublicReleaseRingId } from '@happier-dev/release-runtime/releaseRings';
 
-import type { SetupCapableLocalHappierCli } from '../happierCli.js';
+import {
+  inspectLocalHappierCliChoice,
+  type LocalHappierCliChoiceInspection,
+  type SetupCapableLocalHappierCli,
+} from '../happierCli.js';
 import {
   type AuthPairingClaim,
   type AuthPairingRequest,
   type AuthStatusSnapshot,
   type ConfiguredRelay,
   type DaemonStatusSnapshot,
+  type LocalHappierCliInvocation,
   type RelayProfileTarget,
   type ServiceInstallApplyFlags,
   type ServiceInstallPreview,
+  createSetupCliScope,
   previewServiceInstall,
   readAuthStatus,
   readDaemonStatus,
@@ -34,6 +53,17 @@ export type SetupThisComputerParams = Readonly<{
   activeLocalRelayUrl: string | null;
   releaseRing: PublicReleaseRingId;
   expectedAccountId: string;
+  /**
+   * D1 — the account the person already agreed this computer may leave (the app asked before
+   * starting the run). It covers exactly that account: any other one the target relay's
+   * credentials turn out to belong to is asked about here.
+   */
+  replaceAccountId?: string;
+  /**
+   * R12 — Settings › This computer › Command line's change action: ask the one-CLI question again
+   * even though this computer already answered it.
+   */
+  reconsiderCli?: boolean;
   surface?: string;
 }>;
 
@@ -71,49 +101,57 @@ type PathExposureOutcome = Readonly<{
 }>;
 
 /**
- * Every CLI command in the run takes the CLI `ensureCli` resolved, and the parameter is required
- * here so the executor cannot forget one: the pairing this run approves is bound to that exact
- * command path and provenance (INV2), and re-resolving per command would let a different binary —
- * an override that appeared or disappeared mid-run, a freshly promoted managed install — answer
- * the commands that write credentials and install the service.
+ * Every CLI command in the run takes an invocation of the CLI `ensureCli` resolved, and the
+ * parameter is required here so the executor cannot forget one: the pairing this run approves is
+ * bound to that exact command path and provenance (INV2), and re-resolving per command would let a
+ * different binary — an override that appeared or disappeared mid-run, a freshly promoted managed
+ * install — answer the commands that write credentials and install the service. The invocation
+ * also carries the run's one relay context (`SetupCliScope`, R13 a), so no command inherits a
+ * server selection the app was launched with.
  */
 export type SetupThisComputerDeps = Readonly<{
+  /** R12 — the recorded CLI choice and the one question to ask, if any. Read-only. */
+  inspectCliChoice: (params: Readonly<{ reconsider: boolean }>) => Promise<LocalHappierCliChoiceInspection>;
+  /** R12 — records the answer for this computer (every Happier app in this `~/.happier`). */
+  recordCliChoice: (choice: HappierCliChoice) => Promise<void>;
+  /** "Keep my own" — takes back only the PATH lines Desktop wrote, so the terminal runs that CLI. */
+  removePathExposure: () => Promise<HappierCliPathRemovalResult>;
   ensureCli: (params: FirstPartyAcquisitionOptions & Readonly<{ releaseRing: PublicReleaseRingId }>) => Promise<SetupCapableLocalHappierCli>;
   previewServiceInstall: (
     releaseRing: PublicReleaseRingId,
-    cli: SetupCapableLocalHappierCli,
+    cli: LocalHappierCliInvocation,
   ) => Promise<ServiceInstallPreview>;
   configureRelay: (
     releaseRing: PublicReleaseRingId,
     profile: RelayProfileTarget,
-    cli: SetupCapableLocalHappierCli,
+    cli: LocalHappierCliInvocation,
   ) => Promise<ConfiguredRelay>;
   readAuthStatus: (
     releaseRing: PublicReleaseRingId,
-    cli: SetupCapableLocalHappierCli,
+    cli: LocalHappierCliInvocation,
   ) => Promise<AuthStatusSnapshot>;
   requestAuthPairing: (
     releaseRing: PublicReleaseRingId,
-    cli: SetupCapableLocalHappierCli,
+    cli: LocalHappierCliInvocation,
   ) => Promise<AuthPairingRequest>;
   waitForAuthPairing: (
     releaseRing: PublicReleaseRingId,
     params: Readonly<{ publicKey: string; replaceExisting: boolean }>,
-    cli: SetupCapableLocalHappierCli,
+    cli: LocalHappierCliInvocation,
   ) => Promise<AuthPairingClaim>;
   readDaemonStatus: (
     releaseRing: PublicReleaseRingId,
-    cli: SetupCapableLocalHappierCli,
+    cli: LocalHappierCliInvocation,
   ) => Promise<ServiceLifecycleObservation>;
   installService: (
     releaseRing: PublicReleaseRingId,
     flags: ServiceInstallApplyFlags,
-    cli: SetupCapableLocalHappierCli,
+    cli: LocalHappierCliInvocation,
   ) => Promise<void>;
   startService: (
     releaseRing: PublicReleaseRingId,
     params: Readonly<{ action: 'start' | 'restart'; takeover: boolean }>,
-    cli: SetupCapableLocalHappierCli,
+    cli: LocalHappierCliInvocation,
   ) => Promise<void>;
   ensurePathExposure: (params: Readonly<{ releaseRing: PublicReleaseRingId }>) => Promise<PathExposureOutcome>;
 }>;
@@ -126,6 +164,8 @@ export type SetupThisComputerDeps = Readonly<{
  * of the developer's machine.
  */
 type MutatingSetupDepName =
+  | 'recordCliChoice'
+  | 'removePathExposure'
   | 'ensureCli'
   | 'configureRelay'
   | 'requestAuthPairing'
@@ -134,15 +174,17 @@ type MutatingSetupDepName =
   | 'startService'
   | 'ensurePathExposure';
 
-/** Every mutating dep is explicit; the three read-only CLI reads keep their real default. */
+/** Every mutating dep is explicit; the read-only reads keep their real default. */
 export type SetupThisComputerDepsInput =
   Pick<SetupThisComputerDeps, MutatingSetupDepName>
   & Partial<Omit<SetupThisComputerDeps, MutatingSetupDepName>>;
 
 const STEP = {
+  cliChoice: 'setup.thisComputer.cliChoice',
   ensureCli: 'setup.thisComputer.ensureCli',
   inspectService: 'setup.thisComputer.inspectService',
   serviceConsent: 'setup.thisComputer.serviceConsent',
+  accountConsent: 'setup.thisComputer.accountConsent',
   configureRelay: 'setup.thisComputer.configureRelay',
   checkAuth: 'setup.thisComputer.checkAuth',
   authRequest: 'setup.thisComputer.auth.request',
@@ -188,7 +230,9 @@ function readRefusalReason(answer: unknown): string | null {
 /**
  * The one executor that makes this computer ready for the relay the app selected (R9/INV1).
  *
- * Order (R12): validate the explicit target → ensure a trusted, floor-compatible CLI →
+ * Order (plan §R12, and revision R12 "one CLI per computer" first): validate the explicit target →
+ * ask the one-CLI question when this computer has a `happier` it did not install and no answer →
+ * ensure a trusted, floor-compatible CLI →
  * preview the service install and obtain consent before any mutation → configure the relay →
  * validate credentials for that relay → pair (or claim with `--replace-existing` on an account
  * mismatch) → install/start/restart through the CLI service owner. Readiness is proven by the
@@ -204,12 +248,69 @@ export function createSetupThisComputerKind(
       const params = parseSetupThisComputerParams(ctx.params);
       const ring = params.releaseRing;
 
+      // R12 — one CLI per computer, asked once and before anything is written: acquiring the
+      // managed CLI is itself the second CLI the question is about.
+      const inspectedChoice = await deps.inspectCliChoice({ reconsider: params.reconsiderCli === true });
+      throwIfCancelled(ctx.signal);
+      let cliChoice = inspectedChoice.choice;
+      const question = inspectedChoice.question;
+      if (question) {
+        const answer = readSetupCliChoiceAnswer(await ctx.prompt({
+          kind: SETUP_CLI_CHOICE_PROMPT_KIND,
+          stepId: STEP.cliChoice,
+          message: 'Should Happier manage the command line on this computer?',
+          data: createSetupCliChoicePromptData(question),
+        }));
+        if (!answer) {
+          throw new systemTasks.SystemTaskExecutionError(
+            'cli_choice_unanswered',
+            'Setup stopped before changing anything: choose whether Happier manages the command line on this computer.',
+          );
+        }
+        throwIfCancelled(ctx.signal);
+        if (answer === 'own' && question.keepBlockedBy) {
+          // RV3-1: the question said keeping this CLI cannot make the terminal run it (a managed CLI
+          // Happier did not expose answers first), so "own" is not an answer it offered.
+          throw new systemTasks.SystemTaskExecutionError(
+            'cli_choice_unanswered',
+            `Setup stopped before changing anything: new terminals run the Happier CLI at ${question.keepBlockedBy} first, so keeping ${question.command} needs that removed first.`,
+          );
+        }
+        if (answer === 'own' && question.missing) {
+          // R13 (b): the CLI this computer kept is gone, and keeping it means reinstalling it — which
+          // is the person's to do. Nothing stands in for it and nothing is written.
+          throw new systemTasks.SystemTaskExecutionError(
+            'cli_own_missing',
+            `The Happier CLI this computer keeps is no longer at ${question.command}. Reinstall it there, or let Happier manage the command line.`,
+          );
+        }
+        cliChoice = answer === 'own' ? { mode: 'own', command: question.command } : { mode: 'managed' };
+        await deps.recordCliChoice(cliChoice);
+        if (cliChoice.mode === 'own') {
+          const removal = await deps.removePathExposure();
+          if (removal.failure) {
+            ctx.emit({ type: 'progress', stepId: STEP.pathExposure, message: `Could not remove happier from your PATH: ${removal.failure}` });
+          }
+        }
+        throwIfCancelled(ctx.signal);
+      }
+
       ctx.emit({ type: 'progress', stepId: STEP.ensureCli, message: 'Preparing the Happier command line' });
       const cli = await deps.ensureCli({ releaseRing: ring, signal: ctx.signal, onProgress: reportCliAcquisitionProgress(ctx.emit) });
       throwIfCancelled(ctx.signal);
 
+      const relayTarget: RelayProfileTarget = {
+        serverUrl: params.activeRelayUrl,
+        webappUrl: params.activeWebappUrl,
+        localServerUrl: params.activeLocalRelayUrl,
+      };
+      // R13 (a): the run's one relay context. The reads that must answer for the target before the
+      // run may select it use `target`; every other command uses `selected`, which `server set`
+      // points at the target. Neither inherits the server selection the app was launched with.
+      const scope = createSetupCliScope({ cli, target: relayTarget, processEnv: process.env });
+
       ctx.emit({ type: 'progress', stepId: STEP.inspectService, message: 'Checking the background service' });
-      const preview = await deps.previewServiceInstall(ring, cli);
+      const preview = await deps.previewServiceInstall(ring, scope.target);
       if (preview.installConflict?.blocking) {
         throw new systemTasks.SystemTaskExecutionError('service_install_blocked', preview.installConflict.message);
       }
@@ -217,7 +318,14 @@ export function createSetupThisComputerKind(
         replaceExisting: preview.installConflict !== null,
         takeover: preview.takeover !== null,
       };
-      if (applyFlags.replaceExisting || applyFlags.takeover) {
+      // This computer's R12 answer already settled the one thing a pure runtime switch asks — which
+      // CLI the service runs — in either direction: "Let Happier manage it" moves it onto the managed
+      // CLI, "Keep my own" onto the kept one (the dry-run proposes the switch toward the CLI this run
+      // resolved, which is the one that answer selected). So it is not asked twice, and the switch is
+      // applied by the strict install below, whose failure fails the run. Any other ownership change
+      // (competing services, a manual daemon, a blocking conflict) still asks.
+      const runtimeSwitchAnswered = cliChoice !== null && isRuntimeSwitchOnly(preview);
+      if ((applyFlags.replaceExisting || applyFlags.takeover) && !runtimeSwitchAnswered) {
         const answer = await ctx.prompt({
           kind: SETUP_SERVICE_CONSENT_PROMPT_KIND,
           stepId: STEP.serviceConsent,
@@ -227,16 +335,52 @@ export function createSetupThisComputerKind(
             message: preview.installConflict?.message ?? null,
             competingServices: preview.installConflict?.competingServices ?? [],
             servicesToRemove: preview.installConflict?.servicesToRemove ?? [],
+            runtimeReplacement: preview.installConflict?.runtimeReplacement ?? null,
           }),
         });
         if (!readApproval(answer)) {
           throw new systemTasks.SystemTaskExecutionError(
             'service_consent_declined',
-            'Setup stopped before changing anything: the existing background service was left as it is.',
+            'Setup stopped: the existing background service was left as it is.',
           );
         }
       }
       throwIfCancelled(ctx.signal);
+
+      // D1 enforcement, before the first write: `server set` selects the target relay for the
+      // terminal and for the default-following service, so a question asked after it could no
+      // longer be answered "keep". The target relay's saved credentials — the ones
+      // `--replace-existing` would replace — are read without selecting that relay (the scope's
+      // `target` invocation the dry-run uses), so whatever the app saw before the run — a read the relay
+      // did not answer, a terminal signed in again since, another relay's credentials — this
+      // decides.
+      const targetAuth = await deps.readAuthStatus(ring, scope.target);
+      throwIfCancelled(ctx.signal);
+      const targetAccountId = targetAuth.authenticated ? targetAuth.accountId : null;
+      if (
+        targetAccountId !== null
+        && setupReplacesValidatedAccount({ validatedAccountId: targetAccountId, expectedAccountId: params.expectedAccountId })
+        && targetAccountId !== params.replaceAccountId
+      ) {
+        const answer = await ctx.prompt({
+          kind: SETUP_ACCOUNT_CONSENT_PROMPT_KIND,
+          stepId: STEP.accountConsent,
+          message: 'Move this computer to the account you are signed in to in Happier?',
+          data: createSetupAccountConsentPromptData({
+            currentAccountId: targetAccountId,
+            currentAccountLabel: targetAuth.accountLabel ?? null,
+            expectedAccountId: params.expectedAccountId,
+            relayUrl: params.activeRelayUrl,
+          }),
+        });
+        if (!readApproval(answer)) {
+          throw new systemTasks.SystemTaskExecutionError(
+            'account_consent_declined',
+            'Setup stopped: this computer stays signed in to its current account.',
+          );
+        }
+        throwIfCancelled(ctx.signal);
+      }
 
       // PATH exposure is ancillary (R6): once the managed CLI exists and consent is settled it runs
       // beside the remaining service work, and nothing waits for it — the app starts its readiness
@@ -255,25 +399,36 @@ export function createSetupThisComputerKind(
         : null;
 
       ctx.emit({ type: 'progress', stepId: STEP.configureRelay, message: 'Pointing this computer at your relay' });
-      const observedBeforeRelay = await deps.readDaemonStatus(ring, cli);
+      // What the default-following service serves before this run selects the target.
+      const observedBeforeRelay = await deps.readDaemonStatus(ring, scope.selected);
       throwIfCancelled(ctx.signal);
-      const configured = await deps.configureRelay(ring, {
-        serverUrl: params.activeRelayUrl,
-        webappUrl: params.activeWebappUrl,
-        localServerUrl: params.activeLocalRelayUrl,
-      }, cli);
+      const configured = await deps.configureRelay(ring, relayTarget, scope.selected);
       const relayChanged = observedBeforeRelay.serverComparableKey !== configured.comparableKey;
       throwIfCancelled(ctx.signal);
 
       ctx.emit({ type: 'progress', stepId: STEP.checkAuth, message: 'Checking this computer\'s sign-in' });
-      const authStatus = await deps.readAuthStatus(ring, cli);
+      const authStatus = await deps.readAuthStatus(ring, scope.selected);
       throwIfCancelled(ctx.signal);
       const sameAccount = authStatus.authenticated && authStatus.accountId === params.expectedAccountId;
+      // The claim below replaces exactly the account the pre-write read saw. Credentials that
+      // changed hands in between (a terminal signing in meanwhile) were never asked about.
+      const replacedAccountId = authStatus.authenticated ? authStatus.accountId : null;
+      if (
+        replacedAccountId !== null
+        && setupReplacesValidatedAccount({ validatedAccountId: replacedAccountId, expectedAccountId: params.expectedAccountId })
+        && replacedAccountId !== targetAccountId
+        && replacedAccountId !== params.replaceAccountId
+      ) {
+        throw new systemTasks.SystemTaskExecutionError(
+          'account_changed_during_setup',
+          'This computer signed in to another account while setup ran, so setup stopped before pairing. Try again.',
+        );
+      }
       let machineId = sameAccount ? authStatus.machineId : null;
       let credentialsChanged = false;
 
       if (!machineId) {
-        const request = await deps.requestAuthPairing(ring, cli);
+        const request = await deps.requestAuthPairing(ring, scope.selected);
         if (!sameAccount) {
           // Public material only (A2/INV2): the terminal public key, the relay and server identity
           // the app sent, and the CLI's pairing requirement (`compatible` or `v3`).
@@ -320,7 +475,7 @@ export function createSetupThisComputerKind(
         const claim = await deps.waitForAuthPairing(ring, {
           publicKey: request.publicKey,
           replaceExisting: !sameAccount,
-        }, cli);
+        }, scope.selected);
         if (!claim.machineId) {
           throw new systemTasks.SystemTaskExecutionError(
             'machine_id_unavailable',
@@ -344,7 +499,7 @@ export function createSetupThisComputerKind(
       // to the start path's best-effort drift refresh would drop the removal the user approved.
       if (serviceAction === 'install' || applyFlags.replaceExisting || applyFlags.takeover) {
         ctx.emit({ type: 'progress', stepId: STEP.installService, message: 'Installing the background service' });
-        await deps.installService(ring, applyFlags, cli);
+        await deps.installService(ring, applyFlags, scope.selected);
         throwIfCancelled(ctx.signal);
       }
       ctx.emit({
@@ -355,7 +510,7 @@ export function createSetupThisComputerKind(
       await deps.startService(ring, {
         action: serviceAction === 'restart' ? 'restart' : 'start',
         takeover: applyFlags.takeover,
-      }, cli);
+      }, scope.selected);
       // Cancellation stops the run, it does not undo it (INV11): whatever the CLI already installed
       // or started stays discoverable for the next run to converge on, but an abandoned run must
       // not report success.
@@ -380,6 +535,16 @@ export function createSetupThisComputerKind(
       };
     },
   };
+}
+
+/** The dry-run's only proposed change is switching which CLI the existing service runs. */
+function isRuntimeSwitchOnly(preview: ServiceInstallPreview): boolean {
+  const conflict = preview.installConflict;
+  return preview.takeover === null
+    && conflict !== null
+    && conflict.runtimeReplacement !== null
+    && conflict.competingServices.length === 0
+    && conflict.servicesToRemove.length === 0;
 }
 
 type SettledPathExposure = Readonly<{ readFailure: () => string | null }>;
@@ -459,6 +624,12 @@ export function parseSetupThisComputerParams(params: unknown): SetupThisComputer
   }
 
   const surface = typeof record.surface === 'string' && record.surface.trim() ? record.surface.trim() : undefined;
+  const replaceAccountId = typeof record.replaceAccountId === 'string' && record.replaceAccountId.trim()
+    ? record.replaceAccountId.trim()
+    : undefined;
+  if (record.reconsiderCli !== undefined && typeof record.reconsiderCli !== 'boolean') {
+    throw new systemTasks.SystemTaskExecutionError('invalid_params', 'reconsiderCli must be a boolean when provided.');
+  }
 
   return {
     activeRelayUrl,
@@ -466,6 +637,8 @@ export function parseSetupThisComputerParams(params: unknown): SetupThisComputer
     activeLocalRelayUrl,
     releaseRing: normalizeBootstrapChannel(channel).releaseChannel,
     expectedAccountId,
+    ...(replaceAccountId ? { replaceAccountId } : {}),
+    ...(record.reconsiderCli === true ? { reconsiderCli: true } : {}),
     ...(surface ? { surface } : {}),
   };
 }
@@ -480,9 +653,21 @@ export async function ensureManagedCliPathExposureDefault(params: Readonly<{ rel
   return await ensureHappierCliPathExposure({ binDir: layout.shimDir, processEnv: process.env });
 }
 
+/** Production record of the R12 answer, beside the managed layout's other records. */
+export async function recordHappierCliChoiceDefault(choice: HappierCliChoice): Promise<void> {
+  await writeHappierCliChoice({ choice, processEnv: process.env });
+}
+
+/** Production "Keep my own" PATH cleanup: edits the user's shell startup files. */
+export async function removeManagedCliPathExposureDefault(): Promise<HappierCliPathRemovalResult> {
+  return await removeHappierCliPathExposure({ processEnv: process.env });
+}
+
 function createSetupThisComputerDeps(overrides: SetupThisComputerDepsInput): SetupThisComputerDeps {
   return {
     ...overrides,
+    inspectCliChoice: overrides.inspectCliChoice
+      ?? (async ({ reconsider }) => await inspectLocalHappierCliChoice({ processEnv: process.env, reconsider })),
     previewServiceInstall: overrides.previewServiceInstall ?? previewServiceInstall,
     readAuthStatus: overrides.readAuthStatus ?? readAuthStatus,
     readDaemonStatus: overrides.readDaemonStatus ?? readDaemonStatus,

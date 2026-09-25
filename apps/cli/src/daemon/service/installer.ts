@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 
 import { configuration } from '@/configuration';
@@ -21,7 +22,10 @@ import {
 } from './discoverInstalledDaemonServiceEntries';
 import { planDaemonServiceInstall, planDaemonServiceUninstall } from './plan';
 import type { DaemonServiceAutostartMode, DaemonServiceMode, DaemonServiceTargetMode } from './plan';
-import { resolveDaemonServiceInstallRuntimeTarget } from './resolveDaemonServiceInstallRuntimeTarget';
+import {
+  isManagedCliDaemonServiceLauncher,
+  resolveDaemonServiceInstallRuntimeTarget,
+} from './resolveDaemonServiceInstallRuntimeTarget';
 import { resolveDaemonServiceDiscoveryTargets } from './resolveDaemonServiceDiscoveryTargets';
 import type { PublicReleaseRingId } from '@happier-dev/release-runtime/releaseRings';
 import {
@@ -29,6 +33,7 @@ import {
   resolveManagedCliReleaseChannel,
 } from '@happier-dev/cli-common/firstPartyRuntime';
 import { doesInstalledDaemonServiceDefinitionMatchExpected } from './doesInstalledDaemonServiceDefinitionMatchExpected';
+import { describeDaemonServiceRuntimeReplacement } from './readDaemonServiceDefinitionLauncher';
 import { resolveHappierHomeDirComparableKey } from '@/daemon/ownership/happierHomeDirComparableKey';
 
 type SupportedPlatform = 'darwin' | 'linux' | 'win32';
@@ -114,6 +119,12 @@ export type DaemonServiceInstallPreview = Readonly<{
   /** The mode the plan was built with, after inheriting from any installed service. */
   autostart: DaemonServiceAutostartMode;
   plan: ReturnType<typeof planDaemonServiceInstall>;
+  /**
+   * The exact target is installed but launches another CLI than this install would write (for
+   * example a user's npm `happier` where the managed shim now exists). Installing switches it, so
+   * a caller acting for the user must ask first; `null` when the launcher would not change.
+   */
+  exactTargetRuntimeReplacement: Readonly<{ current: string; replacement: string }> | null;
 }>;
 
 export async function previewDaemonServiceInstall(options: Readonly<{
@@ -255,6 +266,18 @@ export async function previewDaemonServiceInstall(options: Readonly<{
       }))
   );
 
+  // Only a switch between a CLI the user installed and the managed CLI — either way (R12/R13 b) —
+  // changes which CLI the user's service runs. A node or override launcher legitimately drifts per
+  // shell (fnm, repo checkouts); that stays drift.
+  const exactTargetRuntimeReplacement = conflictPlan.exactTargetExists && expectedInstalledFile
+    ? describeDaemonServiceRuntimeReplacement({
+        platform,
+        installedContents: readInstalledDaemonServiceDefinition(expectedInstalledFile.path),
+        expectedContents: expectedInstalledFile.content,
+        isManagedCliLauncher: (launcher) => isManagedCliDaemonServiceLauncher(launcher, process.env),
+      })
+    : null;
+
   return {
     exactTargetExists: conflictPlan.exactTargetExists,
     exactTargetIsConverged: conflictPlan.exactTargetIsConverged,
@@ -263,7 +286,16 @@ export async function previewDaemonServiceInstall(options: Readonly<{
     conflictPlan,
     autostart,
     plan,
+    exactTargetRuntimeReplacement,
   };
+}
+
+export function readInstalledDaemonServiceDefinition(path: string): string | null {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return null;
+  }
 }
 
 function previewPlanFileForTarget(params: Readonly<{
@@ -364,7 +396,9 @@ export async function installDaemonService(options: Readonly<{
     });
   }
 
-  if (preview.exactTargetIsConverged && preview.exactTargetMatchesExpectedDefinition) {
+  // A runtime replacement is a real change even where the definition comparator treats launchers
+  // as equivalent (darwin), so the consented switch is written rather than skipped.
+  if (preview.exactTargetIsConverged && preview.exactTargetMatchesExpectedDefinition && !preview.exactTargetRuntimeReplacement) {
     return;
   }
   await applyDaemonServiceInstallPlan(preview.plan, {

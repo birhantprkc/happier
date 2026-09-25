@@ -20,6 +20,7 @@ import {
   describeDaemonServiceInstallConflict,
   installDaemonService,
   previewDaemonServiceInstall,
+  readInstalledDaemonServiceDefinition,
   uninstallDaemonService,
 } from './installer';
 import {
@@ -39,7 +40,7 @@ import { resolveDaemonServicePaths, type DaemonServiceCliRuntime, type DaemonSer
 import { collectWindowsServiceLaunchDiagnostics } from './collectWindowsServiceLaunchDiagnostics';
 import { commandExistsInPath } from './commandExistsInPath';
 import { resolveDaemonServiceRuntimeTarget } from './runtimeTarget';
-import { resolveDaemonServiceInstallRuntimeTarget } from './resolveDaemonServiceInstallRuntimeTarget';
+import { isManagedCliDaemonServiceLauncher, resolveDaemonServiceInstallRuntimeTarget } from './resolveDaemonServiceInstallRuntimeTarget';
 import { resolveLinuxSystemUserPaths } from './resolveLinuxSystemUserPaths';
 import { getReleaseRingPublicLabel, type PublicReleaseRingId } from '@happier-dev/release-runtime/releaseRings';
 import { expandHomeDirPath } from '@happier-dev/cli-common/providers';
@@ -62,6 +63,7 @@ import type { DaemonServiceInstallStrategy } from './daemonInstallConflict';
 import { assertDaemonServiceModeSupported } from './assertDaemonServiceModeSupported';
 import { evaluateCurrentDaemonOwner } from '@/daemon/ownership/evaluateCurrentDaemonOwner';
 import { doesInstalledDaemonServiceDefinitionMatchExpected } from './doesInstalledDaemonServiceDefinitionMatchExpected';
+import { describeDaemonServiceRuntimeReplacement } from './readDaemonServiceDefinitionLauncher';
 import { resolveDaemonStartupSourceServiceManagedState } from '@/daemon/ownership/daemonOwnershipMetadata';
 import { resolveInstalledDaemonServiceInventoryForCurrentRelay, renderDaemonServiceInventory } from '@/daemon/ownership/daemonServiceInventory';
 import {
@@ -358,6 +360,21 @@ function printJson(data: unknown): void {
   process.stdout.write(`${JSON.stringify(data)}\n`);
 }
 
+/**
+ * This very service owns the running daemon, but that daemon does not match this CLI (it still
+ * runs the version from before an update, or another channel). `start` alone cannot converge it on
+ * any platform: `systemctl start` on an active unit and a Windows `/Run` of a running task are
+ * no-ops, so the ownership wait would time out. `start` is therefore promoted to `restart`.
+ */
+function isOwnServiceDaemonOnAnotherCli(
+  ownership: Awaited<ReturnType<typeof evaluateCurrentDaemonOwner>>,
+  expectedServiceLabel: string,
+): boolean {
+  return ownership.kind === 'conflict'
+    && ownership.owner.serviceManaged === true
+    && ownership.owner.state.serviceLabel === expectedServiceLabel;
+}
+
 function shouldStopCurrentWindowsServiceOwnerBeforeLifecycleAction(params: Readonly<{
   platform: SupportedPlatform;
   ownership: Awaited<ReturnType<typeof evaluateCurrentDaemonOwner>>;
@@ -368,16 +385,12 @@ function shouldStopCurrentWindowsServiceOwnerBeforeLifecycleAction(params: Reado
     return false;
   }
 
-  const owner = params.ownership.owner;
-  if (owner.serviceManaged !== true || owner.state.serviceLabel !== params.expectedServiceLabel) {
-    return false;
-  }
-
   if (params.action === 'start') {
-    return params.ownership.kind === 'conflict';
+    return isOwnServiceDaemonOnAnotherCli(params.ownership, params.expectedServiceLabel);
   }
 
-  return true;
+  const owner = params.ownership.owner;
+  return owner.serviceManaged === true && owner.state.serviceLabel === params.expectedServiceLabel;
 }
 
 function describeDaemonServiceLifecycleAction(action: 'install' | 'uninstall' | 'start' | 'stop' | 'restart'): string {
@@ -1537,11 +1550,21 @@ export async function runDaemonServiceCliCommand(params: Readonly<{
         nodePath: installRuntime.nodePath,
         entryPath: installRuntime.entryPath,
       });
-      const installConflict = describeDaemonServiceInstallConflict({
+      const serviceConflict = describeDaemonServiceInstallConflict({
         exactTargetExists: preview.exactTargetExists,
         strategy: preview.strategy,
         conflictPlan: preview.conflictPlan,
       });
+      const runtimeReplacement = preview.exactTargetRuntimeReplacement;
+      const runtimeReplacementMessage = runtimeReplacement
+        ? `The background service runs ${runtimeReplacement.current}; installing switches it to ${runtimeReplacement.replacement}.`
+        : null;
+      const installConflict = serviceConflict || runtimeReplacementMessage
+        ? {
+            blocking: serviceConflict?.blocking ?? false,
+            message: [serviceConflict?.message, runtimeReplacementMessage].filter(Boolean).join(' '),
+          }
+        : null;
       if (flags.json) {
         printJson({
           ok: true,
@@ -1554,6 +1577,7 @@ export async function runDaemonServiceCliCommand(params: Readonly<{
             exactTargetExists: preview.exactTargetExists,
             competingServices: preview.conflictPlan.competingServices,
             servicesToRemove: preview.conflictPlan.servicesToRemove,
+            runtimeReplacement,
           } : undefined,
           takeover: takeoverNotice ? `${takeoverNotice.title} ${takeoverNotice.lines.join(' ')}`.trim() : undefined,
         });
@@ -1882,7 +1906,19 @@ export async function runDaemonServiceCliCommand(params: Readonly<{
             installedPath: paths.installedPath,
             expectedContents: expectedFile.content,
           });
-          if (!matches) {
+          // Which CLI the service runs changes only through the consented install (its dry-run
+          // reports this same replacement); starting a service never switches it (plan R10 K3).
+          const runtimeReplacement = matches ? null : describeDaemonServiceRuntimeReplacement({
+            platform: runtime.platform,
+            installedContents: readInstalledDaemonServiceDefinition(paths.installedPath),
+            expectedContents: expectedFile.content,
+            isManagedCliLauncher: (launcher) => isManagedCliDaemonServiceLauncher(launcher, process.env),
+          });
+          if (runtimeReplacement) {
+            process.stderr.write(
+              `Background service runs ${runtimeReplacement.current}; leaving its definition as it is (switching it to ${runtimeReplacement.replacement} needs \`${commandPath} install\`).\n`,
+            );
+          } else if (!matches) {
             process.stderr.write('Refreshing background service definition (drifted from current template).\n');
             await applyDaemonServiceInstallPlan(expectedPlan, { runCommands: false });
             refreshedInstalledServiceDefinition = true;
@@ -1911,6 +1947,7 @@ export async function runDaemonServiceCliCommand(params: Readonly<{
     const lifecycleAction = action === 'start' && (
       refreshedInstalledServiceDefinition
       || runningDefaultFollowingServiceNeedsRelayRestart
+      || isOwnServiceDaemonOnAnotherCli(ownership, paths.label)
     )
       ? 'restart'
       : action;

@@ -22,6 +22,8 @@ import {
 import {
   createSetupThisComputerKind,
   ensureManagedCliPathExposureDefault,
+  recordHappierCliChoiceDefault,
+  removeManagedCliPathExposureDefault,
 } from '../systemTasks/kinds/setupThisComputer.js';
 import { createHsetupSystemTaskRegistry, createSystemTaskId } from '../systemTasks/registry.js';
 import {
@@ -185,6 +187,8 @@ export function createDefaultInteractiveKinds(): InteractiveSystemTaskKindMap {
     // The only place the setup kind is built for real: every dep that changes this computer is
     // named here, so no other construction site can inherit a real mutation by forgetting one.
     'setup.thisComputer.v1': createSetupThisComputerKind({
+      recordCliChoice: recordHappierCliChoiceDefault,
+      removePathExposure: removeManagedCliPathExposureDefault,
       ensureCli: ensureSetupCapableLocalHappierCli,
       configureRelay,
       requestAuthPairing,

@@ -1,6 +1,8 @@
 import { spawnSync, spawn } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
-import { basename, dirname } from 'node:path';
+import { closeSync, mkdirSync, openSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
+
+import { getReleaseRingPublicLabel, type PublicReleaseRingId } from '@happier-dev/release-runtime/releaseRings';
 
 import { resolveWindowsCommandInvocation } from '../process/index.js';
 
@@ -218,22 +220,52 @@ export function resolveSpawnDetachedNodeInvocation(params: Readonly<{ execPath: 
   return { file: execPath, args: [...params.args], isRuntime };
 }
 
-export function spawnDetachedNode(params: Readonly<{ script: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv }>): void {
+/**
+ * Start this program (the running binary, or `script` under the running Node/Bun) detached, so it
+ * outlives the caller: the background update check, and the daemon-started CLI updater, which must
+ * survive the service restart it performs. Output is discarded, or appended to `logPath`. Never
+ * throws; returns whether the process started.
+ */
+export function spawnDetachedNode(params: Readonly<{
+  script: string;
+  args: string[];
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+  logPath?: string;
+}>): boolean {
+  let logFd: number | null = null;
   try {
     const resolved = resolveSpawnDetachedNodeInvocation({
       execPath: process.execPath,
       script: params.script,
       args: params.args,
     });
+    if (params.logPath) {
+      mkdirSync(dirname(params.logPath), { recursive: true });
+      logFd = openSync(params.logPath, 'a');
+    }
     const child = spawn(resolved.file, resolved.args, {
-      stdio: 'ignore',
+      stdio: logFd === null ? 'ignore' : ['ignore', logFd, logFd],
       cwd: resolved.isRuntime ? params.cwd : process.cwd(),
       env: { ...params.env },
       detached: true,
+      windowsHide: true,
+    });
+    child.on('error', () => {
+      // Reported through the return value's absent pid; never an unhandled error event.
     });
     child.unref();
+    return typeof child.pid === 'number';
   } catch {
-    // ignore
+    return false;
+  } finally {
+    if (logFd !== null) {
+      try {
+        closeSync(logFd);
+      } catch {
+        // The child holds its own copy of the descriptor.
+      }
+    }
   }
 }
 
@@ -319,4 +351,95 @@ export function formatUpdateNotice(params: Readonly<{
   const to = String(params.to ?? '').trim() || 'latest';
   const cmd = String(params.updateCommand ?? '').trim() || 'self update';
   return `[${tool}] update available: ${from} -> ${to} (run: ${cmd})`;
+}
+
+/**
+ * The one owner of "is a newer Happier CLI available on this ring?" as cached on disk (plan R13
+ * S-1). `happier self check` is the only writer (`recordCliUpdateCheck`); the terminal notice, the
+ * daemon status, doctor repair and the per-machine update facts all read through
+ * `readCachedCliUpdateState`. The file is per ring under `<home>/cache/`.
+ */
+
+/**
+ * The `next` npm dist-tag is shared by preview and dev, so a looked-up version can belong to the
+ * other ring. A version belongs to a ring by its prerelease identifier: none for stable,
+ * `preview.*` for preview, `dev.*` for dev.
+ */
+export function doesVersionMatchReleaseRing(version: string | null | undefined, ring: PublicReleaseRingId): boolean {
+  const value = String(version ?? '').trim();
+  if (!value) return false;
+  const dashIndex = value.indexOf('-');
+  const prerelease = dashIndex >= 0 ? value.slice(dashIndex + 1) : '';
+  if (ring === 'stable') return prerelease === '';
+  if (ring === 'preview') return prerelease.startsWith('preview.') || prerelease === 'preview';
+  return prerelease.startsWith('dev.') || prerelease === 'dev';
+}
+
+function ringFileSuffix(ring: PublicReleaseRingId): string {
+  const label = getReleaseRingPublicLabel(ring);
+  return label === 'stable' ? '' : `.${label}`;
+}
+
+export function resolveCliUpdateCachePath(params: Readonly<{ homeDir: string; publicReleaseRing: PublicReleaseRingId }>): string {
+  return join(params.homeDir, 'cache', `update${ringFileSuffix(params.publicReleaseRing)}.json`);
+}
+
+export function resolveCliUpdateCheckLockPath(params: Readonly<{ homeDir: string; publicReleaseRing: PublicReleaseRingId }>): string {
+  return join(params.homeDir, 'cache', `update.check${ringFileSuffix(params.publicReleaseRing)}.lock.json`);
+}
+
+export type CachedCliUpdateState = Readonly<{
+  currentVersion: string;
+  /** The ring's newest version from the last check; `null` when unknown or from another ring. */
+  latestVersion: string | null;
+  updateAvailable: boolean;
+  /** When that check ran (epoch ms); `null` when the cache does not say. */
+  checkedAt: number | null;
+}>;
+
+/**
+ * The running CLI's update state from the ring's cached check. Read-only and offline. `latest` is
+ * filtered to the ring and compared with the version actually running (never the cached
+ * `updateAvailable`), so a CLI updated since the check reports no update and a cache an older
+ * writer filled with another ring's version reads as unknown. `null` when nothing was cached.
+ */
+export function readCachedCliUpdateState(params: Readonly<{
+  homeDir: string;
+  publicReleaseRing: PublicReleaseRingId;
+  currentVersion: string;
+}>): CachedCliUpdateState | null {
+  const cached = readUpdateCache(resolveCliUpdateCachePath(params));
+  if (!cached) return null;
+  const cachedLatest = typeof cached.latest === 'string' ? cached.latest : null;
+  const latestVersion = doesVersionMatchReleaseRing(cachedLatest, params.publicReleaseRing) ? cachedLatest : null;
+  return {
+    currentVersion: params.currentVersion,
+    latestVersion,
+    updateAvailable: Boolean(latestVersion && compareVersions(latestVersion, params.currentVersion) > 0),
+    checkedAt: typeof cached.checkedAt === 'number' ? cached.checkedAt : null,
+  };
+}
+
+/** Record one update check (`happier self check`, the only writer), keeping the notice time. */
+export function recordCliUpdateCheck(params: Readonly<{
+  homeDir: string;
+  publicReleaseRing: PublicReleaseRingId;
+  /** What the lookup answered; another ring's version is recorded as unknown. */
+  latest: string | null;
+  current: string | null;
+  runtimeVersion: string | null;
+  invokerVersion: string | null;
+  nowMs?: number;
+}>): void {
+  const cachePath = resolveCliUpdateCachePath(params);
+  const latest = doesVersionMatchReleaseRing(params.latest, params.publicReleaseRing) ? params.latest : null;
+  writeUpdateCache(cachePath, {
+    checkedAt: params.nowMs ?? Date.now(),
+    latest,
+    current: params.current,
+    runtimeVersion: params.runtimeVersion,
+    invokerVersion: params.invokerVersion,
+    updateAvailable: Boolean(params.current && latest && compareVersions(latest, params.current) > 0),
+    notifiedAt: readUpdateCache(cachePath)?.notifiedAt ?? null,
+  });
 }

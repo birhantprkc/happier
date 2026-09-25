@@ -1,7 +1,7 @@
 import { systemTasks } from '@happier-dev/cli-common';
 import type { PublicReleaseRingId } from '@happier-dev/release-runtime/releaseRings';
 
-import { resolveVersionedLocalHappierCli } from '../happierCli.js';
+import { describeUnservedCliChoiceFailure, resolveVersionedLocalHappierCli } from '../happierCli.js';
 import { reportCliAcquisitionProgress } from '../cliAcquisitionProgress.js';
 import {
   controlDaemonService,
@@ -45,6 +45,7 @@ type DaemonServiceTaskResult = Readonly<{
   service: DaemonStatusSnapshot['service'];
   daemon: DaemonStatusSnapshot['daemon'];
   runtimeConvergence: DaemonStatusSnapshot['runtimeConvergence'];
+  cli: DaemonStatusSnapshot['cli'];
 }>;
 
 function toDaemonServiceResult(status: DaemonStatusSnapshot): DaemonServiceTaskResult {
@@ -59,6 +60,7 @@ function toDaemonServiceResult(status: DaemonStatusSnapshot): DaemonServiceTaskR
     service: status.service,
     daemon: status.daemon,
     runtimeConvergence: status.runtimeConvergence,
+    cli: status.cli,
   };
 }
 
@@ -85,11 +87,17 @@ export function createDaemonServiceStatusHandler() {
   ): AsyncGenerator<never, DaemonServiceTaskResult, void> {
     const parsed = parseDaemonServiceParams(params);
     const onProgress = context.emit ? reportCliAcquisitionProgress(context.emit) : undefined;
-    const cli = await resolveVersionedLocalHappierCli({ releaseRing: parsed.releaseRing, signal: context.signal, onProgress });
-    context.signal.throwIfAborted();
-    onProgress?.({ phase: 'checkingDaemon' });
-    const status = await readDaemonStatus(parsed.releaseRing, cli);
-    return toDaemonServiceResult(status);
+    try {
+      const cli = await resolveVersionedLocalHappierCli({ releaseRing: parsed.releaseRing, signal: context.signal, onProgress });
+      context.signal.throwIfAborted();
+      onProgress?.({ phase: 'checkingDaemon' });
+      const status = await readDaemonStatus(parsed.releaseRing, cli);
+      return toDaemonServiceResult(status);
+    } catch (error) {
+      // R12 — a CLI nobody chose yet (or the kept one) that cannot answer is the question setup
+      // still has to ask, not a read to retry.
+      throw describeUnservedCliChoiceFailure(error, { releaseRing: parsed.releaseRing }) ?? error;
+    }
   };
 }
 
@@ -273,7 +281,7 @@ export function parseDaemonServiceParams(params: unknown): DaemonServiceTaskPara
  * not recognise to `stable`, which would read or start the wrong ring's CLI for a typo'd ring —
  * the same reason `parseSetupThisComputerParams` rejects one. An absent channel keeps the default.
  */
-function parseBootstrapChannelParam(value: unknown): PublicReleaseRingId {
+export function parseBootstrapChannelParam(value: unknown): PublicReleaseRingId {
   if (value === undefined || value === null) {
     return normalizeBootstrapChannel(undefined).releaseChannel;
   }

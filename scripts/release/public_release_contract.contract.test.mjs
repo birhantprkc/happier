@@ -75,6 +75,7 @@ test('release-contract profiles distinguish bounded normal release validation fr
     'session-continuity',
     'cli-update',
     'docker-release-assets',
+    'desktop-setup',
   ];
   const stableAutomaticSuiteIds = [...integratedAutomaticSuiteIds];
 

@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import os from 'node:os';
 
+import { formatAccountIdentity, formatRelayHost } from '@/auth/describeSignedInIdentity';
 import { resolveActiveServerAuthReadiness } from '@/auth/resolveActiveServerAuthReadiness';
 import { configuration } from '@/configuration';
 import { checkIfDaemonRunningAndCleanupStaleState } from '@/daemon/controlClient';
@@ -12,6 +13,7 @@ export async function handleAuthStatus(argv: string[] = []): Promise<void> {
   const json = wantsJson(args);
   const readiness = await resolveActiveServerAuthReadiness();
   const credentials = readiness.credentials;
+  const relayHost = formatRelayHost(configuration.serverUrl);
 
   if (json && !credentials) {
     await printJsonEnvelope({ ok: false, kind: 'auth_status', error: { code: 'not_authenticated' } });
@@ -23,7 +25,7 @@ export async function handleAuthStatus(argv: string[] = []): Promise<void> {
   }
 
   if (!credentials) {
-    console.log(chalk.red('✗ Not authenticated'));
+    console.log(chalk.red(`✗ Not authenticated on ${relayHost}`));
     console.log(chalk.gray('  Run "happier auth login" to authenticate'));
     return;
   }
@@ -34,7 +36,7 @@ export async function handleAuthStatus(argv: string[] = []): Promise<void> {
       return;
     }
 
-    console.log(chalk.red('✗ Not authenticated'));
+    console.log(chalk.red(`✗ Not authenticated on ${relayHost}`));
     console.log(chalk.gray('  Stored credentials were rejected by the selected relay'));
     console.log(chalk.gray('  Run "happier auth login --force" to authenticate again'));
     return;
@@ -55,12 +57,13 @@ export async function handleAuthStatus(argv: string[] = []): Promise<void> {
       return;
     }
 
-    console.log(chalk.yellow('⚠️  Authentication could not be verified because the selected relay did not answer'));
+    console.log(chalk.yellow(`⚠️  Authentication could not be verified because ${relayHost} did not answer`));
     console.log(chalk.gray('  Stored credentials were kept unchanged. Retry when the relay is available.'));
     return;
   }
 
-  const { machineId, machineRegistered, validatedAccountId } = readiness;
+  const { machineId, machineRegistered, validatedAccountId, validatedAccountLabel } = readiness;
+  const accountIdentity = formatAccountIdentity({ accountLabel: validatedAccountLabel, accountId: validatedAccountId });
 
   let daemonRunning = false;
   try {
@@ -76,6 +79,8 @@ export async function handleAuthStatus(argv: string[] = []): Promise<void> {
       data: {
         authenticated: true,
         ...(validatedAccountId ? { accountId: validatedAccountId } : {}),
+        accountLabel: validatedAccountLabel,
+        relayHost,
         encryption: { type: credentials.encryption.type },
         machineRegistered,
         ...(machineRegistered && machineId ? { machineId } : {}),
@@ -87,7 +92,7 @@ export async function handleAuthStatus(argv: string[] = []): Promise<void> {
     return;
   }
 
-  console.log(chalk.green('✓ Authenticated'));
+  console.log(chalk.green(accountIdentity ? `✓ Authenticated as ${accountIdentity} on ${relayHost}` : `✓ Authenticated on ${relayHost}`));
 
   if (machineRegistered) {
     console.log(chalk.green('✓ Machine registered'));

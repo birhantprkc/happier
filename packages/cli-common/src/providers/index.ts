@@ -2,6 +2,7 @@ export type {
   InstallProviderCliResult,
   ManagedInstallPromotionDeps,
   ProviderCliInstallCommand,
+  ProviderCliInstallIntent,
   ProviderCliInstallMode,
   ProviderCliInstallPlan,
   ProviderCliInstallPlanResult,
@@ -12,6 +13,8 @@ export {
   promoteManagedInstallCandidate,
   resolvePlatformFromNodePlatform,
 } from './install.js';
+export type { ProviderCliUpdateFacts } from './update.js';
+export { classifyProviderCliInstall, fetchProviderCliLatestVersion } from './update.js';
 export type {
   ProviderCliCommandResolution,
   ProviderCliResolutionSource,

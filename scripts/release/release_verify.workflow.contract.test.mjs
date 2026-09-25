@@ -42,6 +42,7 @@ test('release-verify resolves one public profile with explicit suite refinements
     'run_daemon_continuity',
     'run_session_continuity',
     'run_release_assets_docker',
+    'run_desktop_setup',
     'run_self_host_systemd',
     'run_self_host_launchd',
     'run_self_host_schtasks',
@@ -67,6 +68,18 @@ test('release-verify resolves one public profile with explicit suite refinements
   assert.match(resolver.run, /--risk-cli-upgrade/);
   assert.match(resolver.run, /--risk-session-continuity/);
   assert.match(resolver.run, /--risk-relay-upgrade/);
+  assert.equal(resolver.env.CANDIDATE_DESKTOP_RUN_ID, '${{ inputs.candidate_desktop_run_id }}');
+  assert.match(resolver.run, /--has-desktop-candidate "\$\(\[\[ -n "\$CANDIDATE_DESKTOP_RUN_ID" \]\]/);
+  assert.match(resolver.run, /--candidate-channel "\$RELEASE_CHANNEL"/);
+
+  // desktop-setup: the Linux desktop bundle from the candidate's build-tauri run, set up against
+  // the candidate CLI's immutable release (the only CLI the shipped hsetup can verify).
+  assert.equal(workflow.on.workflow_call.inputs.candidate_desktop_run_id?.type, 'string');
+  assert.equal(workflow.on.workflow_call.inputs.candidate_desktop_run_id?.default, '');
+  assert.equal(
+    workflow.jobs.verify.with.desktop_setup_cli_ref,
+    "${{ inputs.candidate_cli_version != '' && format('cli-v{0}', inputs.candidate_cli_version) || '' }}",
+  );
 
   assert.equal(
     workflow.jobs.verify.with.checkout_sha,

@@ -197,6 +197,7 @@ import {
   initialMachineMetadata,
   refreshMachineMetadataForCurrentDaemon,
 } from './machine/metadata';
+import { readCliUpdateFactsForThisCli } from '@/cli/runtime/update/cliUpdateFacts';
 import { createDaemonShutdownController } from './lifecycle/shutdown';
 import { buildTmuxSpawnConfig, buildTmuxWindowEnv } from './platform/tmux/spawnConfig';
 export { buildTmuxSpawnConfig, buildTmuxWindowEnv } from './platform/tmux/spawnConfig';
@@ -8526,7 +8527,7 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
                   // Keep machine metadata fresh without clobbering user-provided fields (e.g. displayName) that may exist.
                   await connectedApiMachine.updateMachineMetadata((metadata) => {
                     const base = (metadata ?? machine.metadata ?? {}) as Partial<MachineMetadata>;
-                    return refreshMachineMetadataForCurrentDaemon(base, preferredHost);
+                    return refreshMachineMetadataForCurrentDaemon(base, preferredHost, readCliUpdateFactsForThisCli());
                   }).catch((error) => {
                     didRefreshMachineMetadata = false;
                     logger.warn('[DAEMON RUN] Failed to refresh machine metadata on reconnect', error);

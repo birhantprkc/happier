@@ -93,7 +93,7 @@ export function isDaemonProcessArgv(args: readonly string[]): boolean {
   return args[1] === 'start' || args[1] === 'start-sync'
 }
 
-function resolveCliHappyHomeDir(env: NodeJS.ProcessEnv): string {
+export function resolveCliHappyHomeDir(env: NodeJS.ProcessEnv): string {
   const override = typeof env.HAPPIER_HOME_DIR === 'string' ? env.HAPPIER_HOME_DIR.trim() : ''
   if (!override) {
     const sudoInvokerHomeDir = resolveSudoInvokerHomeDir(env)

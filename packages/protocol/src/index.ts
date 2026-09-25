@@ -788,6 +788,17 @@ export {
 } from './machines/index.js';
 
 export {
+  CliInstallSourceSchema,
+  CliUpdateFactsSchema,
+  CliUpdateLastResultSchema,
+  CliUpdateOutcomeSchema,
+  type CliInstallSource,
+  type CliUpdateFacts,
+  type CliUpdateLastResult,
+  type CliUpdateOutcome,
+} from './machines/index.js';
+
+export {
   buildReadyNotificationContent,
 } from './push/readyNotificationContent.js';
 
@@ -2700,17 +2711,30 @@ export {
   SystemTaskResultSchema,
   SystemTaskSpecSchema,
   classifySetupPairingRequirement,
+  createSetupAccountConsentPromptData,
+  createSetupCliChoicePromptData,
   createSetupPairingPromptData,
   createSetupServiceConsentPromptData,
+  parseSetupAccountConsentPromptData,
+  parseSetupCliChoicePromptData,
+  readSetupCliChoiceAnswer,
   parseSetupPairingPromptData,
   parseSetupServiceConsentPromptData,
+  setupReplacesValidatedAccount,
+  SETUP_ACCOUNT_CONSENT_PROMPT_KIND,
+  SETUP_CLI_CHOICE_PROMPT_KIND,
   SETUP_PAIRING_PROMPT_KIND,
   SETUP_SERVICE_CONSENT_PROMPT_KIND,
   SETUP_THIS_COMPUTER_SYSTEM_TASK_KIND,
+  type SetupAccountConsentPromptPayload,
+  type SetupCliChoice,
+  type SetupCliChoicePromptPayload,
+  type SetupCliOrigin,
   type SetupCliProvenance,
   type SetupPairingPromptPayload,
   type SetupPairingRequirement,
   type SetupServiceConsentPromptPayload,
+  type SetupServiceRuntimeReplacement,
   createTailscaleSecureAccessTaskSpec,
   TAILSCALE_SECURE_ACCESS_SYSTEM_TASK_KIND,
   TAILSCALE_SECURE_ACCESS_SYSTEM_TASK_STEP_IDS,

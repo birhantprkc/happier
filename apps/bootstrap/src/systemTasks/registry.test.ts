@@ -452,7 +452,7 @@ describe('createHsetupSystemTaskRegistry', () => {
           needsAuth: false,
           machineId: 'machine-local-1',
           // Acquisition is stated, not implied: this run resolved an override CLI.
-          acquisition: { command: fakeCli.cliPath, provenance: 'override', version: '0.2.13' },
+          acquisition: { command: fakeCli.cliPath, provenance: 'override', version: '0.2.13', channel: null },
           server: { serverUrl: 'https://relay.example.test', publicServerUrl: 'https://relay.example.test' },
           service: { installed: true, running: true },
           // A CLI that emits no runtimeConvergence leaves the running daemon unknown.
@@ -964,6 +964,7 @@ posixDescribe('createHsetupSystemTaskRegistry cli.pathExposure kinds', () => {
           changed: true,
           shellReloadHint: expect.stringContaining(zshrcPath),
           failure: null,
+          existingCommand: null,
         },
       });
       expect(readFileSync(zshrcPath, 'utf8')).toContain(`export PATH="${join(homeDir, '.happier', 'bin')}:$PATH"`);

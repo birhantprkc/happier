@@ -16,6 +16,7 @@ const OUTPUT_KEYS = Object.freeze([
   'run_daemon_continuity',
   'run_session_continuity',
   'run_release_assets_docker',
+  'run_desktop_setup',
   'run_self_host_systemd',
   'run_self_host_launchd',
   'run_self_host_schtasks',
@@ -30,6 +31,7 @@ const SUITE_OUTPUT_KEYS = Object.freeze({
   'daemon-continuity': 'run_daemon_continuity',
   'session-continuity': 'run_session_continuity',
   'docker-release-assets': 'run_release_assets_docker',
+  'desktop-setup': 'run_desktop_setup',
 });
 const NON_WAIVABLE_SUITES = new Set(['artifact-verify', 'binary-smoke']);
 
@@ -64,6 +66,8 @@ function bool(value, label) {
  *   profileId: string;
  *   hasCliCandidate: boolean;
  *   hasServerCandidate: boolean;
+ *   hasDesktopCandidate?: boolean;
+ *   candidateChannel?: string;
  *   hasPublishedRelayPredecessor: boolean;
  *   risks: { cliUpgrade: boolean; sessionContinuity: boolean; relayUpgrade: boolean };
  *   includeSuiteIds?: string[];
@@ -75,6 +79,8 @@ export function resolveReleaseValidationPlan(input) {
   const execution = resolveAutomaticReleaseValidationExecution(input.profileId, {
     hasCliCandidate: input.hasCliCandidate,
     hasServerCandidate: input.hasServerCandidate,
+    hasDesktopCandidate: input.hasDesktopCandidate === true,
+    candidateChannel: input.candidateChannel,
     hasPublishedRelayPredecessor: input.hasPublishedRelayPredecessor,
     risks: input.risks,
   });
@@ -90,11 +96,16 @@ export function resolveReleaseValidationPlan(input) {
     run_daemon_continuity: 'false',
     run_session_continuity: String(automatic.has('session-continuity')),
     run_release_assets_docker: String(automatic.has('docker-release-assets')),
+    run_desktop_setup: String(automatic.has('desktop-setup')),
     run_self_host_systemd: 'false',
     run_self_host_launchd: 'false',
     run_self_host_schtasks: 'false',
     run_self_host_daemon: 'false',
     waivedSuiteIds: waiveSuiteIds,
+    // What the plan does not run and why (an explicit include still runs it).
+    skippedSuites: execution.skippedSuiteIds
+      .filter((suiteId) => !automatic.has(suiteId))
+      .map((suiteId) => `${suiteId} (${execution.skipReasons[suiteId]})`),
   };
 }
 
@@ -104,6 +115,8 @@ export async function main(argv = process.argv.slice(2)) {
     profile: { type: 'string', default: '' },
     'has-cli-candidate': { type: 'string', default: 'false' },
     'has-server-candidate': { type: 'string', default: 'false' },
+    'has-desktop-candidate': { type: 'string', default: 'false' },
+    'candidate-channel': { type: 'string', default: '' },
     'has-published-relay-predecessor': { type: 'string', default: 'false' },
     'risk-cli-upgrade': { type: 'string', default: 'false' },
     'risk-session-continuity': { type: 'string', default: 'false' },
@@ -118,6 +131,8 @@ export async function main(argv = process.argv.slice(2)) {
     profileId: String(values.profile ?? ''),
     hasCliCandidate: bool(values['has-cli-candidate'], '--has-cli-candidate'),
     hasServerCandidate: bool(values['has-server-candidate'], '--has-server-candidate'),
+    hasDesktopCandidate: bool(values['has-desktop-candidate'], '--has-desktop-candidate'),
+    candidateChannel: String(values['candidate-channel'] ?? '').trim(),
     hasPublishedRelayPredecessor: bool(values['has-published-relay-predecessor'], '--has-published-relay-predecessor'),
     risks: {
       cliUpgrade: bool(values['risk-cli-upgrade'], '--risk-cli-upgrade'),
@@ -130,7 +145,10 @@ export async function main(argv = process.argv.slice(2)) {
   const lines = [
     ...OUTPUT_KEYS.map((key) => `${key}=${result[key]}`),
     `waived_suite_ids=${result.waivedSuiteIds.join(',')}`,
+    `skipped_suites=${result.skippedSuites.join('; ')}`,
   ].join('\n');
+  // Visible in the job log, not only in outputs: an unexecutable suite reads "skipped (reason)".
+  for (const entry of result.skippedSuites) process.stderr.write(`release-validation: skipped ${entry}\n`);
   const githubOutput = String(values['github-output'] ?? '');
   if (githubOutput) appendFileSync(githubOutput, `${lines}\n`, 'utf8');
   else process.stdout.write(`${JSON.stringify(result)}\n`);

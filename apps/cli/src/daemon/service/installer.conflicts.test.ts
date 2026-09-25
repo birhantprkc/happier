@@ -48,6 +48,8 @@ vi.mock('./apply', async () => {
 
 vi.mock('./resolveDaemonServiceInstallRuntimeTarget', () => ({
   resolveDaemonServiceInstallRuntimeTarget: resolveDaemonServiceInstallRuntimeTargetMock,
+  // No managed shim installed in these fixtures: no runtime replacement is ever proposed.
+  resolveManagedDaemonServiceShimPath: async () => null,
 }));
 
 vi.mock('./discoverInstalledDaemonServiceEntries', async () => {

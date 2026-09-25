@@ -16,6 +16,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import packageJson from '../../package.json'
 import { buildDoctorSnapshot, type DoctorSnapshot } from '@/ui/doctorSnapshot'
+import { formatAccountIdentity, formatRelayHost } from '@/auth/describeSignedInIdentity'
 import { formatDoctorLocalRelayLines } from '@/ui/doctorLocalRelays'
 import {
     buildDoctorRuntimeDiagnostics,
@@ -174,6 +175,21 @@ export function shouldShowGlobalProcessInventory(filter: 'all' | 'daemon'): bool
     return filter === 'all';
 }
 
+/**
+ * Which relay this computer's daemon is for and which account it is signed in as, in the same
+ * words `happier auth status` uses, so a person can compare them with the app (plan R17).
+ */
+export function formatDaemonIdentityLines(status: NonNullable<DoctorSnapshot['daemonStatus']>): string[] {
+    const account = formatAccountIdentity({
+        accountLabel: status.auth.accountLabel ?? null,
+        accountId: status.auth.validatedAccountId ?? null,
+    });
+    return [
+        `  Relay: ${formatRelayHost(status.server.serverUrl)}`,
+        ...(account ? [`  Account: ${account}`] : []),
+    ];
+}
+
 export async function runDoctorCommand(filter?: 'all' | 'daemon'): Promise<void> {
     // Default to 'all' if no filter specified
     if (!filter) {
@@ -313,6 +329,9 @@ export async function runDoctorCommand(filter?: 'all' | 'daemon'): Promise<void>
         const snapshotDaemonStatus = snapshot?.daemonStatus;
 
         if (snapshotDaemonStatus) {
+            for (const line of formatDaemonIdentityLines(snapshotDaemonStatus)) {
+                console.log(line);
+            }
             const daemon = snapshotDaemonStatus.daemon;
             const serviceManaged = daemon.serviceManaged ?? null;
             const ownerLabel = formatDaemonOwnerLabel({

@@ -764,6 +764,16 @@ jobs:
             --artifacts-dir "dist/tauri/updates" \
             --publish-dir "dist/tauri/publish"
 
+      - name: Verify latest.json updater signatures
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          node scripts/pipeline/tauri/verify-updater-manifest.mjs \
+            --environment "${ENVIRONMENT}" \
+            --latest-json "dist/tauri/publish/latest.json" \
+            --artifacts-dir "dist/tauri/updates"
+
       - name: Upload publish assets artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

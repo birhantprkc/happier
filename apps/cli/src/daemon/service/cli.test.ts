@@ -1476,6 +1476,109 @@ describe('runDaemonServiceCliCommand', () => {
     });
   });
 
+  it('starts a stopped linux service that runs another CLI as it is instead of switching it to the managed CLI', async () => {
+    await withTempDir('happier-service-start-foreign-runtime-', async (homeDir) => {
+      const spawnedCommands: Array<{ command: string; args: readonly string[] }> = [];
+      const happierHomeDir = `${homeDir}/.happier`;
+      const managedShim = `${happierHomeDir}/bin/happier`;
+      const userCli = '/usr/local/lib/node_modules/@happier-dev/cli/bin/happier';
+      let expectedServiceLabel = '';
+      let expectedCliVersion = '';
+      let writeDaemonStateImpl: ((state: DaemonLocallyPersistedState) => void) | null = null;
+      let serviceActive = false;
+
+      envScope.patch({
+        HAPPIER_HOME_DIR: happierHomeDir,
+        HAPPIER_DAEMON_SERVICE_PLATFORM: 'linux',
+        HAPPIER_DAEMON_SERVICE_USER_HOME_DIR: homeDir,
+        HAPPIER_DAEMON_SERVICE_HAPPIER_HOME_DIR: happierHomeDir,
+        HAPPIER_DAEMON_SERVICE_TARGET_MODE: 'default-following',
+        HAPPIER_DAEMON_SERVICE_CHANNEL: 'stable',
+        HAPPIER_PUBLIC_RELEASE_CHANNEL: 'stable',
+        // The desktop drives the managed CLI; its launcher is the managed shim.
+        HAPPIER_DAEMON_SERVICE_NODE_PATH: managedShim,
+        HAPPIER_DAEMON_SERVICE_ENTRY_PATH: '',
+        HAPPIER_DAEMON_SERVICE_OWNERSHIP_WAIT_TIMEOUT_MS: '120',
+        HAPPIER_DAEMON_SERVICE_OWNERSHIP_ACTIVE_GRACE_TIMEOUT_MS: '0',
+        HAPPIER_DAEMON_SERVICE_OWNERSHIP_WAIT_POLL_MS: '10',
+        HAPPIER_DAEMON_SERVICE_OWNERSHIP_STABLE_MS: '20',
+      });
+      vi.resetModules();
+      doMockChildProcessSpawnSync((command: string, args: readonly string[] = []) => {
+        spawnedCommands.push({ command, args });
+        if (command === 'systemctl' && (args.includes('start') || args.includes('restart'))) {
+          serviceActive = true;
+          writeDaemonStateImpl?.({
+            pid: process.pid,
+            httpPort: 43139,
+            startedAt: Date.now(),
+            startedWithCliVersion: expectedCliVersion,
+            startedWithPublicReleaseChannel: 'stable',
+            startupSource: 'background-service',
+            serviceLabel: expectedServiceLabel,
+            runtimeId: 'runtime-foreign-runtime-unit',
+          });
+        }
+        if (command === 'systemctl' && args.includes('is-active')) {
+          return serviceActive
+            ? { status: 0, stdout: Buffer.from('active'), stderr: Buffer.from('') }
+            : { status: 3, stdout: Buffer.from('inactive'), stderr: Buffer.from('') };
+        }
+        return { status: 0, stdout: Buffer.from(''), stderr: Buffer.from('') };
+      });
+      vi.doMock('./commandExistsInPath', () => ({
+        commandExistsInPath: vi.fn(() => true),
+      }));
+
+      const [{ runDaemonServiceCliCommand, resolveDaemonServiceCliRuntimeFromEnv, resolveDaemonServicePaths }, { clearDaemonStateForTests: clearDaemonState, writeCredentialsLegacy, writeDaemonState }, { configuration }] = await Promise.all([
+        loadCliModule(),
+        import('@/persistence'),
+        import('@/configuration'),
+      ]);
+      writeDaemonStateImpl = writeDaemonState;
+      expectedCliVersion = configuration.currentCliVersion;
+
+      mkdirSync(dirname(managedShim), { recursive: true });
+      writeFileSync(managedShim, '#!/bin/sh\n', 'utf-8');
+      const runtime = resolveDaemonServiceCliRuntimeFromEnv({ targetMode: 'default-following', processEnv: process.env });
+      const paths = resolveDaemonServicePaths(runtime);
+      expectedServiceLabel = paths.label;
+      mkdirSync(dirname(paths.installedPath), { recursive: true });
+      // The same service for the same relay, installed by the user's own npm `happier`.
+      const userInstalledUnit = planDaemonServiceInstall({
+        platform: 'linux',
+        mode: 'user',
+        channel: runtime.channel,
+        targetMode: runtime.targetMode,
+        instanceId: runtime.instanceId,
+        activeServerId: runtime.activeServerId,
+        userHomeDir: runtime.userHomeDir,
+        happierHomeDir: runtime.happierHomeDir,
+        serverUrl: runtime.serverUrl,
+        webappUrl: runtime.webappUrl,
+        publicServerUrl: runtime.publicServerUrl,
+        nodePath: userCli,
+        entryPath: '',
+      }).files[0]?.content ?? '';
+      writeFileSync(paths.installedPath, userInstalledUnit, 'utf-8');
+      await writeCredentialsLegacy({ secret: new Uint8Array(32).fill(1), token: 'token-foreign-runtime-unit' });
+      clearDaemonState();
+
+      const output = captureStdoutJsonOutput<{ ok: boolean }>();
+      try {
+        await runDaemonServiceCliCommand({ argv: ['start', '--json'] });
+        expect(output.json().ok).toBe(true);
+      } finally {
+        output.restore();
+      }
+      // Which CLI the service runs changes only through the consented install (dry-run
+      // `runtimeReplacement`), never as a side effect of starting it.
+      expect(readFileSync(paths.installedPath, 'utf-8')).toBe(userInstalledUnit);
+      expect(spawnedCommands.some((entry) => entry.command === 'systemctl' && entry.args.includes('restart'))).toBe(false);
+      expect(spawnedCommands.some((entry) => entry.command === 'systemctl' && entry.args.includes('start'))).toBe(true);
+    });
+  });
+
   it('restarts a running default-following service on start when it is not active for the selected relay', async () => {
     await withTempDir('happier-service-start-running-default-following-wrong-relay-', async (homeDir) => {
       const spawnedCommands: Array<{ command: string; args: readonly string[] }> = [];
@@ -1557,6 +1660,104 @@ describe('runDaemonServiceCliCommand', () => {
         const payload = output.json();
         expect(payload.ok).toBe(true);
         expect(payload.platform).toBe('linux');
+        expect(spawnedCommands.some((entry) => entry.command === 'systemctl' && entry.args.includes('restart'))).toBe(true);
+        expect(spawnedCommands.some((entry) => entry.command === 'systemctl' && entry.args.includes('start'))).toBe(false);
+      } finally {
+        output.restore();
+      }
+    });
+  });
+
+  it('restarts the linux service on start when its own running daemon is not the installed CLI version', async () => {
+    await withTempDir('happier-service-start-stale-version-owner-', async (homeDir) => {
+      const spawnedCommands: Array<{ command: string; args: readonly string[] }> = [];
+      const happierHomeDir = `${homeDir}/.happier`;
+      let expectedServiceLabel = '';
+      let expectedCliVersion = '';
+      let writeDaemonStateImpl: ((state: DaemonLocallyPersistedState) => void) | null = null;
+
+      envScope.patch({
+        HAPPIER_HOME_DIR: happierHomeDir,
+        HAPPIER_DAEMON_SERVICE_PLATFORM: 'linux',
+        HAPPIER_DAEMON_SERVICE_USER_HOME_DIR: homeDir,
+        HAPPIER_DAEMON_SERVICE_HAPPIER_HOME_DIR: happierHomeDir,
+        HAPPIER_DAEMON_SERVICE_TARGET_MODE: 'default-following',
+        HAPPIER_PUBLIC_RELEASE_CHANNEL: 'preview',
+        HAPPIER_DAEMON_START_WAIT_TIMEOUT_MS: '50',
+        HAPPIER_DAEMON_START_WAIT_POLL_MS: '10',
+        HAPPIER_DAEMON_SERVICE_OWNERSHIP_WAIT_TIMEOUT_MS: '120',
+        HAPPIER_DAEMON_SERVICE_OWNERSHIP_ACTIVE_GRACE_TIMEOUT_MS: '0',
+        HAPPIER_DAEMON_SERVICE_OWNERSHIP_WAIT_POLL_MS: '10',
+        HAPPIER_DAEMON_SERVICE_OWNERSHIP_STABLE_MS: '20',
+      });
+      vi.resetModules();
+      doMockChildProcessSpawnSync((command: string, args: readonly string[] = []) => {
+        spawnedCommands.push({ command, args });
+        if (command === 'systemctl' && args.includes('restart')) {
+          writeDaemonStateImpl?.({
+            pid: process.pid,
+            httpPort: 43139,
+            startedAt: Date.now(),
+            startedWithCliVersion: expectedCliVersion,
+            startedWithPublicReleaseChannel: 'preview',
+            startupSource: 'background-service',
+            serviceLabel: expectedServiceLabel,
+            runtimeId: 'runtime-restarted-on-installed-version',
+          });
+        }
+        if (command === 'systemctl' && args.includes('is-active')) {
+          return { status: 0, stdout: Buffer.from('active'), stderr: Buffer.from('') };
+        }
+        return { status: 0, stdout: Buffer.from(''), stderr: Buffer.from('') };
+      });
+      vi.doMock('./commandExistsInPath', () => ({
+        commandExistsInPath: vi.fn(() => true),
+      }));
+
+      const [{ runDaemonServiceCliCommand, resolveDaemonServiceCliRuntimeFromEnv, resolveDaemonServicePaths }, { writeDaemonState }, { configuration }] = await Promise.all([
+        loadCliModule(),
+        import('@/persistence'),
+        import('@/configuration'),
+      ]);
+      writeDaemonStateImpl = writeDaemonState;
+      expectedCliVersion = configuration.currentCliVersion;
+
+      const runtime = resolveDaemonServiceCliRuntimeFromEnv({ targetMode: 'default-following' });
+      const paths = resolveDaemonServicePaths(runtime);
+      expectedServiceLabel = paths.label;
+      mkdirSync(dirname(paths.installedPath), { recursive: true });
+      const expectedPlan = planDaemonServiceInstall({
+        platform: runtime.platform,
+        mode: 'user',
+        channel: runtime.channel,
+        targetMode: runtime.targetMode,
+        instanceId: runtime.instanceId,
+        activeServerId: runtime.activeServerId,
+        userHomeDir: runtime.userHomeDir,
+        happierHomeDir: runtime.happierHomeDir,
+        serverUrl: runtime.serverUrl,
+        webappUrl: runtime.webappUrl,
+        publicServerUrl: runtime.publicServerUrl,
+        nodePath: runtime.nodePath,
+        entryPath: runtime.entryPath,
+      });
+      writeFileSync(paths.installedPath, expectedPlan.files[0]?.content ?? '', 'utf-8');
+      // The service's own daemon, still running the CLI version from before an update.
+      writeDaemonState({
+        pid: process.pid,
+        httpPort: 43140,
+        startedAt: Date.now(),
+        startedWithCliVersion: '0.0.1-before-update',
+        startedWithPublicReleaseChannel: 'preview',
+        startupSource: 'background-service',
+        serviceLabel: paths.label,
+      });
+
+      const output = captureStdoutJsonOutput<{ ok: boolean; platform: string }>();
+      try {
+        await runDaemonServiceCliCommand({ argv: ['start', '--json'] });
+        const payload = output.json();
+        expect(payload.ok).toBe(true);
         expect(spawnedCommands.some((entry) => entry.command === 'systemctl' && entry.args.includes('restart'))).toBe(true);
         expect(spawnedCommands.some((entry) => entry.command === 'systemctl' && entry.args.includes('start'))).toBe(false);
       } finally {
@@ -2958,6 +3159,135 @@ describe('runDaemonServiceCliCommand', () => {
         expect(payload.installConflict?.competingServices).toEqual([
           expect.objectContaining({ label: 'happier-daemon.default' }),
         ]);
+      } finally {
+        output.restore();
+      }
+    });
+  });
+
+  it('reports a service that runs another CLI as an install conflict needing consent instead of rewriting it', async () => {
+    await withTempDir('happier-service-install-dry-run-foreign-runtime-', async (homeDir) => {
+      const happierHomeDir = `${homeDir}/.happier`;
+      const managedShim = `${happierHomeDir}/bin/happier`;
+      const userCli = '/usr/local/lib/node_modules/@happier-dev/cli/bin/happier';
+      envScope.patch({
+        HAPPIER_HOME_DIR: happierHomeDir,
+        HAPPIER_DAEMON_SERVICE_PLATFORM: 'linux',
+        HAPPIER_DAEMON_SERVICE_USER_HOME_DIR: homeDir,
+        HAPPIER_DAEMON_SERVICE_HAPPIER_HOME_DIR: happierHomeDir,
+        HAPPIER_DAEMON_SERVICE_CHANNEL: 'stable',
+        HAPPIER_DAEMON_SERVICE_NODE_PATH: '',
+        HAPPIER_DAEMON_SERVICE_ENTRY_PATH: '',
+        PATH: '/usr/bin',
+      });
+      vi.resetModules();
+
+      const { runDaemonServiceCliCommand, resolveDaemonServiceCliRuntimeFromEnv, resolveDaemonServicePaths } = await loadCliModule();
+      // The desktop-managed CLI's default shim exists, so a default-following install targets it.
+      mkdirSync(dirname(managedShim), { recursive: true });
+      writeFileSync(managedShim, '#!/bin/sh\n', 'utf-8');
+      const runtime = resolveDaemonServiceCliRuntimeFromEnv({ targetMode: 'default-following', processEnv: process.env });
+      const paths = resolveDaemonServicePaths(runtime);
+      mkdirSync(dirname(paths.installedPath), { recursive: true });
+      const userInstalledPlan = planDaemonServiceInstall({
+        platform: 'linux',
+        mode: 'user',
+        channel: runtime.channel,
+        targetMode: runtime.targetMode,
+        instanceId: runtime.instanceId,
+        activeServerId: runtime.activeServerId,
+        userHomeDir: runtime.userHomeDir,
+        happierHomeDir: runtime.happierHomeDir,
+        serverUrl: runtime.serverUrl,
+        webappUrl: runtime.webappUrl,
+        publicServerUrl: runtime.publicServerUrl,
+        nodePath: userCli,
+        entryPath: '',
+      });
+      writeFileSync(paths.installedPath, userInstalledPlan.files[0]?.content ?? '', 'utf-8');
+
+      const output = captureStdoutJsonOutput<{
+        ok: boolean;
+        installConflict?: {
+          blocking: boolean;
+          message: string;
+          runtimeReplacement?: { current: string; replacement: string } | null;
+        };
+      }>();
+      try {
+        await runDaemonServiceCliCommand({ argv: ['install', '--dry-run', '--json'] });
+
+        const payload = output.json();
+        expect(payload.ok).toBe(true);
+        expect(payload.installConflict).toEqual(expect.objectContaining({
+          blocking: false,
+          runtimeReplacement: { current: userCli, replacement: managedShim },
+        }));
+      } finally {
+        output.restore();
+      }
+    });
+  });
+
+  it('after "Keep my own" reports a service that runs the managed CLI as a switch to the kept CLI, never as drift (R13)', async () => {
+    await withTempDir('happier-service-install-dry-run-kept-runtime-', async (homeDir) => {
+      const happierHomeDir = `${homeDir}/.happier`;
+      const managedShim = `${happierHomeDir}/bin/happier`;
+      const userCli = '/usr/local/lib/node_modules/@happier-dev/cli/bin/happier';
+      envScope.patch({
+        HAPPIER_HOME_DIR: happierHomeDir,
+        HAPPIER_DAEMON_SERVICE_PLATFORM: 'linux',
+        HAPPIER_DAEMON_SERVICE_USER_HOME_DIR: homeDir,
+        HAPPIER_DAEMON_SERVICE_HAPPIER_HOME_DIR: happierHomeDir,
+        HAPPIER_DAEMON_SERVICE_CHANNEL: 'stable',
+        // The kept npm CLI runs this install; its launcher is itself.
+        HAPPIER_DAEMON_SERVICE_NODE_PATH: userCli,
+        HAPPIER_DAEMON_SERVICE_ENTRY_PATH: '',
+        PATH: '/usr/bin',
+      });
+      vi.resetModules();
+
+      const { runDaemonServiceCliCommand, resolveDaemonServiceCliRuntimeFromEnv, resolveDaemonServicePaths } = await loadCliModule();
+      // The managed copy is still on disk, and this computer chose "Keep my own".
+      mkdirSync(dirname(managedShim), { recursive: true });
+      writeFileSync(managedShim, '#!/bin/sh\n', 'utf-8');
+      writeFileSync(join(happierHomeDir, 'cli-choice.json'), JSON.stringify({ mode: 'own', command: userCli }), 'utf-8');
+      const runtime = resolveDaemonServiceCliRuntimeFromEnv({ targetMode: 'default-following', processEnv: process.env });
+      const paths = resolveDaemonServicePaths(runtime);
+      mkdirSync(dirname(paths.installedPath), { recursive: true });
+      const managedInstalledPlan = planDaemonServiceInstall({
+        platform: 'linux',
+        mode: 'user',
+        channel: runtime.channel,
+        targetMode: runtime.targetMode,
+        instanceId: runtime.instanceId,
+        activeServerId: runtime.activeServerId,
+        userHomeDir: runtime.userHomeDir,
+        happierHomeDir: runtime.happierHomeDir,
+        serverUrl: runtime.serverUrl,
+        webappUrl: runtime.webappUrl,
+        publicServerUrl: runtime.publicServerUrl,
+        nodePath: managedShim,
+        entryPath: '',
+      });
+      writeFileSync(paths.installedPath, managedInstalledPlan.files[0]?.content ?? '', 'utf-8');
+
+      const output = captureStdoutJsonOutput<{
+        ok: boolean;
+        installConflict?: {
+          blocking: boolean;
+          runtimeReplacement?: { current: string; replacement: string } | null;
+        };
+      }>();
+      try {
+        await runDaemonServiceCliCommand({ argv: ['install', '--dry-run', '--json'] });
+
+        const payload = output.json();
+        expect(payload.ok).toBe(true);
+        expect(payload.installConflict).toEqual(expect.objectContaining({
+          blocking: false,
+          runtimeReplacement: { current: managedShim, replacement: userCli },
+        }));
       } finally {
         output.restore();
       }
