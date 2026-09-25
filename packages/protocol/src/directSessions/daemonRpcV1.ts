@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { SpawnSessionTerminalSchema } from '../spawnSession.js';
+
 import { AgentRuntimeDescriptorV1Schema } from '../sessionMetadata/agentRuntimeDescriptorV1.js';
 import { CODEX_BACKEND_MODES } from '../providers/codex/backendMode.js';
 import { AgentProviderIdV1Schema } from '../providers/agentProviderIdsV1.js';
@@ -443,6 +445,7 @@ export const DirectSessionTakeoverRequestSchema = z
     machineId: z.string().min(1),
     sessionId: z.string().min(1),
     forceStop: z.boolean().optional(),
+    terminal: SpawnSessionTerminalSchema.optional(),
   })
   .passthrough();
 export type DirectSessionTakeoverRequest = z.infer<typeof DirectSessionTakeoverRequestSchema>;
@@ -464,6 +467,7 @@ export const DirectSessionTakeoverPersistRequestSchema = z
     machineId: z.string().min(1),
     sessionId: z.string().min(1),
     forceStop: z.boolean().optional(),
+    terminal: SpawnSessionTerminalSchema.optional(),
   })
   .passthrough();
 export type DirectSessionTakeoverPersistRequest = z.infer<typeof DirectSessionTakeoverPersistRequestSchema>;

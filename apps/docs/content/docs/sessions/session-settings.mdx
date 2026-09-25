@@ -128,6 +128,8 @@ The root Session screen also contains the defaults that control how app-started 
 
 Enable **tmux integration** when you want supported sessions to start inside `tmux`.
 
+In development source, app-triggered resumes and Direct session takeovers also use your current tmux settings, including the destination machine's override. This correction is not included in 0.2.12. Ordinary resume needs an updated app; Direct takeover needs both an updated app and daemon. Enabling tmux does not move an already-running session into tmux.
+
 Use this on machines where:
 
 - `tmux` is installed,

@@ -649,6 +649,7 @@ export function registerMachineDirectSessionsRpcHandlers(params: Readonly<{
     const spawnOptions = await resolveDirectTakeoverSpawnOptions({
       linked: validatedLinkedSession,
       sessionId: parsed.data.sessionId,
+      terminal: parsed.data.terminal,
     });
     if (!spawnOptions) {
       return err('invalid_request', 'direct_session_directory_unavailable') satisfies DirectSessionTakeoverResponse;
@@ -720,6 +721,7 @@ export function registerMachineDirectSessionsRpcHandlers(params: Readonly<{
     const directSpawnOptions = await resolveDirectTakeoverSpawnOptions({
       linked: validatedLinkedSession,
       sessionId: parsed.data.sessionId,
+      terminal: parsed.data.terminal,
     });
     if (!directSpawnOptions) {
       return err('invalid_request', 'direct_session_directory_unavailable') satisfies DirectSessionTakeoverPersistResponse;

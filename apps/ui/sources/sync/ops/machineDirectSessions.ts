@@ -39,6 +39,8 @@ import type { ZodType } from 'zod';
 
 import { machineRpcWithServerScope } from '@/sync/runtime/orchestration/serverScopedRpc/serverScopedMachineRpc';
 import { isRpcMethodNotAvailableError, isRpcMethodNotFoundError } from '@/sync/runtime/rpcErrors';
+import { storage } from '@/sync/domains/state/storage';
+import { resolveTerminalSpawnOptions } from '@/sync/domains/settings/terminalSettings';
 import { readReplacementAwareMachineRpcTarget } from './machineRpcTarget';
 
 type MachineDirectSessionsOpts = Readonly<{
@@ -182,6 +184,14 @@ export async function machineDirectSessionTranscriptReadAfter(
     });
 }
 
+function withTakeoverTerminalSettings(input: DirectSessionTakeoverRequest): DirectSessionTakeoverRequest {
+    const terminal = input.terminal ?? resolveTerminalSpawnOptions({
+        settings: storage.getState().settings,
+        machineId: readReplacementAwareMachineRpcTarget(input.machineId)?.machineId ?? input.machineId,
+    });
+    return terminal ? { ...input, terminal } : input;
+}
+
 export async function machineDirectSessionTakeover(
     input: DirectSessionTakeoverRequest,
     opts?: MachineDirectSessionsOpts,
@@ -189,7 +199,7 @@ export async function machineDirectSessionTakeover(
     return callDirectSessionMachineRpc({
         machineId: input.machineId,
         method: RPC_METHODS.DAEMON_DIRECT_SESSION_TAKEOVER,
-        input,
+        input: withTakeoverTerminalSettings(input),
         requestSchema: DirectSessionTakeoverRequestSchema,
         responseSchema: DirectSessionTakeoverResponseSchema,
         opts,
@@ -203,7 +213,7 @@ export async function machineDirectSessionTakeoverPersist(
     return callDirectSessionMachineRpc({
         machineId: input.machineId,
         method: RPC_METHODS.DAEMON_DIRECT_SESSION_TAKEOVER_PERSIST,
-        input,
+        input: withTakeoverTerminalSettings(input),
         requestSchema: DirectSessionTakeoverPersistRequestSchema,
         responseSchema: DirectSessionTakeoverPersistResponseSchema,
         opts,

@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { SessionAuthoringTerminalV1Schema } from './sessionAuthoring/fieldCatalog.js';
+
 import {
   CONNECTED_SERVICE_UX_DIAGNOSTIC_ACTIONS,
   CONNECTED_SERVICE_UX_DIAGNOSTIC_CODES,
@@ -7,6 +9,11 @@ import {
   normalizeConnectedServiceUxDiagnosticV1,
   type ConnectedServiceUxDiagnosticV1,
 } from './connect/connectedServiceUxDiagnostics.js';
+
+// Integrated terminals are UI authoring choices, not daemon process launch modes.
+export const SpawnSessionTerminalSchema = SessionAuthoringTerminalV1Schema.extend({
+  mode: SessionAuthoringTerminalV1Schema.shape.mode.unwrap().exclude(['integrated']).optional(),
+}).strip();
 
 /** Fresh execution authority is bound to an exact user request and, when present, its durable revision. */
 export const SpawnSessionExecutionAuthorizationSchema = z.object({

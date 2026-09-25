@@ -126,15 +126,18 @@ describe('registerMachineDirectSessionsRpcHandlers', () => {
     const handler = registered.get(RPC_METHODS.DAEMON_DIRECT_SESSION_TAKEOVER);
     expect(handler).toBeDefined();
 
+    const terminal = { mode: 'tmux', tmux: { sessionName: 'takeover', isolated: true, tmpDir: '/tmp/takeover-tmux' } };
     const res = await handler!({
       machineId: 'm1',
       sessionId: 'sess_happy_direct',
+      terminal,
     });
 
     expect(res).toEqual({ ok: true });
     expect(stopSession).not.toHaveBeenCalled();
     expect(spawnSession).toHaveBeenCalledWith(
       expect.objectContaining({
+        terminal,
         directory: '/tmp/direct-claude-worktree',
         backendTarget: { kind: 'builtInAgent', agentId: 'claude' },
         existingSessionId: 'sess_happy_direct',
@@ -414,9 +417,11 @@ describe('registerMachineDirectSessionsRpcHandlers', () => {
     const handler = registered.get(RPC_METHODS.DAEMON_DIRECT_SESSION_TAKEOVER_PERSIST);
     expect(handler).toBeDefined();
 
+    const terminal = { mode: 'tmux', tmux: { sessionName: '', isolated: false, tmpDir: null } };
     const res = await handler!({
       machineId: 'm1',
       sessionId: 'sess_happy_persist',
+      terminal,
     });
 
     expect(res).toEqual({ ok: true, converted: true });
@@ -426,6 +431,7 @@ describe('registerMachineDirectSessionsRpcHandlers', () => {
     expect(spawnSession.mock.invocationCallOrder[0]).toBeLessThan(updateSessionMetadataWithRetryMock.mock.invocationCallOrder[0]);
     expect(spawnSession).toHaveBeenCalledWith(
       expect.objectContaining({
+        terminal,
         directory: '/tmp/direct-claude-persist-worktree',
         backendTarget: { kind: 'builtInAgent', agentId: 'claude' },
         existingSessionId: 'sess_happy_persist',
