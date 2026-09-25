@@ -13,6 +13,7 @@ import { resolveSessionMachineId } from '@/sync/domains/session/directSessions/r
 
 import { buildMachineUpdateGroups, readUpdatableInstallables, type UpdatesGroup } from './buildMachineUpdateGroups';
 import { buildUpdatesSummary, planUpdateAll, type UpdatesSummary } from './items/buildUpdatesSummary';
+import { resolveUpdateConfirmation } from './items/resolveUpdateConfirmation';
 import type { UpdateItem } from './items/updateItem';
 import { LATEST_VERSION_CHECK_FRESH_MS } from './latestVersionCheckFreshness';
 import { useMachinesCapabilitySnapshots } from './machineCapabilitySnapshots';
@@ -133,10 +134,6 @@ export function useUpdatesContentModel(): UpdatesContentModel {
         });
     }, [app, lastUpdateSignatureByMachine, refreshMachine, thisComputer]);
 
-    const isRemote = React.useCallback((item: UpdateItem) => (
-        item.machineId != null && item.machineId !== thisComputer.machineId
-    ), [thisComputer.machineId]);
-
     /** Consequential remote actions go through the established confirmation owner; local ones do not. */
     const confirmRemote = React.useCallback(async (targets: ReadonlyArray<Readonly<{ machineId: string; name: string }>>) => {
         if (targets.length === 0) return true;
@@ -161,15 +158,16 @@ export function useUpdatesContentModel(): UpdatesContentModel {
 
     const runItem = React.useCallback(async (item: UpdateItem) => {
         if (item.action.kind !== 'run') return;
-        if (item.vendorUpdater) {
+        const confirmation = resolveUpdateConfirmation(item, thisComputer.machineId);
+        if (confirmation === 'vendor') {
             if (!(await confirmVendor([item.title]))) return;
-        } else if (isRemote(item) && item.action.verb !== 'retry') {
+        } else if (confirmation === 'remote') {
             const machineId = item.machineId as string;
             const confirmed = await confirmRemote([{ machineId, name: machineNameById.get(machineId) ?? machineId }]);
             if (!confirmed) return;
         }
         await executeItem(item);
-    }, [confirmRemote, confirmVendor, executeItem, isRemote, machineNameById]);
+    }, [confirmRemote, confirmVendor, executeItem, machineNameById, thisComputer.machineId]);
 
     const [batch, setBatch] = React.useState<UpdateAllProgress | null>(null);
     const stopRef = React.useRef(false);

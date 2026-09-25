@@ -1,6 +1,7 @@
 import type { CliUpdateFacts } from '@happier-dev/protocol';
 
 import { isInstallableDepUpdateAvailable } from '@/capabilities/installablesUpdateAvailable';
+import { t } from '@/text';
 import type { InstallableDepDataLike } from '@/capabilities/installablesRegistry';
 
 import {
@@ -69,8 +70,10 @@ function resolveRow(item: UpdateItem, params: Readonly<{
     task: UpdateRunObservation;
     canRun: boolean;
     manual: UpdateItemAction | null;
+    /** A row whose owner has its own "newer?" predicate passes that answer instead. */
+    state?: UpdateItemState;
 }>): UpdateItem {
-    const state = versionState(item.currentVersion, item.latestVersion);
+    const state = params.state ?? versionState(item.currentVersion, item.latestVersion);
     if (!params.online) {
         return { ...item, state: 'offline', action: { kind: 'none' } };
     }
@@ -166,11 +169,11 @@ export function buildRemoteCliUpdateItem(params: Readonly<{
                 action: params.remoteUpdateAdvertised !== false ? { kind: 'run', verb: 'retry' } : { kind: 'none' },
             };
         }
-        if (last.outcome === 'failed' && last.message) {
+        if (last.outcome === 'failed') {
             return {
                 ...item,
                 state: 'failed',
-                failure: { kind: 'message', message: last.message },
+                failure: { kind: 'message', message: last.message ?? t('updates.row.failedGeneric') },
                 action: params.remoteUpdateAdvertised !== false ? { kind: 'run', verb: 'retry' } : { kind: 'none' },
             };
         }
@@ -255,12 +258,16 @@ export function buildInstallableUpdateItem(params: Readonly<{
         currentVersion: data.installedVersion,
         latestVersion,
     });
-    const resolved = resolveRow(item, { online: params.online, task: params.task, canRun: true, manual: null });
+    // One predicate decides "a newer helper exists": the installables owner's own.
+    const resolved = resolveRow(item, {
+        online: params.online,
+        task: params.task,
+        canRun: true,
+        manual: null,
+        state: latestVersion == null ? 'unknown' : isInstallableDepUpdateAvailable(data) ? 'available' : 'upToDate',
+    });
     if (resolved.state === 'unknown' && check && !check.ok) {
         return { ...resolved, failure: { kind: 'latestUnknown' } };
-    }
-    if (resolved.state === 'available' && !isInstallableDepUpdateAvailable(data)) {
-        return { ...resolved, state: 'upToDate', action: { kind: 'none' } };
     }
     return resolved;
 }

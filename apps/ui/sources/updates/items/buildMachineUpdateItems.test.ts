@@ -1,4 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('@/text', async () => {
+    const { createTextModuleMock } = await import('@/dev/testkit/mocks/text');
+    return createTextModuleMock();
+});
 
 import {
     buildAgentCliUpdateItem,
@@ -104,6 +109,13 @@ describe('another machine — Happier CLI row (K5)', () => {
             remoteUpdateAdvertised: true, task: IDLE_TASK,
         });
         expect(rolledBack).toMatchObject({ state: 'failed', failure: { kind: 'rolledBack', kept: '0.2.9', target: '0.2.11' }, action: { kind: 'run', verb: 'retry' } });
+
+        const failedSilently = buildRemoteCliUpdateItem({
+            machineId: 'm2', title: 'Happier CLI', online: true, platform: 'darwin', happyCliVersion: '0.2.9',
+            facts: { ...k5, lastUpdate: { targetVersion: '0.2.11', outcome: 'failed', at: 1, message: null } },
+            remoteUpdateAdvertised: true, task: IDLE_TASK,
+        });
+        expect(failedSilently).toMatchObject({ state: 'failed', failure: { kind: 'message', message: 'updates.row.failedGeneric' }, action: { kind: 'run', verb: 'retry' } });
 
         const reconnecting = buildRemoteCliUpdateItem({
             machineId: 'm2', title: 'Happier CLI', online: true, platform: 'darwin', happyCliVersion: '0.2.9',
