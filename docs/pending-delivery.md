@@ -7,6 +7,19 @@ requests server settlement. The server transaction commits or updates the
 transcript message and removes that Pending row before publishing the message
 event and the separate Pending count/version event.
 
+In development source, Claude unified terminal reports exact transcript-proven acceptance before stopping
+for missing required session hooks. The hook failure still stops the wrapper and
+surfaces a runtime issue; it does not make an already accepted prompt undelivered
+or eligible for replay. The arbiter owns this ordering even when the transcript
+evidence arrives while the terminal injection is still completing.
+
+In development source, identical unresolved Claude terminal attempts remain
+ambiguous: transcript text and a new provider UUID cannot identify a Pending
+row. Already ambiguous evidence and delayed echoes of hook-confirmed prompts
+cannot settle a later attempt. Exact canonical retirement removes the retired
+attempt's correlation without reporting provider acceptance; new unique evidence
+can then settle a remaining attempt.
+
 The UI's canonical pending snapshot owns exact server-row reconciliation.
 Receiving a committed user message whose `localId` matches a displayed
 `server_pending` row requests that snapshot, even when the transcript reducer

@@ -136,6 +136,8 @@ export function createClaudeUnifiedInputArbiter<Mode = unknown>(opts: Readonly<{
    * head so a provider-confirmed prompt cannot be injected a second time.
    */
   resolvePromptDeliveryState?: ((batch: ClaudeUnifiedPromptBatch<Mode>) => ClaudeUnifiedPromptDeliveryState) | undefined;
+  /** Retires exact correlation state without publishing provider acceptance. */
+  onPromptDeliveryRetired?: ((batch: ClaudeUnifiedPromptBatch<Mode>) => void) | undefined;
   /** Publishes the exact transient native-custody head; null removes the capability. */
   onPendingInputInterruptAndRunLocalIdChange?: ((localId: string | null) => void) | undefined;
 }>): ClaudeUnifiedInputArbiter<Mode> {
@@ -597,6 +599,7 @@ export function createClaudeUnifiedInputArbiter<Mode = unknown>(opts: Readonly<{
     if (lastInjectedNotifiedBatch === batch) {
       lastInjectedNotifiedBatch = null;
     }
+    opts.onPromptDeliveryRetired?.(batch);
   }
 
   /**
