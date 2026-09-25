@@ -49,6 +49,29 @@ How you update depends on how you installed the CLI:
 - Stable is `~/.happier/cli/current`; preview/dev use `~/.happier/cli-preview/current` and `~/.happier/cli-dev/current`.
 - **npm install**: `npm install -g @happier-dev/cli@latest` (or `@next` for preview). npm does not currently expose a separate public `dev` dist-tag.
 
+### Using the desktop app with a CLI you installed yourself
+
+In the current development build (unreleased), when the desktop app sets up this computer and finds
+a `happier` it did not install (npm, Homebrew or a manual copy), it asks once, naming that CLI's
+version and path:
+
+- **Let Happier manage it** — the app installs its own CLI, puts it first on your `PATH` for new
+  terminals, and moves the background service to it. Your old copy is left in place; Settings ›
+  This computer › Command line shows the command that removes it (for example
+  `npm uninstall -g @happier-dev/cli` or `brew uninstall <formula>`). The app never runs it for you.
+- **Keep my own** — the app installs nothing and adds nothing to your `PATH`; the app, the
+  background service and your terminal all use your CLI. Updating it stays with you (for example
+  `npm install -g @happier-dev/cli@latest`). If it is too old for setup, the app says so and names
+  that command instead of replacing it.
+
+The answer applies to every Happier app on this computer. Change it any time in Settings › This
+computer › Command line. You are asked again only if the CLI you kept disappears or becomes too old
+for setup; if it disappears, the app asks before installing anything in its place.
+
+On Windows, a `happier` on the system-wide `Path` (for example from a machine-wide Node.js install)
+still runs first in new terminals after **Let Happier manage it**, because Windows puts the system
+`Path` ahead of yours. Remove that copy with the command Settings shows.
+
 The CLI can also show periodic update notices in TTY sessions; disable with:
 
 ```bash

@@ -127,6 +127,15 @@ Defined/used in the CLI capability system:
 - `tool.<name>`: tool capability (e.g. `tool.tmux`)
 - `dep.<name>`: dependency capability (e.g. `dep.codex-acp`)
 
+### Agent CLI updates (`cli.<agentId>`)
+
+Every `cli.<agentId>` capability is wrapped by `apps/cli/src/capabilities/cliUpdate/providerCliUpdates.ts`, so update behavior is provider-agnostic and driven by catalog facts in `packages/agents/src/providers/providerCliRuntime.ts` (`managedInstall`, `npmPackageName`, `nativeUpdate`):
+
+- Detect, when the CLI is available, adds `installSource` (`managed | native | npm | pnpm | bun | brew | other`), `updateSupported` and `updateCommand`. The single classifier is `classifyProviderCliInstall` (`packages/cli-common/src/providers/update.ts`): it attributes the exact executable the capability reports, using its real path. `native` requires the path to lie under a catalog `nativeUpdate.installPaths` entry. `npm`/`pnpm`/`bun` require the vendor npm package in the path (or a Windows npm shim next to `node_modules/<pkg>`). `brew` requires a `Cellar`/`Caskroom` keg. Anything unproven is `other`, with no command.
+- `includeLatestVersion: true` adds `latestVersion: string | null`. The source is the managed owner's source (GitHub latest release for `github_release_binary`, npm `latest` for `managed_package`), else the vendor npm package. `null` means there is no source or the lookup failed. Successes are cached per daemon for the installables update-check interval (`HAPPIER_INSTALLABLES_AUTO_UPDATE_CHECK_INTERVAL_MS`). Failures are not cached, and `bypassCache` refetches.
+- Update action: `install` with `{ intent: 'update', allowVendorRecipeExecution? }`. A `managed` install is reinstalled through the managed install owner. A `native` install runs the vendor updater (`claude update`, `codex update`, `opencode upgrade`, `agent update`) on the resolved executable, and only with `allowVendorRecipeExecution: true` (the UI's confirmation). Every other owner returns `update-not-available`, and its message includes the owner's command. Happier never spawns a package manager. The action succeeds only when a fresh detect reports a different version; otherwise it fails with `update-not-verified`.
+- Old daemons do not report these fields. Clients must offer the update action only when `updateSupported === true` is present, because an old daemon ignores `intent` and runs a plain install.
+
 ### Checklist id conventions
 
 Checklist ids are treated as stable API between daemon and app:
@@ -166,8 +175,26 @@ Whether a provider's model list is resolved at runtime is one catalog fact:
 - `'static-only'` — the curated `staticModels` list is the whole truth. The app does not run the
   preflight models probe and ignores any `sessionModelsV1` the session publishes.
 - `'auto'` (default when omitted) — the app runs the preflight models probe on the new-session
-  screen **and** consumes the in-session `sessionModelsV1` list. Both readers share this one flag,
-  so flipping it turns on both.
+  screen and on demand in an existing session's engine details, and consumes the runtime's
+  `sessionModelsV1` list. These readers share this flag.
+
+Model discovery is owned by `apps/ui/sources/sync/ops/modelDiscovery.ts`, shared by the picker
+hook and voice catalog requests. Its existing persistent probe cache serves stale choices while
+revalidating; failed refreshes retain the last successful observation and its timestamp. Discovery
+is scoped to the machine/server, backend target, working directory, profile, runtime and connected
+service context. Existing-session details probe only while mounted, including inactive sessions;
+refreshing choices does not resume the session or claim that a requested model has been applied.
+
+Manual refresh passes `bypassCache` through the capability RPC and generic probe to provider-owned
+caches. Results distinguish the successful observation time (`observedAt`) from a failed latest
+attempt (`refreshError`). This prevents a daemon cache hit or failed refresh from acquiring a new
+24-hour success lifetime in the UI. Older daemons safely ignore the optional bypass parameter but
+cannot guarantee a forced provider refresh; both client and daemon must support it for that behavior.
+Successful empty catalogs remain authoritative, while an unavailable observation retains previous
+choices or the curated fallback. A stale catalog's omission is not rejection of an already requested
+or applied model.
+Runtime catalog timestamps describe model-list observations. Current-model-only updates preserve
+that timestamp, so applied-model telemetry cannot make an old list override a newer probe.
 
 A provider that publishes `sessionModelsV1` from its runtime and is left on `'static-only'` has an
 active producer with its consumer gated off — the published list is silently discarded. Flipping
@@ -183,6 +210,46 @@ deliberately seed-only: if the runtime has already published for this session, t
 no-op, and the runtime re-publish stays authoritative. It only applies to `dynamicProbe !==
 'static-only'` agents with no curated static list, and to built-in-agents spawns (not ACP custom).
 
+Pi's preflight probe waits for its asynchronous registry refresh within the
+existing probe deadline. A pending request is not an empty successful catalog. Session refresh uses
+the same machine probe, so discovering choices does not require sending the first prompt to Pi.
+When an agent provides a raw preflight models hook, that hook owns discovery and its fallbacks;
+failure retains the last good result instead of starting another generic backend probe. Cursor's
+CLI fallback lives inside its raw adapter. Agents without a raw hook retain generic discovery.
+
+ACP publication distinguishes a complete catalog (including `[]`) from a current-model-only
+update. Complete observations replace membership in both metadata aliases; partial current-model
+updates preserve the existing catalog and its observation time. Producers can supply the original
+`observedAt` when reprojecting options in a previously observed catalog; this does not renew its
+freshness. Config-derived model catalogs use
+the same distinction. Cursor's backend owns its merged standard/proprietary catalog, so the generic
+config publisher does not publish a competing standard-only list.
+
+Pi catalog discovery (development source) runs through a shared extension inside the selected Pi
+process. Preflight uses a no-input, no-session print invocation; runtime refresh runs in the background
+on Pi's session-start event. Both await the same authenticated Pi model registry refresh before
+publishing structured descriptors, preserving upstream names and reasoning support. The runtime's
+early `get_available_models` snapshot is not a new catalog observation. Explicit refresh passes
+`force` to Pi's existing registry; ordinary refresh retains Pi's cache policy. Only providers with
+configured auth are refreshed, and the preflight uses the same broker-extension arguments as the
+session launcher. No Happier-side provider catalog HTTP client or extra catalog cache is added.
+Offline or failed discovery does not create a fresh observation. Older Pi refresh APIs without a
+completion receipt return structured local choices through the existing static/error fallback;
+these cannot replace a previous successful dynamic observation. The shared discovery resource
+retains its last good result and exposes the failure.
+The preflight subprocess remains bounded by the containing probe deadline and cannot send a prompt
+or resume the user's session.
+
+The installed Pi 0.84.4 registry has an upstream limitation: a refresh superseded by another internal
+refresh can return a successful receipt before its replacement completes. Happier uses the public
+registry contract and cannot detect that case reliably; no private-registry workaround or additional
+retry loop is added. Correcting that receipt at Pi's refresh owner is required for a complete freshness
+guarantee under concurrent internal refreshes.
+
+OpenCode preflight, runtime selection and compaction share the provider's model-eligibility rule:
+an active text-input model is selectable without requiring tool support. Successful empty inventories
+replace old choices; failed or malformed inventories retain the last successful observation.
+
 A provider with both surfaces needs **one owner** for the model list. Claude's is
 `apps/cli/src/backends/claude/models/resolveClaudeModelCatalog.ts`: the preflight probe adapter and
 the in-session `sessionModelsV1` publisher both read it, so the two pickers cannot disagree about
@@ -193,6 +260,11 @@ For Claude, a successful account response is authoritative for membership and AP
 facts; curated rows only enrich matching ids and serve as the fallback before the first success. A
 later failed refresh retains the bounded last successful account snapshot, serves it during the
 failure cooldown, and retries discovery after that cooldown without replacing it on repeat failure.
+The session publisher combines the latest catalog contribution with the latest Agent SDK
+contribution; historical persisted unions do not establish current membership. Replacing a
+contribution removes its withdrawn rows and optional controls.
+Effective-current-model observations supply the selected model's context facts through that same
+reconciler without granting historical catalog rows membership again.
 Effort tiers are resolved once when the session mode is built and travel on the mode, so spawn-time
 resolution and launch-option hashing see the same value and hashing stays pure.
 

@@ -182,6 +182,101 @@ a process running as the user could defeat any of them. `happierCli.ts` addition
 a managed CLI is reacquired once and then fails by name, and an override CLI fails immediately
 without reacquisition.
 
+### One default channel per Happier home
+
+A Happier home has one default `happier` command and one default-following background service, and
+both belong to the **default release channel** (`default-cli-release-channel.json`; the service runs
+that channel's `~/.happier/bin/happier` shim). Two rules keep a second channel from fighting it:
+
+- **Installing another channel never takes the default.** `installVersionedPayload` keeps the
+  recorded default channel (marker and `happier` shim) whenever that channel's managed CLI is
+  installed; the installed channel only gets its own shim (`hprev`, `hdev`). It becomes the default
+  on a first install into an empty home, or when the user chose it explicitly — the official
+  installers' `self __install-payload --channel` passes `selectAsDefaultReleaseChannel`. So a desktop
+  app, a `self update` or any other acquisition of a second channel never changes which CLI the
+  user's terminal and the service run.
+- **An app of another channel adopts the default channel's CLI.** hsetup resolves the CLI through
+  `resolveLocalHappierCliReleaseRing` (`apps/bootstrap/src/systemTasks/happierCli.ts`): while the
+  default channel's managed CLI is installed, a preview app on a stable home drives status, relay,
+  pairing and service commands through the stable CLI. Every ownership and version check therefore
+  compares the running daemon with the CLI its service actually runs, and the install dry-run never
+  proposes replacing the default channel's service. With no managed CLI of the default channel, the
+  app's own channel is acquired (and, being the first install, becomes the default). An env override
+  (`HAPPIER_BOOTSTRAP_CLI_PATH`) still wins over both.
+
+`daemon.service.status.v1` reports the answering CLI's update state as `cli.update`
+(`{ currentVersion, latestVersion, updateAvailable, managed }` plus the K5 facts below, from
+`happier daemon status --json` → `cliUpdate` — never a network read on that path; a stale cache is
+refreshed by the existing detached `self check`). A `start` issued while the service's own daemon
+still runs another CLI version is promoted to `restart` on every platform (`systemctl start` on an
+active unit is a no-op).
+
+### One CLI update transaction (plan R13 f)
+
+`runManagedCliUpdate` (`packages/cli-common/src/firstPartyRuntime/runManagedCliUpdate.ts`) is the
+only way a managed first-party CLI is updated in place. `happier self update`, the desktop's
+bootstrap `cli.update.v1` and the daemon-hosted remote `cli.update.v1` all run it, always from the
+version being replaced:
+
+1. **One target version.** The ring's newest release (or `--to <exact version>`, tag
+   `cli-v<version>`) is resolved once by the acquisition owner
+   (`prepareFirstPartyComponentPayloadFromGitHubRelease`, every OS including Windows) and downloaded
+   with its minisign-verified checksums; every later step is bound to that version.
+2. **Smoke.** The staged executable's `--version` must equal the target, or nothing is activated
+   (`cli_update_smoke_failed`).
+3. **Capture, then activate without pruning,** under the install mutation lock
+   (`withFirstPartyPayloadMutationLock`: `<installRoot>.mutation.lock` names its holder's pid; a
+   second installer/update fails at once with `FIRST_PARTY_PAYLOAD_MUTATION_IN_PROGRESS`, a lock
+   whose holder died is taken over; `installVersionedPayload` takes the same lock). The capture
+   (`restoreInstalledPayloadState.ts`) records the `current`/`previous` markers (which name the
+   pointer targets), the default-channel record, and moves aside every shim the activation will
+   rewrite — renaming works on a running Windows `.exe` where deleting it does not.
+4. **Restart and prove,** only when the service's own daemon was running before the update: through
+   the CLI service owner (`daemon service restart` run by the activated binary — its ownership wait
+   is the budget), then the owner must report the target version. `last-update.json` says
+   `pendingReconnect` meanwhile.
+5. **Commit** (drop the moved-aside shims, prune to current + previous) **or restore** everything
+   captured and restart the previous binary. Rollback happens only when activation or that local
+   proof failed — never because the relay is unreachable: a machine that is offline after a good
+   local restart has updated. A restore that itself fails is reported `failed`, never `rolledBack`.
+6. **Record** the outcome in `<installRoot>/last-update.json` (`CliUpdateLastResultSchema`).
+
+The service decision is one predicate per caller boundary: the CLI plans it from the daemon owner
+observed before the update (`planServiceDaemonRestartAfterUpdate`: this channel's own service
+label, never a manual daemon or another channel's service); bootstrap reads `daemon status --json`
+through `createSelectedCliInvocation` (inherited relay selectors cleared, so the daemon it verifies
+is the one the service runs). Windows `self update` still stops the payload's processes before
+activation (`quiesceInstalledCliWindowsPayloadOwners`, as the installer does).
+
+**Rolling back across a migration.** The previous version must read whatever the new one wrote
+before it failed. Every predecessor that can run this transaction is ≥ 0.2.13 (the transaction
+ships in the CLI and in the desktop's hsetup, whose setup floor is 0.2.13), and the persisted
+formats a new daemon may migrate at start are forward-tolerant within 0.2 (settings
+`SUPPORTED_SCHEMA_VERSION` 6 is unchanged since 0.2.12 and a newer schema only logs a warning). No
+0.2 release forbids rollback; the first release whose migration an older reader cannot read must add
+a rollback floor to this transaction before it ships.
+
+**K5 — per-machine update facts.** `readCliUpdateFacts` (`apps/cli/src/cli/runtime/update/cliUpdateFacts.ts`,
+schema `CliUpdateFactsSchema` in `@happier-dev/protocol`) reports `currentVersion`, the ring-filtered
+cached `latestVersion`, `channel`, `installSource` (`managed` only when the running executable is
+inside its ring's recorded install; npm/brew name their own update command), `updateCommand`,
+`canUpdateRemotely` and `lastUpdate`. Every daemon publishes it in its encrypted machine metadata
+as `cliUpdate` on its first connect after start, and `daemon status --json` extends `cliUpdate`
+with it. The update-check cache has one writer (`self check`, `recordCliUpdateCheck`) and one
+ring-filtered reader (`readCachedCliUpdateState`, `packages/cli-common/src/update`) used by the
+notice, the status, doctor repair and K5; doctor never writes it or calls npm itself.
+
+**Remote.** The daemon's `tool.systemTasks` capability lists `cli.update.v1` only when
+`canUpdateRemotely` (presence = capability; older daemons never list it). The kind starts
+`self update` detached from the daemon's own binary (output to `logs/cli-update-<ms>.log`) and
+answers `{ started: true, currentVersion, channel, logPath }` at once; the updater outlives the
+service restart because systemd uses `KillMode=process` and launchd `AbandonProcessGroup`. The
+outcome is observed when the machine reconnects: its metadata carries the new (or restored)
+version and `lastUpdate`. npm/Homebrew installs are refused with their exact update command
+(`cli_not_managed`). Windows reports `canUpdateRemotely: false`: its update stops the payload's
+processes with `taskkill /T`, which would end the updater (a descendant of the daemon), and Task
+Scheduler's treatment of a detached descendant across `/End` is unverified.
+
 ### App → CLI, with no ambient fallback
 
 The relay direction is one-way at setup: the **app** tells the CLI which relay to use. The
@@ -193,6 +288,60 @@ than an echo of an app-side id. It never reads the CLI's currently configured re
 what let setup silently configure the wrong relay. The two stores stay separate on purpose: the
 app persists its own server profiles and the CLI persists its own; pairing is the bridge, and
 `server set` is the only direction that crosses.
+
+Every command a setup run issues goes through one relay context built once from the target
+(`createSetupCliScope`, `apps/bootstrap/src/systemTasks/localDaemonCli.ts`, plan R13 a). Both of its
+invocations clear every server selector the app process inherited (`HAPPIER_SERVER_URL`,
+`HAPPIER_WEBAPP_URL`, `HAPPIER_LOCAL_SERVER_URL`, `HAPPIER_PUBLIC_SERVER_URL`,
+`HAPPIER_ACTIVE_SERVER_ID`, `HAPPIER_DAEMON_LIFECYCLE_SCOPE_ID` — a stack/dev launch exports them,
+and the CLI prefers an env-selected profile over a URL it does not match), so a launch pinned to one
+relay can never preview another and then write to its own. `target` adds the selected relay through
+the CLI's env server selection for the reads made before the run may select it; `selected` answers
+for this home's persisted selection — before `server set` the relay the default-following service
+serves (the lifecycle observation), from `server set` on the target (pairing, service
+install/start). One context rule covers reads and writes: every other command bootstrap issues
+about this computer — the app's status read `daemon.service.status.v1`, service
+start/stop/autostart, `cli.update.v1`'s restart and verification — runs with the same cleared
+selectors (`createSelectedCliInvocation`, the default for any invocation without an explicit
+environment), so the app proves ready exactly the relay setup wrote even under a stack pin. PATH
+exposure keeps the process environment (it is not relay-scoped).
+
+The install dry-run that decides consent runs **before** `server set` (no mutation before consent),
+so hsetup scopes it to the relay the app selected through the CLI's env server selection
+(`HAPPIER_SERVER_URL`/`HAPPIER_WEBAPP_URL`/`HAPPIER_LOCAL_SERVER_URL`, nothing persisted): ownership,
+takeover and conflicts are per-relay facts, and judging them against the CLI's previous relay would
+block on a pinned service that does not conflict or offer to take over a manual daemon the apply can
+never reach. The same dry-run reports an installed service whose definition would switch between a
+user-installed CLI (npm, Homebrew) and the managed CLI — in either direction — as an
+`installConflict` with `runtimeReplacement: { current, replacement }`, so the existing service-consent prompt names both
+before anything is rewritten; the consented apply rewrites it even where the definition comparator
+treats launchers as equivalent (macOS). `service start` / `restart` refresh a drifted definition
+(new template arguments, a moved node path) but never make that switch: the same
+`describeDaemonServiceRuntimeReplacement` predicate — the launcher crossing the managed install
+layout boundary (`isManagedCliDaemonServiceLauncher`: a managed shim or a payload under a channel's
+install root) either way — leaves the definition as it is and starts what is installed, so the
+desktop's quiet start of a stopped service (D6) runs the CLI the service already runs and any switch
+goes through the install dry-run's consent and the strict install.
+
+**One CLI per computer (plan R12).** That consent is asked at most once per decision: when the
+executor has asked "Let Happier manage it / Keep my own" (prompt `setup.cliChoice`, before any write;
+see [One CLI per computer](binary-runtime.md#one-cli-per-computer-plan-r12)), a recorded **manage**
+answer — **manage** or **own** — is the consent for a dry-run whose only change is
+`runtimeReplacement` (no competing services, nothing to remove, no takeover), and the apply runs
+`--replace-existing` without a second prompt; its failure fails setup rather than being logged and
+skipped (plan R13 b). Account and relay consent stay separate. After **Keep my own**,
+`resolveManagedDaemonServiceShimPath` returns no managed shim for this Happier home, so the kept
+CLI's `service install` targets that CLI itself, and a service that ran the managed shim is reported
+as the `runtimeReplacement` toward it and switched by that install — never by a start/restart
+refresh. Settings ›
+This computer › Command line names the answer ("Managed by Happier" / "Your own — path"), shows the
+old copy's removal command after **manage**, and its change action reruns the same setup run with
+`reconsiderCli: true`.
+
+`auth status` and the daemon status block of `happier daemon status` name the relay by host and the
+signed-in account by its readable label (profile username, else display name) and a short id, and
+their JSON carries `accountLabel`/`relayHost` (`auth status`) and `auth.accountLabel` (`daemon
+status`), so a person can compare this computer's identity with the app's.
 
 Readiness is never claimed from the executor's success. It is re-read afterwards from
 `happier daemon status --json`, whose `runtimeConvergence` block describes the *running* daemon —
@@ -289,7 +438,10 @@ no `prevent_exit`, so it would skip the handoff entirely. The app menu mirrors t
 for item (About, Services, Hide, Edit, View, Window, Help, keeping tauri's own Window/Help submenu ids
 so macOS still gets the window list and Help search) and replaces only Quit. Windows and Linux get no
 app menu from tauri at all, which is why the tray is not optional there: it is both their only Quit
-and their only way to reopen a window that close merely hid.
+and their only way to reopen a window that close merely hid. The tray itself is only the monochrome
+Happier mark (a template image on macOS), with no title and no status colour; clicking it on any
+platform opens its menu: a disabled status line (`label · detail` from `buildDesktopTrayState`),
+**Open Happier**, and **Quit Happier** (`src-tauri/src/tray.rs`).
 
 The gestures marked **No** terminate the process without an `ExitRequested`, so the background service
 is left exactly where it was — the same safe direction as a crash, and the reason the handoff never
@@ -304,17 +456,70 @@ meaning — it names their *default* relay, so any navigation-, notification-, d
 focus-driven server change that lands back on it is indistinguishable from the user choosing it.
 So the direct action records a one-shot in-memory intent
 (`apps/ui/sources/setup/directRelaySelectionIntent.ts`) before it switches the connection, and the
-authenticated setup gate spends that intent exactly once. Nothing is persisted: an unconsumed
+desktop setup lifecycle spends that intent exactly once. Nothing is persisted: an unconsumed
 intent is simply forgotten when the app run ends. Group selection records nothing — a group names
 several relays and cannot name one daemon target.
 
-A relay change is not the only move: the same relay under a **different account** re-pairs this
-computer's service to that account, so it takes the same consent decision rather than ordinary
-convergence. That decision (`relayReconciliationConsent.ts`) is silent only when the current facts
-prove the service is the app's own **default-following** installation, sitting where the app last
-put it, under an account that does not contradict the app's. A `pinned` service, or one whose
-`targetMode` is UNKNOWN, is asked about once — and the device-local "always move my
-default-following service" preference cannot reach past either.
+A relay change is not the only move: a daemon validated for a **different account** than the one
+the app is on now loses this computer when the executor claims it with `--replace-existing`, whoever
+set it up — the app's own service, a manual daemon, or a CLI signed in from a terminal with no
+service at all. So an account move always asks, names both accounts, and says the other account will
+no longer reach this computer; it is measured against the app's **current** account (signing out of
+A and into C in one run still asks), and it is asked on an explicit "Connect this computer here" too
+(`desktopSetupCoordinator.startSetup`). The executor is the enforcement point: **before any write** (before `server set` and
+PATH exposure) it reads `auth status` for the target relay's saved credentials — the ones
+`--replace-existing` would replace — through the same `target` invocation as the dry-run (the CLI resolves
+the persisted profile matching `HAPPIER_SERVER_URL` and its credential directory), and when they are
+validated for another account (`setupReplacesValidatedAccount`,
+`@happier-dev/protocol`, the one rule the app's early question also uses) it asks through the
+`setup.accountConsent` prompt, answered by the app's one account question, and stops with
+`account_consent_declined` when kept — the terminal's relay, credentials and service are untouched.
+If the credentials read after `server set` belong to yet another account (signed in meanwhile), it
+stops with `account_changed_during_setup` before pairing. That covers every fact the app could not see before the run:
+an ambient read the relay did not answer (the coordinator also re-reads such facts before deciding),
+a terminal signed in again since, or saved credentials of another relay. When the app already asked,
+the run carries `replaceAccountId` for exactly that account, so only a different account is asked
+again. The relay decision (`relayReconciliationConsent.ts`) is silent
+only when the current facts prove the service is the app's own **default-following** installation,
+sitting where the app last put it; its question names both relay hosts. A `pinned` service, or one
+whose `targetMode` is UNKNOWN, is asked about — and the device-local "always move my
+default-following service" preference cannot reach past either, nor past any account move.
+
+"Keep it as is" is remembered on this device for the daemon it was said about — its relay and
+validated account — through the same device-local settings owner as "always move". While the daemon
+still has that identity, relaunches and later reconciliations neither ask again nor show the setup
+panel; the drift card ("Connect this computer here") is the way back. A daemon that moves or signs
+in as someone else is a new question.
+
+Every blocked setup state also offers **Continue without this computer**: the panel steps aside
+through the same decline path a "keep" answer takes, nothing claims ready, and the next launch tries
+again. A stopped service that is otherwise the app's own — on-demand after the last quit, or at-login
+and stopped by something else — gets the same quiet start with nothing on screen; only a service
+that still does not converge afterwards reaches the executor.
+
+### Desktop setup never blocks the app
+
+After sign-in, and on every relaunch, the desktop app opens straight away. Setting up this computer
+runs beside it and never holds accounts, other machines, sessions or settings behind it.
+
+- **One lifecycle, at the shell.** `DesktopLocalSetupRuntime` (`apps/ui/sources/setup/`) is mounted
+  once by the root layout for an authenticated desktop window (never in the pet overlay, never
+  before sign-in). It drives `useDesktopLocalSetupGate` — inspection, the quiet start,
+  reconciliation, the executor and the readiness proof — whichever route the app opened on, so a
+  cold deep link into a session or Settings gets the same app-open work as the Home. Sign-out
+  unmounts it.
+- **Presentation on the Home.** `DesktopLocalSetupPanel` docks the setup surface (progress, an
+  honest failure sentence, Retry or Update, Continue without this computer, Details) under the Home
+  content. It owns no state: leaving the Home never pauses setup, and returning shows the same run.
+  The panel never takes keyboard focus; its sentence is announced through a polite live region.
+- **Consent** is asked by the operation that needs it, as the existing focused alerts; declining
+  leaves the daemon untouched and the app usable.
+- **Fails closed.** Readiness still needs converged facts and one successful read-only machine RPC.
+  Until then this computer is not declared ready, and the panel says why. A failed first setup is
+  never silently optional: the panel stays, and setup runs again on the next launch.
+- Starting a session on this computer before it is ready uses the existing entry: with no machine,
+  `/new` shows the getting-started guidance whose "Set up this computer" opens
+  Settings › This computer.
 
 ## Local state and configuration
 
