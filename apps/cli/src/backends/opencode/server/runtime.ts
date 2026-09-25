@@ -49,10 +49,8 @@ import {
   projectOpenCodeSessionMcpServers,
 } from './openCodeMcpToolNames';
 import {
-  isKnownUnavailableOpenCodeModel,
-  modelIsActive,
+  isOpenCodeModelSelectable,
   modelSupportsReasoningVariants,
-  modelSupportsTextInput,
   parseOpenCodeModelId,
   resolveOpenCodeDefaultProviderIdFromModelId,
 } from './openCodeModelParsing';
@@ -791,7 +789,10 @@ export function createOpenCodeServerRuntime(params: {
       const [config, agents, providers] = await Promise.all([
         c.globalConfigGet().catch(() => ({})),
         c.agentsList().catch(() => []),
-        c.providersList().catch(() => []),
+        c.providersList().catch(() => {
+          logger.infoFile('[OpenCodeServer] Model discovery failed; retaining the last available model list');
+          return null;
+        }),
       ]);
 
       const defaultModelId = typeof (config as any)?.model === 'string' ? String((config as any).model).trim() : '';
@@ -813,9 +814,7 @@ export function createOpenCodeServerRuntime(params: {
         for (const key of keys) {
           const modelRec = modelsRec[key];
           const modelId = normalizeString(asRecord(modelRec)?.id) || key;
-          if (isKnownUnavailableOpenCodeModel({ providerID: providerId, modelID: modelId })) continue;
-          if (!modelIsActive(modelRec)) continue;
-          if (!modelSupportsTextInput(modelRec)) continue;
+          if (!isOpenCodeModelSelectable({ providerID: providerId, modelID: modelId, modelRecord: modelRec })) continue;
           const fullId = `${providerId}/${modelId}`;
           const name = normalizeString(asRecord(modelRec)?.name) || modelId;
           const description = normalizeString(asRecord(modelRec)?.family) || '';
@@ -853,9 +852,11 @@ export function createOpenCodeServerRuntime(params: {
         (selectedModelId && availableModelIds.has(selectedModelId) ? selectedModelId : '')
         || (defaultModelId && availableModelIds.has(defaultModelId) ? defaultModelId : '')
         || availableModels[0]?.id
-        || '';
-      currentContextWindowTokens =
-        availableModels.find((model) => model.id === currentModelId)?.contextWindowTokens ?? null;
+        || selectedModelId || defaultModelId || 'default';
+      if (providers !== null) {
+        currentContextWindowTokens =
+          availableModels.find((model) => model.id === currentModelId)?.contextWindowTokens ?? null;
+      }
       const snapshot = await params.session.ensureMetadataSnapshot({ timeoutMs: 60_000 }).catch(() => null);
       if (!snapshot) return;
 
@@ -876,20 +877,22 @@ export function createOpenCodeServerRuntime(params: {
           currentModeId,
           availableModes,
         },
-        sessionModelsV1: {
-          v: 1,
-          provider,
-          updatedAt,
-          currentModelId,
-          availableModels,
-        },
-        acpSessionModelsV1: {
-          v: 1,
-          provider,
-          updatedAt,
-          currentModelId,
-          availableModels,
-        },
+        ...(providers !== null ? {
+          sessionModelsV1: {
+            v: 1 as const,
+            provider,
+            updatedAt,
+            currentModelId,
+            availableModels,
+          },
+          acpSessionModelsV1: {
+            v: 1 as const,
+            provider,
+            updatedAt,
+            currentModelId,
+            availableModels,
+          },
+        } : {}),
       }));
     })().catch((error) => {
       logger.debug('[OpenCodeServer] Failed publishing session options metadata (non-fatal)', error);
@@ -934,9 +937,7 @@ export function createOpenCodeServerRuntime(params: {
       for (const [modelKey, modelValue] of Object.entries(models)) {
         const model = asRecord(modelValue);
         const modelID = normalizeString(model?.id) || modelKey;
-        if (isKnownUnavailableOpenCodeModel({ providerID: providerId, modelID })) continue;
-        if (!modelIsActive(model)) continue;
-        if (!modelSupportsTextInput(model)) continue;
+        if (!isOpenCodeModelSelectable({ providerID: providerId, modelID, modelRecord: model })) continue;
         return {
           providerID: providerId,
           modelID: normalizeString(model?.id) || modelKey,
@@ -945,22 +946,6 @@ export function createOpenCodeServerRuntime(params: {
     }
 
     throw new Error('OpenCode server compactContext requires an active model');
-  };
-
-  const modelIsSelectable = (model: Readonly<{
-    providerID: string;
-    modelID: string;
-    modelRecord?: unknown;
-  }>): boolean => {
-    const providerID = normalizeString(model.providerID);
-    const modelID = normalizeString(model.modelID);
-    if (!providerID || !modelID) return false;
-    if (isKnownUnavailableOpenCodeModel({ providerID, modelID })) return false;
-
-    const record = asRecord(model.modelRecord);
-    if (!record) return true;
-    if (!modelIsActive(record)) return false;
-    return modelSupportsTextInput(record);
   };
 
   const findModelForProvider = (
@@ -975,7 +960,7 @@ export function createOpenCodeServerRuntime(params: {
     const providerInfo = providers.find((providerRecord) => normalizeString(providerRecord.id) === normalizedProviderId);
     const models = asRecord(providerInfo?.models);
     if (!models) {
-      return modelIsSelectable({ providerID: normalizedProviderId, modelID: normalizedModelId })
+      return isOpenCodeModelSelectable({ providerID: normalizedProviderId, modelID: normalizedModelId })
         ? { providerID: normalizedProviderId, modelID: normalizedModelId }
         : null;
     }
@@ -984,7 +969,7 @@ export function createOpenCodeServerRuntime(params: {
       ?? Object.values(models).find((candidate) => normalizeString(asRecord(candidate)?.id) === normalizedModelId);
     if (!modelRecord) return null;
     const resolvedModelId = normalizeString(asRecord(modelRecord)?.id) || normalizedModelId;
-    return modelIsSelectable({ providerID: normalizedProviderId, modelID: resolvedModelId, modelRecord })
+    return isOpenCodeModelSelectable({ providerID: normalizedProviderId, modelID: resolvedModelId, modelRecord })
       ? { providerID: normalizedProviderId, modelID: resolvedModelId }
       : null;
   };
@@ -1030,7 +1015,7 @@ export function createOpenCodeServerRuntime(params: {
 
     const parsed = parseOpenCodeModelId(trimmed);
     if (parsed) {
-      if (!modelIsSelectable(parsed)) return null;
+      if (!isOpenCodeModelSelectable(parsed)) return null;
       return options.validateQualifiedModel === true
         ? await validateQualifiedModelAgainstProviderInventory(parsed)
         : parsed;
@@ -1055,7 +1040,7 @@ export function createOpenCodeServerRuntime(params: {
     if (matches.length === 1) return matches[0];
 
     if (defaultProviderId) {
-      return modelIsSelectable({ providerID: defaultProviderId, modelID: trimmed })
+      return isOpenCodeModelSelectable({ providerID: defaultProviderId, modelID: trimmed })
         ? { providerID: defaultProviderId, modelID: trimmed }
         : null;
     }

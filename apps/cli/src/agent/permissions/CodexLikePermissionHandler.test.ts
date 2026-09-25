@@ -4,6 +4,7 @@ import { CodexLikePermissionHandler } from './CodexLikePermissionHandler';
 import { SessionPermissionRpcRouter } from './sessionPermissionRpcRouter';
 import { createRunScopedExecutionPermissionHandler } from '@/agent/executionRuns/runtime/runScopedExecutionPermissionHandler';
 import { createExecutionRunPermissionHandler } from '@/agent/executionRuns/policy/executionRunPermissionDecision';
+import { PUBLIC_RPC_HANDLER_ERROR_CODES } from '@happier-dev/protocol/rpcErrors';
 
 class FakeRpcHandlerManager {
   handlers = new Map<string, (payload: any) => any>();
@@ -134,6 +135,40 @@ describe('CodexLikePermissionHandler', () => {
         'Which session export behavior should the plan target?': ['Single JSON'],
       },
     });
+  });
+
+  it('accepts a structured question answer after a completed turn resets the handler', async () => {
+    const session = new FakeSession();
+    const handler = new CodexLikePermissionHandler({ session: session as any, logPrefix: '[Test]' });
+    const previous = handler.handleToolCall('previous-turn-question', 'AskUserQuestion', {
+      questions: [{ question: 'Previous?', options: [{ label: 'Yes' }] }],
+    });
+    handler.reset();
+    await expect(previous).rejects.toThrow('Session reset');
+
+    const pending = handler.handleToolCall('next-turn-question', 'AskUserQuestion', {
+      questions: [{ question: 'Continue?', options: [{ label: 'Yes' }] }],
+    });
+    const rpc = session.rpcHandlerManager.handlers.get('session.structuredQuestion.respond.v1');
+    expect(rpc).toBeDefined();
+
+    try {
+      await expect(rpc!({
+        id: 'previous-turn-question',
+        structuredAnswersV1: { 'Previous?': ['Yes'] },
+      })).rejects.toMatchObject({
+        rpcErrorCode: PUBLIC_RPC_HANDLER_ERROR_CODES.STRUCTURED_QUESTION_RECEIVER_NOT_OWNER,
+      });
+      await rpc!({ id: 'next-turn-question', structuredAnswersV1: { 'Continue?': ['Yes'] } });
+      await expect(pending).resolves.toEqual({
+        decision: 'approved',
+        answers: { 'Continue?': ['Yes'] },
+      });
+      expect(session.agentState.requests['next-turn-question']).toBeUndefined();
+    } finally {
+      handler.reset();
+      await pending.catch(() => undefined);
+    }
   });
 
   it('prompts for write-like tools in safe-yolo mode', async () => {

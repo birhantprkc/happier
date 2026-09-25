@@ -25,6 +25,7 @@ type AskUserQuestionEntry = Readonly<{
 }>;
 
 type CodexAsyncUserInputQuestion = Readonly<{
+    index: number;
     title: string;
     responseKey: string;
     options: readonly string[];
@@ -77,6 +78,7 @@ function normalizeCodexAsyncQuestions(params: Readonly<{
         const occurrence = (titleOccurrences.get(title) ?? 0) + 1;
         titleOccurrences.set(title, occurrence);
         output.push({
+            index,
             title,
             responseKey: occurrence === 1 ? title : `${title} (${occurrence})`,
             options,
@@ -183,17 +185,32 @@ export function buildCodexAsyncUserInputReply(params: Readonly<{
     itemId: string;
     questions: unknown;
     answersByKey: Readonly<Record<string, readonly string[]>>;
-}>): ReadonlyArray<Readonly<{ questionIndex: number; text: string }>> {
-    const replies: Array<Readonly<{ questionIndex: number; text: string }>> = [];
-    for (const [questionIndex, question] of normalizeCodexAsyncQuestions(params).entries()) {
+}>): Readonly<{ text: string; displayText: string }> | null {
+    const replies: Array<{ answer: string; question: string; questionItemId: string }> = [];
+    const fallbackReplies: string[] = [];
+    const displayBlocks: string[] = [];
+    for (const question of normalizeCodexAsyncQuestions(params)) {
         const answer = readCodexAsyncAnswer(question, params.answersByKey);
         if (!answer) continue;
-        // Match Codex's own async-question client framing: a bounded quoted question followed by
-        // the ordinary user answer. No provider RPC or reply envelope exists for this feature.
         const boundedQuestion = truncateUtf8AtCharacterBoundary(question.title, 512).replace(/[\n\r]/g, ' ');
-        replies.push({ questionIndex, text: `> ${boundedQuestion}\n\n${answer}` });
+        const questionItemId = JSON.stringify(['request_user_input_async', params.itemId, question.index]);
+        if (Buffer.byteLength(questionItemId, 'utf8') > 512) {
+            fallbackReplies.push(`> ${boundedQuestion}\n\n${answer}`);
+        } else {
+            replies.push({ answer, question: boundedQuestion, questionItemId });
+        }
+        displayBlocks.push(`> ${boundedQuestion}\n\n${answer}`);
     }
-    return replies;
+    if (replies.length === 0 && fallbackReplies.length === 0) return null;
+    return {
+        text: [
+            ...(replies.length > 0
+                ? [`<send_user_message_question_reply>\n${JSON.stringify(replies)}\n</send_user_message_question_reply>`]
+                : []),
+            ...fallbackReplies,
+        ].join('\n\n'),
+        displayText: displayBlocks.join('\n\n'),
+    };
 }
 
 function readQuestionOptions(question: RecordLike): ReadonlyArray<RecordLike> {

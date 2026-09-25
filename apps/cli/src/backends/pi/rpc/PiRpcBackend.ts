@@ -23,6 +23,7 @@ import { killProcessTree } from '@/agent/runtime/process/killProcessTree';
 import { materializeProtectedTempTextArtifact, type ProtectedTempTextArtifact } from '@/utils/fs/protectedTempTextArtifact';
 import { PI_BRIDGE_CONFIG_PATH_FLAG } from '@/backends/pi/bridgeExtension/piBridgeExtensionEnv';
 import { logger } from '@/ui/logger';
+import { materializePiModelDiscoveryExtension, parsePiModelDiscoveryLine } from '../models/piModelDiscoveryExtension';
 import {
   HAPPIER_CONNECTED_SERVICE_TARGET_MATERIALIZED_ROOT_ENV_KEY,
   readConnectedServiceChildSelectionsFromEnv,
@@ -69,7 +70,6 @@ import type {
   PiRpcCommand,
   PiRpcCommandWithoutId,
   PiRpcCommandsData,
-  PiRpcModelsData,
   PiRpcResponse,
   PiRpcSessionStatsData,
   PiRpcStateData,
@@ -702,6 +702,12 @@ export class PiRpcBackend implements AgentBackend {
   private sessionModelState: { currentModelId: string; availableModels: Array<{ id: string; name: string; description?: string; modelOptions?: unknown[] }> } | null =
     null;
   private runtimeStatePublicationGeneration = 0;
+  private modelDiscoveryArtifact: Awaited<ReturnType<typeof materializePiModelDiscoveryExtension>> | null = null;
+  private sessionModelsRefresh: Deferred<boolean> | null = null;
+  private pendingModelObservation: { models: unknown[]; observedAt: number } | null = null;
+  private modelRuntimeStateReady = false;
+  private currentThinkingLevel = 'medium';
+  private sessionModelsObservedAt: number | null = null;
   private lastPublishedUsageKey: string | null = null;
   /** Latest live context telemetry parsed from the bridge extension's stderr markers, if any. */
   private latestContextTelemetry: PiContextTelemetry | null = null;
@@ -956,6 +962,11 @@ export class PiRpcBackend implements AgentBackend {
    */
   getSessionModelState(): { currentModelId: string; availableModels: Array<{ id: string; name: string; description?: string }> } | null {
     return this.sessionModelState;
+  }
+
+  /** Optional introspection readiness; normal session opening remains nonblocking. */
+  async waitForSessionModels(): Promise<boolean> {
+    return await this.sessionModelsRefresh?.promise ?? false;
   }
 
   /**
@@ -1407,6 +1418,7 @@ export class PiRpcBackend implements AgentBackend {
 
     await abortPendingAcpPermissionRequests(this.permissionHandler, 'Pi backend disposed');
 
+    this.settleModelDiscovery(false);
     this.rejectAllPending(new Error('Pi backend disposed'));
     this.rejectPendingTurn(new Error('Pi backend disposed'));
 
@@ -1469,11 +1481,14 @@ export class PiRpcBackend implements AgentBackend {
   }
 
   private async cleanupProtectedSpawnArtifacts(): Promise<void> {
+    const modelDiscoveryArtifact = this.modelDiscoveryArtifact;
+    this.modelDiscoveryArtifact = null;
     const appendSystemPromptArtifact = this.appendSystemPromptArtifact;
     this.appendSystemPromptArtifact = null;
     const toolsBridgeConfigArtifact = this.toolsBridgeConfigArtifact;
     this.toolsBridgeConfigArtifact = null;
     await Promise.all([
+      modelDiscoveryArtifact?.cleanup(),
       appendSystemPromptArtifact?.cleanup(),
       toolsBridgeConfigArtifact?.cleanup(),
     ]);
@@ -1510,7 +1525,9 @@ export class PiRpcBackend implements AgentBackend {
   }
 
   private async resolveProtectedSpawnArtifactArgs(): Promise<string[]> {
+    this.modelDiscoveryArtifact ??= await materializePiModelDiscoveryExtension({ background: true });
     return [
+      '--extension', this.modelDiscoveryArtifact.path,
       ...(await this.resolveToolsBridgeConfigArgs()),
       ...(await this.resolveAppendSystemPromptArgs()),
     ];
@@ -1555,6 +1572,10 @@ export class PiRpcBackend implements AgentBackend {
     }
 
     const spawnedChild = child as ChildProcessWithoutNullStreams;
+    this.settleModelDiscovery(false);
+    this.sessionModelsRefresh = createDeferred<boolean>();
+    this.pendingModelObservation = null;
+    this.modelRuntimeStateReady = false;
     this.process = spawnedChild;
     const stdoutLineReader = attachPiRpcJsonlLineReader(child.stdout, (line) => {
       if (this.process === spawnedChild) this.handleStdoutLine(line);
@@ -1568,6 +1589,7 @@ export class PiRpcBackend implements AgentBackend {
     const detachSpawnedChild = () => {
       if (this.process !== spawnedChild) return;
       this.process = null;
+      this.settleModelDiscovery(false);
       stdoutLineReader.close();
       stderrLineReader.close();
       if (this.stdoutLineReader === stdoutLineReader) this.stdoutLineReader = null;
@@ -1578,6 +1600,7 @@ export class PiRpcBackend implements AgentBackend {
     const handleIoError = (error: unknown) => {
       if (this.process !== spawnedChild) return;
       const resolved = asError(error);
+      this.settleModelDiscovery(false);
       if (!this.disposed) {
         this.emitMessage({
           type: 'status',
@@ -1848,6 +1871,7 @@ export class PiRpcBackend implements AgentBackend {
       this.stderrLineReader = null;
     }
 
+    this.settleModelDiscovery(false);
     const child = this.process;
     this.process = null;
     if (!child) return;
@@ -2347,6 +2371,20 @@ export class PiRpcBackend implements AgentBackend {
   private handleStderrLine(line: string): void {
     const trimmed = line.trim();
     if (!trimmed) return;
+    const modelObservation = parsePiModelDiscoveryLine(trimmed);
+    if (modelObservation) {
+      if ('error' in modelObservation) {
+        const reason = ['refresh-failed', 'refresh-unsupported', 'offline'].includes(modelObservation.error)
+          ? modelObservation.error
+          : 'invalid-catalog';
+        logger.infoFile(`[pi] Model discovery failed (${reason}); retaining the last available model list`);
+        this.settleModelDiscovery(false);
+      } else {
+        this.pendingModelObservation = { models: modelObservation.models, observedAt: Date.now() };
+        this.publishPendingModelObservation();
+      }
+      return;
+    }
     // Bridge-extension context telemetry markers are consumed programmatically and must not
     // surface as terminal-output noise in the transcript.
     const contextTelemetry = parsePiContextTelemetryMarkerLine(trimmed);
@@ -3167,11 +3205,6 @@ export class PiRpcBackend implements AgentBackend {
     return (asRecord(response.data) ?? {}) as PiRpcStateData;
   }
 
-  private async getAvailableModels(options: PiRpcCommandOptions = {}): Promise<PiRpcModelsData> {
-    const response = await this.sendCommand({ type: 'get_available_models' }, 60_000, options);
-    return (asRecord(response.data) ?? {}) as PiRpcModelsData;
-  }
-
   private async getSessionStats(): Promise<PiRpcSessionStatsData> {
     const response = await this.sendCommand({ type: 'get_session_stats' }, 30_000);
     return (asRecord(response.data) ?? {}) as PiRpcSessionStatsData;
@@ -3180,6 +3213,47 @@ export class PiRpcBackend implements AgentBackend {
   private async getCommands(options: PiRpcCommandOptions = {}): Promise<PiRpcCommandsData> {
     const response = await this.sendCommand({ type: 'get_commands' }, 30_000, options);
     return (asRecord(response.data) ?? {}) as PiRpcCommandsData;
+  }
+
+  private settleModelDiscovery(success: boolean): void {
+    this.sessionModelsRefresh?.resolve(success);
+  }
+
+  private publishPendingModelObservation(): void {
+    if (!this.modelRuntimeStateReady || !this.sessionModelState || this.pendingModelObservation === null) return;
+    const { models, observedAt } = this.pendingModelObservation;
+    this.pendingModelObservation = null;
+    const nextModelProviderById = new Map<string, string>();
+    const nextModels = models.flatMap((entry) => {
+      const model = asRecord(entry);
+      const id = asNonEmptyString(model?.id);
+      const provider = asNonEmptyString(model?.provider);
+      if (!id || !provider) return [];
+      const qualifiedId = qualifyPiModelId(provider, id);
+      const name = asNonEmptyString(model?.name);
+      nextModelProviderById.set(id, provider);
+      if (qualifiedId) nextModelProviderById.set(qualifiedId, provider);
+      const projected = createPiModelCatalogEntry({
+        provider, modelId: id, ...(name ? { name } : {}),
+        supportsThinking: model?.reasoning === true,
+        thinkingEffort: this.currentThinkingLevel,
+      });
+      return projected ? [projected] : [];
+    });
+    if (models.length > 0 && nextModels.length === 0) {
+      logger.infoFile('[pi] Invalid model discovery; retaining the last available model list');
+      this.settleModelDiscovery(false);
+      return;
+    }
+    this.modelProviderById.clear();
+    for (const [id, provider] of nextModelProviderById) this.modelProviderById.set(id, provider);
+    this.sessionModelState = { currentModelId: this.sessionModelState.currentModelId, availableModels: nextModels };
+    this.sessionModelsObservedAt = observedAt;
+    this.emitMessage({
+      type: 'event', name: 'session_models_state',
+      payload: { ...this.sessionModelState, observedAt: this.sessionModelsObservedAt },
+    });
+    this.settleModelDiscovery(true);
   }
 
   private publishRuntimeState(state: PiRpcStateData): void {
@@ -3192,14 +3266,19 @@ export class PiRpcBackend implements AgentBackend {
     if (currentModelProvider) {
       this.currentModelProvider = currentModelProvider;
     }
-    const thinkingLevelFromState = normalizePiThinkingEffort(state.thinkingLevel) ?? 'medium';
+    this.currentThinkingLevel = normalizePiThinkingEffort(state.thinkingLevel) ?? 'medium';
 
     const normalized: Array<{ id: string; name: string; description: string; modelOptions?: unknown[] }> =
       (this.sessionModelState?.availableModels ?? []).map((m) => ({
         id: m.id,
         name: m.name,
         description: m.description ?? '',
-        ...(m.modelOptions ? { modelOptions: m.modelOptions } : {}),
+        ...(m.modelOptions ? { modelOptions: m.modelOptions.map((rawOption) => {
+          const option = asRecord(rawOption);
+          return option?.id === 'reasoning_effort'
+            ? { ...option, currentValue: this.currentThinkingLevel }
+            : rawOption;
+        }) } : {}),
       }));
 
     this.sessionModelState = {
@@ -3209,11 +3288,11 @@ export class PiRpcBackend implements AgentBackend {
 
     this.emitMessage({
       type: 'event',
-      name: 'session_models_state',
-      payload: {
-        currentModelId,
-        availableModels: normalized,
-      },
+      name: this.sessionModelsObservedAt === null ? 'current_model_update' : 'session_models_state',
+      // Reprojecting current options does not observe membership again.
+      payload: this.sessionModelsObservedAt === null
+        ? { currentModelId }
+        : { currentModelId, availableModels: normalized, observedAt: this.sessionModelsObservedAt },
     });
 
     const generation = ++this.runtimeStatePublicationGeneration;
@@ -3226,41 +3305,8 @@ export class PiRpcBackend implements AgentBackend {
       && this.sessionId === sessionId
     );
 
-    void this.getAvailableModels({ processAlreadyEnsured: true }).then((available) => {
-      if (!isCurrentPublication()) return;
-      const models = Array.isArray(available.models) ? available.models : [];
-      const nextModelProviderById = new Map<string, string>();
-      const nextModels = models
-        .map((entry) => {
-          const model = asRecord(entry);
-          const id = asNonEmptyString(model?.id);
-          const provider = asNonEmptyString(model?.provider);
-          if (!id || !provider) return null;
-          const qualifiedId = qualifyPiModelId(provider, id);
-          const name = asNonEmptyString(model?.name);
-          nextModelProviderById.set(id, provider);
-          if (qualifiedId) nextModelProviderById.set(qualifiedId, provider);
-          return createPiModelCatalogEntry({
-            provider,
-            modelId: id,
-            ...(name ? { name } : {}),
-            supportsThinking: model?.reasoning === true,
-            thinkingEffort: thinkingLevelFromState,
-          });
-        })
-        .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
-      if (!isCurrentPublication()) return;
-      this.modelProviderById.clear();
-      for (const [id, provider] of nextModelProviderById) this.modelProviderById.set(id, provider);
-      this.sessionModelState = { currentModelId, availableModels: nextModels };
-      this.emitMessage({
-        type: 'event',
-        name: 'session_models_state',
-        payload: { currentModelId, availableModels: nextModels },
-      });
-    }).catch(() => {
-      // Best-effort: model introspection must not block or fail session lifecycle.
-    });
+    this.modelRuntimeStateReady = true;
+    this.publishPendingModelObservation();
 
     this.availableCommandsKnownForCurrentPublication = false;
     const availableCommandsRefresh = this.getCommands({ processAlreadyEnsured: true }).then((commands) => {

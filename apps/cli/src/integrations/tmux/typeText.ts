@@ -132,7 +132,7 @@ export async function pasteTextViaTmuxBuffer(params: Readonly<{
   text: string;
   bufferName: string;
   submitDelayMs?: number | undefined;
-  submitRetryDelayMs?: number | undefined;
+  postSubmitSettleMs?: number | undefined;
   timeoutMs?: number | undefined;
   wait?: ((delayMs: number) => Promise<void>) | undefined;
   verifyStagedBeforeSubmit?: ((params: Readonly<{ text: string; remainingTimeoutMs?: number | undefined }>) => Promise<boolean>) | undefined;
@@ -263,7 +263,7 @@ export async function pasteTextViaTmuxBuffer(params: Readonly<{
       : {}),
     remainingTimeoutMs: () => remainingTerminalHostDeadlineMs(submissionDeadline),
     wait: params.wait ?? waitFor,
-    submitRetryDelayMs: params.submitRetryDelayMs ?? 0,
+    postSubmitSettleMs: params.postSubmitSettleMs ?? 0,
   });
   progress.submitMayHaveReachedPane = submission.success ? true : submission.submitMayHaveReachedPane;
   if (!submission.success) {

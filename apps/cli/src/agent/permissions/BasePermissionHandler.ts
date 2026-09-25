@@ -697,8 +697,8 @@ export abstract class BasePermissionHandler {
             this.cancelPendingRequests({ reason: 'Session reset' });
 
             this.allowedToolIdentifiers.clear();
-            this.unregisterPermissionRpcConsumer?.();
-            this.unregisterPermissionRpcConsumer = null;
+            // A turn reset can be followed by another request on this handler.
+            // Keep its session RPC subscription; updateSession moves it when the session swaps.
             this.requestStore.dispose();
             logger.debug(`${this.getLogPrefix()} Permission handler reset`);
         } finally {

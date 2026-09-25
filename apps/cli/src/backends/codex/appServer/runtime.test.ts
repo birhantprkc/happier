@@ -7496,7 +7496,7 @@ describe('createCodexAppServerRuntime', () => {
         await runtime.startOrLoad({});
         await runtime.sendPrompt('bridge-async-user-action');
 
-        await waitForCondition(() => enqueueSessionUserMessage.mock.calls.length === 2, {
+        await waitForCondition(() => enqueueSessionUserMessage.mock.calls.length === 1, {
             timeoutMs: 500,
             intervalMs: 10,
             label: 'Codex async question reply admission',
@@ -7525,30 +7525,17 @@ describe('createCodexAppServerRuntime', () => {
                 ],
             },
         );
-        expect(enqueueSessionUserMessage.mock.calls.map(([request]) => request)).toEqual([
-            {
-                text: '> Choose an environment\n\nProduction',
-                localId: 'codex-async-question:async_question_1:0',
-                meta: {
-                    source: 'codex-async-question',
-                    displayText: '> Choose an environment\n\nProduction',
-                    happier: { kind: 'tool-answer-delivery.v1', payload: { toolCallId: 'async_question_1' } },
-                },
-                inputOrigin: 'session_generated',
-                requestedAction: { v: 1, kind: 'steer_if_active' },
+        expect(enqueueSessionUserMessage.mock.calls.map(([request]) => request)).toEqual([{
+            text: expect.stringContaining('"answer":"Production"'),
+            localId: 'codex-async-question:async_question_1',
+            meta: {
+                source: 'codex-async-question',
+                displayText: '> Choose an environment\n\nProduction\n\n> Add release context\n\nShip after tests',
+                happier: { kind: 'tool-answer-delivery.v1', payload: { toolCallId: 'async_question_1' } },
             },
-            {
-                text: '> Add release context\n\nShip after tests',
-                localId: 'codex-async-question:async_question_1:1',
-                meta: {
-                    source: 'codex-async-question',
-                    displayText: '> Add release context\n\nShip after tests',
-                    happier: { kind: 'tool-answer-delivery.v1', payload: { toolCallId: 'async_question_1' } },
-                },
-                inputOrigin: 'session_generated',
-                requestedAction: { v: 1, kind: 'steer_if_active' },
-            },
-        ]);
+            inputOrigin: 'session_generated',
+            requestedAction: { v: 1, kind: 'steer_if_active' },
+        }]);
         expect(sendCodexMessageCommitted).toHaveBeenCalledWith(expect.objectContaining({
             type: 'tool-call',
             callId: 'async_question_1',
@@ -7629,8 +7616,8 @@ describe('createCodexAppServerRuntime', () => {
             label: 'persisted Codex async question reply recovery',
         });
         expect(enqueueSessionUserMessage).toHaveBeenCalledWith(expect.objectContaining({
-            text: '> Choose an environment\n\nProduction',
-            localId: 'codex-async-question:async_question_recovery:0',
+            text: expect.stringContaining('"answer":"Production"'),
+            localId: 'codex-async-question:async_question_recovery',
         }));
         expect(sendCodexMessageCommitted).toHaveBeenCalledWith(expect.objectContaining({
             type: 'tool-call-result',

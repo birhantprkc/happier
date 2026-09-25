@@ -349,9 +349,13 @@ function resolveSseReconnectDelayMs(attempt: number, env: NodeJS.ProcessEnv): nu
 
 function readOpenCodeProviderList(raw: unknown): ReadonlyArray<{ id: string; env?: readonly string[]; models?: Record<string, unknown> }> {
   const record = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : null;
-  const all = Array.isArray(record?.all)
-    ? record.all as Array<{ id?: unknown; env?: readonly string[]; models?: Record<string, unknown> }>
-    : [];
+  if (!Array.isArray(record?.all)) throw new Error('Invalid OpenCode provider inventory');
+  const all = record.all.filter((provider) => {
+    const candidate = provider && typeof provider === 'object' && !Array.isArray(provider)
+      ? provider as Record<string, unknown> : null;
+    return typeof candidate?.id === 'string' && candidate.id.trim().length > 0;
+  }) as Array<{ id: string; env?: readonly string[]; models?: Record<string, unknown> }>;
+  if (record.all.length > 0 && all.length === 0) throw new Error('Invalid OpenCode provider inventory');
   const connectedRaw = Array.isArray(record?.connected) ? record.connected : null;
   if (!connectedRaw) return all as Array<{ id: string; env?: readonly string[]; models?: Record<string, unknown> }>;
 
@@ -1098,7 +1102,7 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
       ]);
       const providers = readWrappedOpenCodeV2Data(providersRaw);
       const models = readWrappedOpenCodeV2Data(modelsRaw);
-      if (!Array.isArray(providers) || !Array.isArray(models)) return [];
+      if (!Array.isArray(providers) || !Array.isArray(models)) throw new Error('Invalid OpenCode provider inventory');
 
       const modelsByProvider = new Map<string, Record<string, unknown>>();
       for (const model of models) {
@@ -1112,13 +1116,16 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
         modelsByProvider.set(providerID, providerModels);
       }
 
-      return providers.flatMap((provider) => {
+      if (models.length > 0 && modelsByProvider.size === 0) throw new Error('Invalid OpenCode provider inventory');
+      const parsedProviders = providers.flatMap((provider) => {
         if (!provider || typeof provider !== 'object' || Array.isArray(provider)) return [];
         const record = provider as Record<string, unknown>;
         const id = typeof record.id === 'string' ? record.id.trim() : '';
         if (!id) return [];
         return [{ ...record, id, models: modelsByProvider.get(id) ?? {} }];
       }) as Array<{ id: string; env?: readonly string[]; models?: Record<string, unknown> }>;
+      if (providers.length > 0 && parsedProviders.length === 0) throw new Error('Invalid OpenCode provider inventory');
+      return parsedProviders;
     },
     mcpAdd: async ({ directory, name, config }) => {
       const serverName = typeof name === 'string' ? name.trim() : '';

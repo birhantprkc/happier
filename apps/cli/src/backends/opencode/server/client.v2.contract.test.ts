@@ -46,6 +46,21 @@ async function makeReleasedV2Client(env: NodeJS.ProcessEnv = {}) {
 describe('OpenCodeServerRuntimeClient released V2 contract', () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it.each([
+    ['/api/provider', {}], ['/api/model', {}],
+    ['/api/provider', { data: [{}] }], ['/api/model', { data: [{}] }],
+  ])('rejects malformed %s inventory (%j) instead of observing an empty inventory', async (malformedPath, payload) => {
+    stubReleasedV2Server((call) => Response.json(call.path === malformedPath ? payload : { data: [] }));
+    const client = await makeReleasedV2Client();
+    await expect(client.providersList()).rejects.toThrow(/provider inventory/i);
+  });
+
+  it('accepts an explicitly empty provider and model inventory', async () => {
+    stubReleasedV2Server(() => Response.json({ data: [] }));
+    const client = await makeReleasedV2Client();
+    await expect(client.providersList()).resolves.toEqual([]);
+  });
+
   it('drives the released session lifecycle with released routes, payloads and envelopes', async () => {
     const session = { id: 'ses_1', location: { directory: '/repo' }, title: 'first' };
     const { calls } = stubReleasedV2Server((call, url) => {

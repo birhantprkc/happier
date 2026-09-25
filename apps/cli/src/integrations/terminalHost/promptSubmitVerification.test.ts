@@ -94,47 +94,34 @@ describe('runTerminalPromptSubmission', () => {
     expect(calls).toEqual(['enter', 'verify-after', 'verify-after']);
   });
 
-  it('settles before verifying and retries enter once when the pasted prompt remains in the composer', async () => {
-    const calls: string[] = [];
-    let stillPending = true;
+  it('waits for a delayed composer redraw within the operation budget without resubmitting', async () => {
+    let elapsedMs = 0;
+    const submitEnter = vi.fn(async () => 'success' as const);
 
     await expect(runTerminalPromptSubmission({
       promptText: 'first\nsecond',
-      submitEnter: async () => {
-        calls.push('enter');
-        return 'success';
-      },
-      verifyAfterSubmit: async () => {
-        calls.push('verify-after');
-        const result = stillPending;
-        stillPending = false;
-        return result;
-      },
-      wait: async (delayMs) => {
-        calls.push(`wait:${delayMs}`);
-      },
-      submitRetryDelayMs: 10,
+      submitEnter,
+      // Claude 2.1.280 can record acceptance before its composer redraws.
+      verifyAfterSubmit: async () => elapsedMs < 500,
+      remainingTimeoutMs: () => Math.max(0, 1_000 - elapsedMs),
+      wait: async (delayMs) => { elapsedMs += delayMs; },
     })).resolves.toEqual({ success: true });
 
-    expect(calls).toEqual([
-      'enter',
-      'wait:10',
-      'verify-after',
-      'wait:10',
-      'enter',
-      'wait:10',
-      'verify-after',
-      'wait:10',
-      'verify-after',
-    ]);
+    expect(submitEnter).toHaveBeenCalledOnce();
+    expect(elapsedMs).toBeGreaterThanOrEqual(500);
+    expect(elapsedMs).toBeLessThanOrEqual(1_000);
   });
 
-  it('fails visibly when the prompt is still pending after the retry enter', async () => {
+  it('keeps delivery ambiguous when the composer remains pending until the operation deadline', async () => {
+    let elapsedMs = 0;
+    const submitEnter = vi.fn(async () => 'success' as const);
+
     await expect(runTerminalPromptSubmission({
       promptText: 'first\nsecond',
-      submitEnter: async () => 'success',
+      submitEnter,
       verifyAfterSubmit: async () => true,
-      wait: async () => {},
+      remainingTimeoutMs: () => Math.max(0, 1_000 - elapsedMs),
+      wait: async (delayMs) => { elapsedMs += delayMs; },
     })).resolves.toEqual({
       success: false,
       reason: 'verification_failed',
@@ -142,6 +129,18 @@ describe('runTerminalPromptSubmission', () => {
       duplicateRisk: 'possible',
       submitMayHaveReachedPane: true,
     });
+
+    expect(submitEnter).toHaveBeenCalledOnce();
+    expect(elapsedMs).toBe(1_000);
+  });
+
+  it('does not invent a retry budget when the caller provides none', async () => {
+    await expect(runTerminalPromptSubmission({
+      promptText: 'first\nsecond',
+      submitEnter: async () => 'success',
+      verifyAfterSubmit: async () => true,
+      wait: async () => {},
+    })).resolves.toMatchObject({ success: false, reason: 'verification_failed' });
   });
 
   it('keeps delivery ambiguous when post-submit verification is unavailable', async () => {

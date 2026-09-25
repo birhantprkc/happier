@@ -539,7 +539,8 @@ export function createAcpRuntime(params: {
   }>) => SessionModelConfigUpdate;
   /**
    * Optional provider-owned derivation for ACP agents whose model config values encode
-   * model-scoped parameters (for example Cursor's `gpt-5.5[reasoning=medium]` values).
+   * model-scoped parameters. A supplied hook owns derivation: null means no catalog
+   * publication, including when a backend publishes its own merged model state.
    */
   deriveSessionModelsFromConfigOptions?: (
     configOptions: ReadonlyArray<SessionConfigOption>,
@@ -1683,11 +1684,12 @@ export function createAcpRuntime(params: {
             const payloadRecord = asRecord(msg.payload);
             const configOptions = normalizeConfigOptionsArray(payloadRecord?.configOptions);
             const derivedModels = (() => {
-              const providerDerivedModels = params.deriveSessionModelsFromConfigOptions?.(configOptions) ?? null;
-              if (providerDerivedModels) return providerDerivedModels;
+              if (params.deriveSessionModelsFromConfigOptions) {
+                return params.deriveSessionModelsFromConfigOptions(configOptions);
+              }
 
-              const modelOpt = configOptions.find(isAcpModelConfigOptionLike) as any;
-              if (!modelOpt || !Array.isArray(modelOpt.options) || modelOpt.options.length === 0) return null;
+              const modelOpt = configOptions.find(isAcpModelConfigOptionLike);
+              if (!modelOpt || !Array.isArray(modelOpt.options)) return null;
               const modelScopedOptions = collectAcpModelScopedConfigOptions(configOptions);
 
               const currentValue = modelOpt.currentValue;
@@ -1698,15 +1700,15 @@ export function createAcpRuntime(params: {
               if (!currentModelId) return null;
 
               const availableModels = modelOpt.options
-                .filter((opt: any) => opt && opt.value !== undefined && typeof opt.name === 'string')
-                .map((opt: any) => ({
+                .filter((opt) => opt.value !== undefined && typeof opt.name === 'string')
+                .map((opt) => ({
                   id: String(opt.value),
                   name: String(opt.name),
                   ...(typeof opt.description === 'string' ? { description: String(opt.description) } : {}),
                   ...(modelScopedOptions.length > 0 ? { modelOptions: modelScopedOptions } : {}),
                 }))
-                .filter((m: any) => m.id && m.name);
-              if (availableModels.length === 0) return null;
+                .filter((m) => m.id && m.name);
+              if (modelOpt.options.length > 0 && availableModels.length === 0) return null;
 
               return { currentModelId, availableModels };
             })();
@@ -1797,28 +1799,14 @@ export function createAcpRuntime(params: {
             }
           }
           if (name === 'current_model_update') {
-            const payloadRecord = asRecord(msg.payload);
-            const currentModelIdRaw = payloadRecord?.currentModelId;
-            const currentModelId = typeof currentModelIdRaw === 'string' ? currentModelIdRaw : '';
-            if (currentModelId) {
-              publishRuntimeMetadataBestEffort(
-                (metadata) => {
-                  const prev = (metadata as any).acpSessionModelsV1 as any;
-                  const availableModels = Array.isArray(prev?.availableModels) ? prev.availableModels : [];
-                  return {
-                    ...metadata,
-                    acpSessionModelsV1: {
-                      v: 1,
-                      provider: params.provider,
-                      updatedAt: Date.now(),
-                      currentModelId,
-                      availableModels,
-                    },
-                  };
-                },
-                'current_model_update',
-              );
-            }
+            publishAcpSessionModelsState({
+              session: { updateMetadata: (updater) => publishRuntimeMetadataBestEffort(updater, 'current_model_update') },
+              provider: params.provider,
+              payload: msg.payload,
+              logPrefix: `[${params.provider}]`,
+              reason: 'current_model_update',
+              preservePreviousAvailableModels: true,
+            });
           }
           if (name === 'thinking') {
             const payloadRecord = asRecord(msg.payload);

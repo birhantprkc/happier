@@ -1331,6 +1331,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
                 if (!didPublishSessionModelsMetadata) {
                     didPublishSessionModelsMetadata = true;
                     void publishClaudeSessionModelsMetadataBestEffort({
+                        reconcileModels: sessionInstance.reconcileSessionModels,
                         cwd: workingDirectory,
                         timeoutMs: resolveClaudeHelpProbeTimeoutMs(),
                         currentModelId,
@@ -2152,6 +2153,7 @@ async function runClaudeLocalFastStart(credentials: Credentials, options: StartO
                             if (!didPublishSessionModelsMetadata) {
                                 didPublishSessionModelsMetadata = true;
                                 void publishClaudeSessionModelsMetadataBestEffort({
+                                    reconcileModels: sessionInstance.reconcileSessionModels,
                                     cwd: workingDirectory,
                                     timeoutMs: resolveClaudeHelpProbeTimeoutMs(),
                                     currentModelId,

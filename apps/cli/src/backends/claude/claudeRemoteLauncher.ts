@@ -862,6 +862,7 @@ export async function claudeRemoteLauncher(
         if (effectiveModelId) {
             applyClaudeEffectiveModelUpdate({
                 client: session.client,
+                reconcileModels: session.reconcileSessionModels,
                 modelId: effectiveModelId,
                 source: 'sdk',
                 logPrefix: '[remote]',
@@ -1703,6 +1704,7 @@ export async function claudeRemoteLauncher(
                             (metadata) => {
                                 const modelsMetadata = buildClaudeSessionModelsMetadataFromSupportedModels({
                                     modelsRaw: caps.models,
+                                    reconcileModels: session.reconcileSessionModels,
                                     metadata,
                                 });
                                 return {

@@ -2234,21 +2234,19 @@ export function createCodexAppServerRuntime(params: Readonly<{
     const deliverCodexAsyncQuestionAnswers = async (
         delivery: CodexAsyncQuestionDelivery,
     ): Promise<boolean> => {
-        const replies = buildCodexAsyncUserInputReply(delivery);
-        if (replies.length === 0) return false;
-        for (const reply of replies) {
-            await params.session.enqueueSessionUserMessage({
-                text: reply.text,
-                localId: `codex-async-question:${delivery.itemId}:${reply.questionIndex}`,
-                meta: {
-                    source: 'codex-async-question',
-                    displayText: reply.text,
-                    happier: { kind: SESSION_TOOL_ANSWER_DELIVERY_KIND, payload: { toolCallId: delivery.itemId } },
-                },
-                inputOrigin: 'session_generated',
-                requestedAction: { v: 1, kind: 'steer_if_active' },
-            });
-        }
+        const reply = buildCodexAsyncUserInputReply(delivery);
+        if (!reply) return false;
+        await params.session.enqueueSessionUserMessage({
+            text: reply.text,
+            localId: `codex-async-question:${delivery.itemId}`,
+            meta: {
+                source: 'codex-async-question',
+                displayText: reply.displayText,
+                happier: { kind: SESSION_TOOL_ANSWER_DELIVERY_KIND, payload: { toolCallId: delivery.itemId } },
+            },
+            inputOrigin: 'session_generated',
+            requestedAction: { v: 1, kind: 'steer_if_active' },
+        });
         await commitCodexAsyncQuestionRecord(delivery.itemId, 'result', {
             type: 'tool-call-result',
             callId: delivery.itemId,

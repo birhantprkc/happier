@@ -49,7 +49,7 @@ export async function runTerminalPromptSubmission(params: Readonly<{
   remainingTimeoutMs?: (() => number | undefined) | undefined;
   wait?: ((delayMs: number) => Promise<void>) | undefined;
   stagingPollIntervalMs?: number | undefined;
-  submitRetryDelayMs?: number | undefined;
+  postSubmitSettleMs?: number | undefined;
 }>): Promise<TerminalPromptSubmissionResult> {
   let stagingWasProvenAtDeadline = false;
   const remainingOperationTimeoutMs = (): number | undefined => (
@@ -60,7 +60,7 @@ export async function runTerminalPromptSubmission(params: Readonly<{
   }));
   const postSubmitSettleMs = Math.max(
     0,
-    Math.trunc(params.submitRetryDelayMs ?? DEFAULT_POST_SUBMIT_SETTLE_MS),
+    Math.trunc(params.postSubmitSettleMs ?? DEFAULT_POST_SUBMIT_SETTLE_MS),
   );
   const waitForPostSubmitSettle = async (): Promise<void> => {
     if (postSubmitSettleMs <= 0) return;
@@ -162,61 +162,35 @@ export async function runTerminalPromptSubmission(params: Readonly<{
   }
 
   await waitForPostSubmitSettle();
-  let verification = await verifyStableAbsence();
-  if (verification === 'failed') {
-    return {
-      success: false,
-      reason: 'verification_failed',
-      phase: 'after_enter_unknown',
-      duplicateRisk: 'likely',
-      submitMayHaveReachedPane: true,
-    };
-  }
-  if (verification === 'cleared') {
-    return { success: true };
-  }
+  while (true) {
+    const verification = await verifyStableAbsence();
+    if (verification === 'failed') {
+      return {
+        success: false,
+        reason: 'verification_failed',
+        phase: 'after_enter_unknown',
+        duplicateRisk: 'likely',
+        submitMayHaveReachedPane: true,
+      };
+    }
+    if (verification === 'cleared') return { success: true };
 
-  await waitForPostSubmitSettle();
-  const retried = await submitOnce();
-  if (retried === 'timeout') {
-    return {
-      success: false,
-      reason: 'timeout',
-      phase: 'after_enter_unknown',
-      duplicateRisk: 'likely',
-      submitMayHaveReachedPane: true,
-    };
+    // The screen can lag behind provider acceptance. Re-observe within the
+    // caller's operation budget; another Enter based on a stale draft is not
+    // evidence-backed and can act on a different composer by the time it arrives.
+    const remainingTimeoutMs = remainingOperationTimeoutMs();
+    if (remainingTimeoutMs === undefined || remainingTimeoutMs === 0) {
+      return {
+        success: false,
+        reason: 'verification_failed',
+        phase: 'after_enter_unknown',
+        duplicateRisk: 'possible',
+        submitMayHaveReachedPane: true,
+      };
+    }
+    await (params.wait ?? defaultWait)(Math.min(
+      Math.max(1, postSubmitSettleMs),
+      remainingTimeoutMs,
+    ));
   }
-  if (retried === 'failed') {
-    return {
-      success: false,
-      reason: 'submit_failed',
-      phase: 'after_enter_unknown',
-      duplicateRisk: 'possible',
-      submitMayHaveReachedPane: true,
-    };
-  }
-
-  await waitForPostSubmitSettle();
-  verification = await verifyStableAbsence();
-  if (verification === 'failed') {
-    return {
-      success: false,
-      reason: 'verification_failed',
-      phase: 'after_enter_unknown',
-      duplicateRisk: 'likely',
-      submitMayHaveReachedPane: true,
-    };
-  }
-  if (verification === 'pending') {
-    return {
-      success: false,
-      reason: 'verification_failed',
-      phase: 'after_enter_unknown',
-      duplicateRisk: 'possible',
-      submitMayHaveReachedPane: true,
-    };
-  }
-
-  return { success: true };
 }

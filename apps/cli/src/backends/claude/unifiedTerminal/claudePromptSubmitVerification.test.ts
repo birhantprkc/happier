@@ -97,9 +97,41 @@ describe('createClaudePromptSubmitVerificationPolicy', () => {
       verifyAfterSubmit: async () => false,
       remainingTimeoutMs: () => 0,
       wait: async () => {},
-      submitRetryDelayMs: 0,
+      postSubmitSettleMs: 0,
     })).toEqual({ success: true });
     expect(submitEnter).toHaveBeenCalledOnce();
+  });
+
+  it('submits a prompt whose small terminal viewport exposes only a short matching tail', async () => {
+    // Claude Code 2.1.280, real tmux probe at 40x15: the composer scrolls to its
+    // last three rows after paste, even though the complete prompt was written.
+    const promptText = `${'Review the message delivery implementation. '.repeat(10)}\n\nExplain whether the message arrived, and report any remaining issue.`;
+    const screenText = [
+      '─'.repeat(40),
+      '❯ Explain whether the message',
+      '  arrived, and report any remaining',
+      '  issue.',
+      '─'.repeat(40),
+      '  ⏸ plan mode on',
+    ].join('\n');
+    const policy = createClaudePromptSubmitVerificationPolicy();
+    const submitEnter = vi.fn(async () => 'success' as const);
+
+    expect(await runTerminalPromptSubmission({
+      promptText,
+      verifyStagedBeforeSubmit: async () => policy.isPromptStagedBeforeSubmit({ promptText, screenText }),
+      submitEnter,
+      verifyAfterSubmit: async () => false,
+      remainingTimeoutMs: () => 0,
+      wait: async () => {},
+      postSubmitSettleMs: 0,
+    })).toEqual({ success: true });
+    expect(submitEnter).toHaveBeenCalledOnce();
+    expect(policy.isPromptStillPendingAfterSubmit({ promptText, screenText })).toBe(true);
+    expect(policy.isPromptStagedBeforeSubmit({
+      promptText,
+      screenText: screenText.replace('remaining', 'unrelated'),
+    })).toBe(false);
   });
 
   it('accepts a sufficiently long canonical visible composer window before and after submit', () => {
@@ -148,7 +180,7 @@ describe('createClaudePromptSubmitVerificationPolicy', () => {
     expect(policy.isPromptStillPendingAfterSubmit({
       promptText: prompt,
       screenText: `❯ ${visibleSuffixWords.slice(-8).join(' ')}`,
-    })).toBe(false);
+    })).toBe(true);
     expect(policy.isPromptStillPendingAfterSubmit({
       promptText: prompt,
       screenText: `❯ ${'unrelated visible composer text '.repeat(12)}`,

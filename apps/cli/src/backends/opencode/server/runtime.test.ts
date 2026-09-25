@@ -1416,6 +1416,40 @@ describe('createOpenCodeServerRuntime', () => {
     expect(metadata.sessionModelsV1).toEqual(metadata.acpSessionModelsV1);
   });
 
+  it.each(['empty', 'failure'] as const)('distinguishes %s model discovery when resuming a saved catalog', async (result) => {
+    // The injected client is the external OpenCode HTTP boundary; runtime projection stays real.
+    const client = createFakeClient();
+    client.providersList.mockImplementation(async () => {
+      if (result === 'failure') throw new Error('provider inventory unavailable');
+      return [];
+    });
+    const session = createFakeSession();
+    const previous = {
+      v: 1,
+      provider: 'opencode',
+      updatedAt: 1,
+      currentModelId: 'example/old',
+      availableModels: [{ id: 'example/old', name: 'Old' }],
+    };
+    await session.updateMetadata((metadata: Record<string, unknown>) => ({ ...metadata, sessionModelsV1: previous, acpSessionModelsV1: previous }));
+    const runtime = createOpenCodeServerRuntime({
+      directory: '/tmp',
+      session,
+      messageBuffer: new MessageBuffer(),
+      mcpServers: {},
+      permissionHandler: createFakePermissionHandler() as unknown as ProviderEnforcedPermissionHandler,
+      onThinkingChange: () => {},
+    }, { createClient: async () => client });
+    try {
+      await runtime.startOrLoad({ resumeId: 'ses_1' });
+      await expect.poll(() => session.__getMetadata().sessionModesV1).toMatchObject({ currentModeId: 'build' });
+      const metadata = session.__getMetadata();
+      if (result === 'failure') expect(metadata.sessionModelsV1).toEqual(previous);
+      else expect(metadata.sessionModelsV1).toMatchObject({ currentModelId: 'openai/gpt-5.2', availableModels: [] });
+      expect(metadata.acpSessionModelsV1).toEqual(metadata.sessionModelsV1);
+    } finally { await runtime.reset(); }
+  });
+
   it('publishes native OpenCode todos into session work-state metadata on start', async () => {
     const client = createFakeClient();
     client.sessionTodo = vi.fn(async () => ([

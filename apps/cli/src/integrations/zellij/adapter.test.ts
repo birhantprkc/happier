@@ -1192,7 +1192,7 @@ describe('createZellijTerminalHostAdapter', () => {
     ]);
   });
 
-  it('submits a large zellij paste and retries Enter when it remains pending', async () => {
+  it('submits a large zellij paste and waits for its composer to clear', async () => {
     const prompt = Array.from({ length: 6_000 }, (_, index) => `line ${index} ${'x'.repeat(36)}`).join('\n');
     expect(Buffer.byteLength(prompt, 'utf8')).toBeGreaterThan(250_000);
     const calls: string[] = [];
@@ -1245,18 +1245,13 @@ describe('createZellijTerminalHostAdapter', () => {
       },
     )).resolves.toMatchObject({ status: 'injected' });
 
-    expect(calls).toEqual([
+    expect(calls.filter((call) => !call.startsWith('dump:'))).toEqual([
       'paste:terminal_1',
-      'dump:terminal_1',
       'enter:terminal_1',
-      'dump:terminal_1',
-      'enter:terminal_1',
-      'dump:terminal_1',
-      'dump:terminal_1',
     ]);
   });
 
-  it('re-sends Enter once when a collapsed multiline paste remains in the composer after submit', async () => {
+  it('waits for a collapsed multiline paste to clear without resubmitting', async () => {
     const calls: string[] = [];
     let dumpCount = 0;
     const actions: ZellijActions = {
@@ -1307,18 +1302,13 @@ describe('createZellijTerminalHostAdapter', () => {
       },
     )).resolves.toMatchObject({ status: 'injected' });
 
-    expect(calls).toEqual([
+    expect(calls.filter((call) => !call.startsWith('dump:'))).toEqual([
       'paste:terminal_1',
-      'dump:terminal_1',
       'enter:terminal_1',
-      'dump:terminal_1',
-      'enter:terminal_1',
-      'dump:terminal_1',
-      'dump:terminal_1',
     ]);
   });
 
-  it('reports ambiguous failure when a collapsed zellij paste remains after the bounded Enter retry', async () => {
+  it('reports ambiguous failure when a collapsed zellij paste remains until the observation deadline', async () => {
     const calls: string[] = [];
     const actions: ZellijActions = {
       attachCreateBackground: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
@@ -1363,7 +1353,7 @@ describe('createZellijTerminalHostAdapter', () => {
         text: Array.from({ length: 41 }, (_, index) => `line ${index}`).join('\n'),
         multiline: true,
         origin: { kind: 'ui_pending', nonce: 'nonce-zellij-submit-stuck' },
-        scheduling: {},
+        scheduling: { timeoutMs: 250 },
       },
     )).resolves.toEqual({
       status: 'failed',
@@ -1373,13 +1363,9 @@ describe('createZellijTerminalHostAdapter', () => {
       recoverable: true,
     });
 
-    expect(calls).toEqual([
+    expect(calls.filter((call) => !call.startsWith('dump:'))).toEqual([
       'paste:terminal_1',
-      'dump:terminal_1',
       'enter:terminal_1',
-      'dump:terminal_1',
-      'enter:terminal_1',
-      'dump:terminal_1',
     ]);
   });
 

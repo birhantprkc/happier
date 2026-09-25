@@ -77,6 +77,8 @@ function createDefaultFakeCodexSkills(dir: string): FakeCodexAppServerSkill[] {
 export async function writeFakeCodexAppServerScript(params: Readonly<{
   dir: string;
   requestLogPath: string;
+  /** Optional provider-boundary fixture, reread on each model/list request. */
+  modelListStatePath?: string;
   /**
    * Test-only strict resume boundary. When set, the fake app-server must reject
    * a `thread/resume` request that names any other native thread.
@@ -101,6 +103,7 @@ export async function writeFakeCodexAppServerScript(params: Readonly<{
     'import { appendFile, readFile, rm, writeFile } from "node:fs/promises";',
     'import readline from "node:readline";',
     `const requestLogPath = ${JSON.stringify(params.requestLogPath)};`,
+    `const modelListStatePath = ${JSON.stringify(params.modelListStatePath ?? null)};`,
     `const expectedResumeThreadId = ${JSON.stringify(expectedResumeThreadId)};`,
     `const goalStatePath = ${JSON.stringify(join(params.dir, 'fake-codex-app-server.goal.json'))};`,
     `const accountStatePath = ${JSON.stringify(join(params.dir, 'fake-codex-app-server.account.json'))};`,
@@ -311,7 +314,10 @@ export async function writeFakeCodexAppServerScript(params: Readonly<{
     '    continue;',
     '  }',
     '  if (msg.method === "model/list") {',
-    '    process.stdout.write(JSON.stringify({ id: msg.id, result: [{ id: "gpt-5.4", displayName: "GPT-5.4", isDefault: true }] }) + "\\n");',
+    '    const state = modelListStatePath ? JSON.parse(await readFile(modelListStatePath, "utf8")) : null;',
+    '    if (state?.delayMs) await new Promise((resolve) => setTimeout(resolve, state.delayMs));',
+    '    const response = state?.error ? { error: { code: -32000, message: "fixture model discovery unavailable" } } : { result: state?.models ?? [{ id: "gpt-5.4", displayName: "GPT-5.4", isDefault: true }] };',
+    '    process.stdout.write(JSON.stringify({ id: msg.id, ...response }) + "\\n");',
     '    continue;',
     '  }',
     '  if (msg.method === "account/read") {',

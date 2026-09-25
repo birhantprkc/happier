@@ -227,7 +227,7 @@ export function createTmuxTerminalHostAdapter(params?: Readonly<{
         text: input.text,
         bufferName: createTmuxPromptBufferName(),
         submitDelayMs: resolveTmuxPromptSubmitDelayMs(),
-        submitRetryDelayMs: resolveTmuxPromptSubmitDelayMs(),
+        postSubmitSettleMs: resolveTmuxPromptSubmitDelayMs(),
         timeoutMs: input.scheduling.timeoutMs ?? resolveTerminalPromptWriteTimeoutMs(input.text),
         ...(writeBoundary
           ? {

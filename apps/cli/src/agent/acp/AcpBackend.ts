@@ -511,7 +511,7 @@ function normalizeSessionConfigOptions(raw: ReadonlyArray<unknown>): SessionConf
       currentValue,
       ...(description ? { description } : {}),
       ...(category ? { category } : {}),
-      ...(options.length > 0 ? { options } : {}),
+      ...(options.length > 0 || optionsRaw?.length === 0 ? { options } : {}),
     });
   }
 
@@ -2655,7 +2655,7 @@ export class AcpBackend implements AgentBackend {
       })
       .filter((model): model is SessionModel => Boolean(model));
 
-    if (availableModels.length === 0) return;
+    if (availableModelsRaw.length > 0 && availableModels.length === 0) return;
 
     const normalizedModelState: SessionModelState = { currentModelId, availableModels };
     this.sessionModelState = this.options.sessionModelAdapter?.projectModelState?.({ normalizedModelState })
