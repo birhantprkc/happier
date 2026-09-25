@@ -50,6 +50,8 @@ export type ProbedAgentModelsResult = Readonly<{
   supportsFreeform: boolean;
   source: 'dynamic' | 'static';
   cacheable?: boolean;
+  observedAt?: number;
+  refreshError?: boolean;
 }>;
 
 const DEFAULT_PROBE_MODELS_TIMEOUT_MS = 15_000;
@@ -60,6 +62,12 @@ const agentModelsProbeCache = new AsyncTtlCache<ProbedAgentModelsResult>({
   errorTtlMs: PROBE_MODELS_FAILURE_TTL_MS,
 });
 
+const ProbeModelsObservationSchema = z.object({
+  availableModels: z.array(z.unknown()),
+  observedAt: z.number().finite().nonnegative().optional(),
+  refreshError: z.boolean().optional(),
+  source: z.enum(['dynamic', 'static']).optional(),
+});
 const ProbeNonEmptyStringSchema = z.string().trim().min(1);
 const ProbeDescriptionSchema = z.string();
 const ProbeOptionValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
@@ -369,7 +377,7 @@ function normalizeModelsFromConfigOptions(configOptionsRaw: unknown): ProbedAgen
     ...(modelScopedOptions.length > 0 ? { modelOptions: modelScopedOptions } : {}),
   } satisfies ProbedAgentModel));
 
-  if (parsed.length === 0) return null;
+  if (optionsRaw.length > 0 && parsed.length === 0) return null;
 
   const withDefault: ProbedAgentModel[] = [
     { id: 'default', name: 'Default' },
@@ -391,6 +399,8 @@ export async function probeModelsFromAcpBackend(params: {
   type ProbeModelsBackend = AgentBackend & Partial<{
     getSessionModelState: () => { availableModels?: unknown } | null;
     getSessionConfigOptionsState: () => unknown;
+    /** Resolve false on failed discovery; a ready empty list is still a successful observation. */
+    waitForSessionModels: () => Promise<boolean>;
   }>;
 
   const backend: ProbeModelsBackend = params.backend;
@@ -400,11 +410,17 @@ export async function probeModelsFromAcpBackend(params: {
   const timeoutPromise = new Promise<never>((_, reject) => {
     timerId = setTimeout(() => reject(new Error(`ACP startSession timeout after ${timeoutMs}ms`)), timeoutMs);
   });
-  await Promise.race([backend.startSession(), timeoutPromise]).finally(() => {
+  const modelsReady = await Promise.race([(async () => {
+    await backend.startSession();
+    // Session opening may deliberately return before optional model discovery. Both phases
+    // consume this probe's existing deadline rather than granting discovery another timeout.
+    return await backend.waitForSessionModels?.() ?? true;
+  })(), timeoutPromise]).finally(() => {
     if (timerId !== null) {
       clearTimeout(timerId);
     }
   });
+  if (!modelsReady) return null;
 
   if (typeof backend.getSessionModelState === 'function') {
     const state = backend.getSessionModelState();
@@ -433,6 +449,7 @@ export async function probeAgentModelsBestEffort(params: {
   connectedServices?: ConnectedServiceBindingsV1 | null;
   processEnv?: NodeJS.ProcessEnv;
   connectedServiceSelectionCacheKey?: string | null;
+  bypassCache?: boolean;
 }): Promise<ProbedAgentModelsResult> {
   const nowMs = Date.now();
   const cwd = typeof params.cwd === 'string' && params.cwd.trim().length > 0 ? params.cwd.trim() : process.cwd();
@@ -462,20 +479,30 @@ export async function probeAgentModelsBestEffort(params: {
   const usesProviderOwnedCache = preflightModelsAdapter?.modelProbeCachePolicy === 'provider-owned';
 
   const cached = agentModelsProbeCache.get(cacheKey);
-  if (!usesProviderOwnedCache && cached?.kind === 'success' && agentModelsProbeCache.isFresh(cached, nowMs)) return cached.value;
+  if (!params.bypassCache && !usesProviderOwnedCache && cached?.kind === 'success' && agentModelsProbeCache.isFresh(cached, nowMs)) return cached.value;
 
   const runProbe = async (): Promise<ProbedAgentModelsResult> => {
     const cached2 = agentModelsProbeCache.get(cacheKey);
     const nowMs2 = Date.now();
-    if (!usesProviderOwnedCache && cached2?.kind === 'success' && agentModelsProbeCache.isFresh(cached2, nowMs2)) return cached2.value;
+    if (!params.bypassCache && !usesProviderOwnedCache && cached2?.kind === 'success' && agentModelsProbeCache.isFresh(cached2, nowMs2)) return cached2.value;
 
     const fallback = buildStatic(params.agentId);
+    const failedResult = (): ProbedAgentModelsResult => {
+      const lastGood = cached2?.kind === 'success' && cached2.value.source === 'dynamic' ? cached2.value : fallback;
+      const result: ProbedAgentModelsResult = { ...lastGood, refreshError: true, cacheable: false };
+      if (!usesProviderOwnedCache) {
+        agentModelsProbeCache.setSuccess(cacheKey, result, {
+          ttlMs: preflightModelsAdapter?.failureCacheStrategy === 'retry' ? 0 : PROBE_MODELS_FAILURE_TTL_MS,
+        });
+      }
+      return result;
+    };
     const modelConfig = getAgentModelConfig(params.agentId);
     if (modelConfig.dynamicProbe === 'static-only') {
       if (!usesProviderOwnedCache) {
-        agentModelsProbeCache.setSuccess(cacheKey, fallback, { nowMs: nowMs2, ttlMs: PROBE_MODELS_SUCCESS_TTL_MS });
+        agentModelsProbeCache.setSuccess(cacheKey, { ...fallback, refreshError: false }, { nowMs: nowMs2, ttlMs: PROBE_MODELS_SUCCESS_TTL_MS });
       }
-      return fallback;
+      return { ...fallback, refreshError: false };
     }
 
     const timeoutMs = typeof params.timeoutMs === 'number' ? params.timeoutMs : DEFAULT_PROBE_MODELS_TIMEOUT_MS;
@@ -493,22 +520,16 @@ export async function probeAgentModelsBestEffort(params: {
       if (configuredBackend) {
         const models = await probeModelsFromAcpBackend({ backend: configuredBackend, timeoutMs }).catch(() => null);
         if (models) {
-          const res: ProbedAgentModelsResult = { ...fallback, availableModels: models, source: 'dynamic' };
+          const res: ProbedAgentModelsResult = { ...fallback, availableModels: models, source: 'dynamic', observedAt: Date.now() };
           if (!usesProviderOwnedCache) {
             agentModelsProbeCache.setSuccess(cacheKey, res, { nowMs: nowMs2, ttlMs: PROBE_MODELS_SUCCESS_TTL_MS });
           }
           return res;
         }
-        if (!usesProviderOwnedCache) {
-          agentModelsProbeCache.setSuccess(cacheKey, fallback, { nowMs: nowMs2, ttlMs: PROBE_MODELS_FAILURE_TTL_MS });
-        }
-        return fallback;
+        return failedResult();
       }
     } catch {
-      if (!usesProviderOwnedCache) {
-        agentModelsProbeCache.setSuccess(cacheKey, fallback, { nowMs: nowMs2, ttlMs: PROBE_MODELS_FAILURE_TTL_MS });
-      }
-      return fallback;
+      return failedResult();
     } finally {
       if (configuredBackend) {
         await configuredBackend.dispose().catch(() => {});
@@ -516,9 +537,11 @@ export async function probeAgentModelsBestEffort(params: {
     }
 
     if (preflightModelsAdapter?.probeModelsRaw) {
+      let provenance: { observedAt?: number; refreshError?: boolean; source?: 'dynamic' | 'static' } = {};
       const probePreflightModelsOnce = async (): Promise<ProbedAgentModel[] | null> => {
         const modelsRaw = await preflightModelsAdapter.probeModelsRaw!({
           backendTarget: params.backendTarget,
+          bypassCache: params.bypassCache,
           cwd,
           timeoutMs,
           profileId,
@@ -527,6 +550,15 @@ export async function probeAgentModelsBestEffort(params: {
           connectedServices: params.connectedServices ?? null,
           processEnv: params.processEnv,
         }).catch(() => null);
+        const envelope = ProbeModelsObservationSchema.safeParse(modelsRaw);
+        if (envelope.success) {
+          provenance = {
+            ...(envelope.data.observedAt !== undefined ? { observedAt: envelope.data.observedAt } : {}),
+            ...(envelope.data.refreshError !== undefined ? { refreshError: envelope.data.refreshError } : {}),
+            ...(envelope.data.source ? { source: envelope.data.source } : {}),
+          };
+          return normalizeDynamicModels(envelope.data.availableModels);
+        }
         return normalizeDynamicModels(modelsRaw);
       };
 
@@ -537,20 +569,24 @@ export async function probeAgentModelsBestEffort(params: {
         models = await probePreflightModelsOnce();
       }
       if (models) {
-        const res: ProbedAgentModelsResult = { ...fallback, availableModels: models, source: 'dynamic' };
+        if (provenance.source === 'static' && provenance.refreshError
+          && cached2?.kind === 'success' && cached2.value.source === 'dynamic') {
+          return failedResult();
+        }
+        const res: ProbedAgentModelsResult = {
+          ...fallback, availableModels: models, source: 'dynamic',
+          ...(provenance.source !== 'static' ? { observedAt: Date.now() } : {}),
+          ...provenance,
+          ...(provenance.refreshError ? { cacheable: false } : {}),
+        };
         if (!usesProviderOwnedCache) {
-          agentModelsProbeCache.setSuccess(cacheKey, res, { nowMs: nowMs2, ttlMs: PROBE_MODELS_SUCCESS_TTL_MS });
+          agentModelsProbeCache.setSuccess(cacheKey, res, { nowMs: nowMs2, ttlMs: provenance.refreshError ? PROBE_MODELS_FAILURE_TTL_MS : PROBE_MODELS_SUCCESS_TTL_MS });
         }
         return res;
       }
-      if (preflightModelsAdapter.failureCacheStrategy === 'retry') {
-        // For providers where this probe is the primary/authoritative source (e.g. Codex app-server),
-        // cache an error so subsequent calls retry instead of freezing the static fallback.
-        if (!usesProviderOwnedCache) {
-          agentModelsProbeCache.setError(cacheKey, { nowMs: nowMs2, ttlMs: PROBE_MODELS_FAILURE_TTL_MS });
-        }
-        return fallback;
-      }
+      // A raw hook owns the provider's complete discovery and any runtime-specific
+      // fallback. Failure must not silently start a second catalog observation.
+      return failedResult();
     }
 
     // Prefer lightweight CLI preflight probes when the provider offers a `models` command.
@@ -569,7 +605,7 @@ export async function probeAgentModelsBestEffort(params: {
         processEnv: params.processEnv,
       }).catch(() => null);
       if (models) {
-        const res: ProbedAgentModelsResult = { ...fallback, availableModels: models, source: 'dynamic' };
+        const res: ProbedAgentModelsResult = { ...fallback, availableModels: models, source: 'dynamic', observedAt: Date.now() };
         if (!usesProviderOwnedCache) {
           agentModelsProbeCache.setSuccess(cacheKey, res, { nowMs: nowMs2, ttlMs: PROBE_MODELS_SUCCESS_TTL_MS });
         }
@@ -578,18 +614,12 @@ export async function probeAgentModelsBestEffort(params: {
     }
 
     if (!entry?.getAcpBackendFactory) {
-      if (!usesProviderOwnedCache) {
-        agentModelsProbeCache.setSuccess(cacheKey, fallback, { nowMs: nowMs2, ttlMs: PROBE_MODELS_FAILURE_TTL_MS });
-      }
-      return fallback;
+      return failedResult();
     }
 
     const spawnValidation = await validateCatalogAcpProbeSpawn(params.agentId);
     if (!spawnValidation.ok) {
-      if (!usesProviderOwnedCache) {
-        agentModelsProbeCache.setSuccess(cacheKey, fallback, { nowMs: nowMs2, ttlMs: PROBE_MODELS_FAILURE_TTL_MS });
-      }
-      return fallback;
+      return failedResult();
     }
 
     const permissionHandler: AcpPermissionHandler = {
@@ -615,22 +645,16 @@ export async function probeAgentModelsBestEffort(params: {
 
       const models = await probeModelsFromAcpBackend({ backend, timeoutMs }).catch(() => null);
       if (!models) {
-        if (!usesProviderOwnedCache) {
-          agentModelsProbeCache.setSuccess(cacheKey, fallback, { nowMs: nowMs2, ttlMs: PROBE_MODELS_FAILURE_TTL_MS });
-        }
-        return fallback;
+        return failedResult();
       }
 
-      const res: ProbedAgentModelsResult = { ...fallback, availableModels: models, source: 'dynamic' };
+      const res: ProbedAgentModelsResult = { ...fallback, availableModels: models, source: 'dynamic', observedAt: Date.now() };
       if (!usesProviderOwnedCache) {
         agentModelsProbeCache.setSuccess(cacheKey, res, { nowMs: nowMs2, ttlMs: PROBE_MODELS_SUCCESS_TTL_MS });
       }
       return res;
     } catch {
-      if (!usesProviderOwnedCache) {
-        agentModelsProbeCache.setSuccess(cacheKey, fallback, { nowMs: nowMs2, ttlMs: PROBE_MODELS_FAILURE_TTL_MS });
-      }
-      return fallback;
+      return failedResult();
     } finally {
       if (backend) {
         await backend.dispose().catch(() => {});

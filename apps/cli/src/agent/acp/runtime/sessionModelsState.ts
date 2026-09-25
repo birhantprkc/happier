@@ -99,7 +99,7 @@ export function normalizeConfigOptionsArray(raw: unknown): NormalizedConfigOptio
       currentValue,
       ...(description ? { description } : {}),
       ...(category ? { category } : {}),
-      ...(options.length > 0 ? { options } : {}),
+      ...(options.length > 0 || (Array.isArray(optionsRaw) && optionsRaw.length === 0) ? { options } : {}),
     });
   }
 
@@ -146,7 +146,7 @@ function normalizeAcpSessionModels(raw: unknown): AcpSessionModel[] {
 export function buildAcpSessionModelsStateFromPayload(params: Readonly<{
   provider: string;
   payload: unknown;
-  previousAvailableModels?: unknown;
+  previousState?: AcpSessionModelsState | null;
   requireAvailableModels?: boolean;
 }>): AcpSessionModelsState | null {
   const payload = asRecord(params.payload);
@@ -154,15 +154,24 @@ export function buildAcpSessionModelsStateFromPayload(params: Readonly<{
   const currentModelId = typeof currentModelIdRaw === 'string' ? currentModelIdRaw : '';
   if (!currentModelId) return null;
 
-  const nextModels = normalizeAcpSessionModels(payload?.availableModels);
-  const previousModels = normalizeAcpSessionModels(params.previousAvailableModels);
-  const availableModels = nextModels.length > 0 ? nextModels : previousModels;
-  if (params.requireAvailableModels === true && availableModels.length === 0) return null;
+  const modelsRaw = payload?.availableModels;
+  const hasCatalog = Array.isArray(modelsRaw);
+  if (!hasCatalog && modelsRaw !== undefined) return null;
+  if (!hasCatalog && params.requireAvailableModels === true) return null;
+  const availableModels = hasCatalog
+    ? normalizeAcpSessionModels(modelsRaw)
+    : normalizeAcpSessionModels(params.previousState?.availableModels);
+  if (hasCatalog && modelsRaw.length > 0 && availableModels.length === 0) return null;
+  const observedAt = typeof payload?.observedAt === 'number'
+    && Number.isFinite(payload.observedAt) && payload.observedAt >= 0
+    ? payload.observedAt
+    : Date.now();
 
   return {
     v: 1,
     provider: params.provider,
-    updatedAt: Date.now(),
+    // Current-model telemetry does not establish or renew catalog freshness.
+    updatedAt: hasCatalog ? observedAt : (params.previousState?.updatedAt ?? 0),
     currentModelId,
     availableModels,
   };
@@ -186,7 +195,7 @@ export function publishAcpSessionModelsState(params: Readonly<{
       const next = buildAcpSessionModelsStateFromPayload({
         provider: params.provider,
         payload: params.payload,
-        previousAvailableModels: previous?.provider === params.provider ? previous.availableModels : undefined,
+        previousState: previous?.provider === params.provider ? previous : undefined,
         requireAvailableModels: params.requireAvailableModels,
       });
       return next ? { ...metadata, sessionModelsV1: next, acpSessionModelsV1: next } : metadata;

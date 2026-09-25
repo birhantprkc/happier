@@ -176,6 +176,7 @@ function upsertCurrentModelEntry(params: Readonly<{
 
 export function buildClaudeSessionModelsMetadataWithCurrentModelId(params: Readonly<{
     currentModelId: unknown;
+    reconcileModels?: typeof reconcileClaudeSessionModelsState;
     metadata: Metadata | null | undefined;
     nowMs?: () => number;
     currentModel?: ClaudeCurrentModelFacts | undefined;
@@ -190,6 +191,23 @@ export function buildClaudeSessionModelsMetadataWithCurrentModelId(params: Reado
     const existingAcpState = existingSessionState;
 
     const contextWindowTokens = normalizePositiveTokens(params.currentModel?.contextWindowTokens);
+    if (params.reconcileModels) {
+        const currentModel = {
+            id: currentModelId,
+            name: providers.claude.normalizeClaudeModelDisplayName(params.currentModel?.name, currentModelId),
+            ...(contextWindowTokens !== null ? { contextWindowTokens } : {}),
+        };
+        const state = params.reconcileModels({
+            metadata: params.metadata,
+            source: 'current_model',
+            incomingState: {
+                v: 1, provider: 'claude', currentModelId,
+                updatedAt: params.nowMs ? params.nowMs() : Date.now(),
+                availableModels: [currentModel],
+            },
+        });
+        return { sessionModelsV1: state, acpSessionModelsV1: state };
+    }
     const windowAlreadyReflected = contextWindowTokens === null || (
         findModelEntry(existingSessionState, currentModelId)?.contextWindowTokens === contextWindowTokens
         && findModelEntry(existingAcpState, currentModelId)?.contextWindowTokens === contextWindowTokens
@@ -203,7 +221,7 @@ export function buildClaudeSessionModelsMetadataWithCurrentModelId(params: Reado
         return null;
     }
 
-    const updatedAt = params.nowMs ? params.nowMs() : Date.now();
+    const updatedAt = existingState?.updatedAt ?? 0;
     const currentModelName = providers.claude.normalizeClaudeModelDisplayName(
         params.currentModel?.name,
         currentModelId,
@@ -243,6 +261,7 @@ export function buildClaudeSessionModelsMetadataWithCurrentModelId(params: Reado
 
 export function buildClaudeSessionModelsMetadataFromSupportedModels(params: Readonly<{
     modelsRaw: unknown;
+    reconcileModels?: typeof reconcileClaudeSessionModelsState;
     metadata: Metadata | null | undefined;
     nowMs?: () => number;
 }>): Pick<Metadata, 'sessionModelsV1' | 'acpSessionModelsV1'> | null {
@@ -251,12 +270,12 @@ export function buildClaudeSessionModelsMetadataFromSupportedModels(params: Read
     const availableModels = params.modelsRaw
         .map((model) => normalizeSupportedModel(model))
         .filter((model): model is SessionModelEntry => model !== null);
-    if (availableModels.length === 0) return null;
+    if (params.modelsRaw.length > 0 && availableModels.length === 0) return null;
 
     const updatedAt = params.nowMs ? params.nowMs() : Date.now();
     const currentModelId = resolveCurrentModelId(params.metadata);
 
-    const state = reconcileClaudeSessionModelsState({
+    const state = (params.reconcileModels ?? reconcileClaudeSessionModelsState)({
       metadata: params.metadata,
       source: 'agent_sdk',
       incomingState: {

@@ -39,7 +39,7 @@ export const codexPreflightSessionControlsProbeAdapter: PreflightSessionControls
             accountSettings: params.accountSettings ?? null,
             processEnv: params.processEnv,
         });
-        return controls ? controls.availableModels : null;
+        return controls?.modelsObserved ? controls.availableModels : null;
     },
     probeModesRaw: async (params) => {
         const controls = await readControls({

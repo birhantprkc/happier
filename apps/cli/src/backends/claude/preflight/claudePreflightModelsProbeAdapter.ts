@@ -33,17 +33,25 @@ function toProbeRawModel(
 export const claudePreflightModelsProbeAdapter: PreflightSessionControlsProbeAdapter = {
   modelProbeCachePolicy: 'provider-owned',
   failureCacheStrategy: 'cooldown',
-  probeModelsRaw: async ({ cwd, timeoutMs, connectedServices, credentials, accountSettings, profileId, processEnv }) => {
+  probeModelsRaw: async ({ cwd, timeoutMs, connectedServices, credentials, accountSettings, profileId, processEnv, bypassCache }) => {
     const resolution = await resolveClaudeModelCatalogResolution({
       timeoutMs,
+      bypassCache,
       connectedServices,
       credentials,
       accountSettings,
       profileId,
       processEnv,
     });
-    if (resolution.source === 'static') return null;
+    if (resolution.source === 'static') {
+      return { availableModels: resolution.models, source: 'static', refreshError: resolution.refreshError };
+    }
     const installedCapabilities = await probeClaudeInstalledRuntimeCapabilities({ cwd, timeoutMs, processEnv });
-    return resolution.models.map((model) => toProbeRawModel(model, installedCapabilities));
+    return {
+      availableModels: resolution.models.map((model) => toProbeRawModel(model, installedCapabilities)),
+      source: resolution.source,
+      observedAt: resolution.observedAt,
+      ...(resolution.refreshError ? { refreshError: true } : {}),
+    };
   },
 };

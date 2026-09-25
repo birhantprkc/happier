@@ -1,3 +1,4 @@
+import type { reconcileClaudeSessionModelsState } from './reconcileClaudeSessionModelsState';
 import type { Metadata } from '@/api/types';
 import { updateMetadataBestEffort } from '@/api/session/sessionWritesBestEffort';
 
@@ -110,6 +111,7 @@ function resolveModelLabel(params: Readonly<{
 
 export function applyClaudeEffectiveModelUpdate(params: Readonly<{
   client: ClaudeEffectiveModelUpdateClient;
+  reconcileModels?: typeof reconcileClaudeSessionModelsState;
   modelId: string;
   displayName?: string | null;
   contextWindowTokens?: number | null;
@@ -130,6 +132,19 @@ export function applyClaudeEffectiveModelUpdate(params: Readonly<{
   const shouldUpdateMetadata =
     (!alreadyAppliedInMemory && previousModelId !== modelId)
     || !hasRequestedModelDetails({ metadata: metadataSnapshot, modelId, displayName, contextWindowTokens });
+  // Even when metadata already matches, record the live observation in the session's source
+  // contributions so a later catalog/SDK publication cannot replace it with a catalog estimate.
+  if (!shouldUpdateMetadata && params.reconcileModels) {
+    buildClaudeSessionModelsMetadataWithCurrentModelId({
+      currentModelId: modelId,
+      metadata: metadataSnapshot,
+      reconcileModels: params.reconcileModels,
+      currentModel: {
+        ...(displayName ? { name: displayName } : {}),
+        ...(contextWindowTokens !== null ? { contextWindowTokens } : {}),
+      },
+    });
+  }
   if (shouldUpdateMetadata && state.lastMetadataRequestKey !== metadataRequestKey) {
     state.lastMetadataRequestKey = metadataRequestKey;
     updateMetadataBestEffort(
@@ -138,6 +153,7 @@ export function applyClaudeEffectiveModelUpdate(params: Readonly<{
         ...metadata,
         ...(buildClaudeSessionModelsMetadataWithCurrentModelId({
           currentModelId: modelId,
+          reconcileModels: params.reconcileModels,
           metadata,
           currentModel: {
             ...(displayName ? { name: displayName } : {}),

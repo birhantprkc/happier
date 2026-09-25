@@ -11,6 +11,7 @@ import {
 } from '@/backends/cursor/acp/cursorModelConfig';
 import { CursorAcpBackend, createCursorBackend } from '@/backends/cursor/acp/backend';
 import { projectCursorAvailableModels } from '@/backends/cursor/acp/models';
+import { logger } from '@/ui/logger';
 import {
   mergeCursorCliModelsIntoAcpModels,
   probeCursorCliModels,
@@ -66,7 +67,10 @@ async function startCursorProbeBackend(params: PreflightSessionControlsProbePara
 }
 
 async function probeCursorModelsRaw(params: PreflightSessionControlsProbeParams): Promise<ReadonlyArray<ProbedAgentModel> | null> {
-  const backend = await startCursorProbeBackend(params);
+  const backend = await startCursorProbeBackend(params).catch(() => {
+    logger.infoFile('[cursor] ACP model discovery failed; using the CLI catalog');
+    return null;
+  });
   try {
     const cliModels = await probeCursorCliModels({
       cwd: params.cwd,
@@ -76,6 +80,7 @@ async function probeCursorModelsRaw(params: PreflightSessionControlsProbeParams)
         ...buildCursorProbeEnv(params.accountSettings),
       },
     }).catch(() => null);
+    if (!backend) return cliModels;
     const standardProjection = buildCursorSessionModelsFromConfigOptions(
       backend.getSessionConfigOptionsState?.() ?? null,
     );
@@ -92,7 +97,7 @@ async function probeCursorModelsRaw(params: PreflightSessionControlsProbeParams)
     }
     return cliModels ?? await probeModelsFromAcpBackend({ backend, timeoutMs: params.timeoutMs });
   } finally {
-    await backend.dispose().catch(() => {});
+    await backend?.dispose().catch(() => {});
   }
 }
 
@@ -118,7 +123,6 @@ async function probeCursorModesRaw(params: PreflightSessionControlsProbeParams):
 export const cursorPreflightSessionControlsProbeAdapter: PreflightSessionControlsProbeAdapter = {
   failureCacheStrategy: 'cooldown',
   probeModelsRaw: probeCursorModelsRaw,
-  cliModelsCommandArgs: ['models'],
   probeModesRaw: probeCursorModesRaw,
   probeConfigOptionsRaw: probeCursorConfigOptionsRaw,
 };

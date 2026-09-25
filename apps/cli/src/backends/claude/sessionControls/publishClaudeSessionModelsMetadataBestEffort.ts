@@ -48,6 +48,7 @@ export async function publishClaudeSessionModelsMetadataBestEffort(params: Reado
   cwd: string;
   timeoutMs: number;
   currentModelId: string;
+  reconcileModels?: typeof reconcileClaudeSessionModelsState;
   accountSettings?: Readonly<Record<string, unknown>> | null;
   session: Readonly<{
     ensureMetadataSnapshot: (opts: Readonly<{ timeoutMs: number }>) => Promise<unknown>;
@@ -86,7 +87,7 @@ export async function publishClaudeSessionModelsMetadataBestEffort(params: Reado
   try {
     await params.session.updateMetadata((prev) => {
       const base = withoutUnsupportedEffortDependentOverrides(prev, selectedModelOptionIds);
-      const reconciled = reconcileClaudeSessionModelsState({
+      const reconciled = (params.reconcileModels ?? reconcileClaudeSessionModelsState)({
         metadata: base,
         incomingState: state,
         source: 'catalog',

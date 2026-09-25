@@ -8,6 +8,7 @@ export type PreflightSessionControlsProbeParams = Readonly<{
   backendTarget?: BackendTargetRefV1;
   cwd: string;
   timeoutMs: number;
+  bypassCache?: boolean;
   profileId?: string | null;
   accountSettings?: Readonly<Record<string, unknown>> | null;
   credentials?: Credentials | null;
@@ -19,7 +20,11 @@ export type PreflightSessionControlsProbeParams = Readonly<{
  * Provider-owned adapter for probing dynamic session controls (models/modes/config options)
  * without starting a full ACP session.
  *
- * The probe functions return raw payloads (best-effort). Callers must normalize/validate.
+ * Models may return an array or { availableModels, source?, observedAt?, refreshError? } when the
+ * provider owns cached observation provenance. Null means discovery failed.
+ * A models hook owns its complete provider fallback; null does not trigger generic
+ * CLI or ACP discovery. Providers without a hook retain the generic discovery path.
+ * Callers must normalize/validate all raw payloads.
  */
 export type PreflightSessionControlsProbeAdapter = Readonly<{
   connectedServiceAuth?: 'materialized-env';
