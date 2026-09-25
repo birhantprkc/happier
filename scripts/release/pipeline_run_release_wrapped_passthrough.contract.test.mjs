@@ -67,7 +67,6 @@ test('release-validate profile dry-run executes the deterministic planner withou
       'session-continuity',
       'cli-update',
       'docker-release-assets',
-      'desktop-setup',
     ],
   });
   assert.doesNotMatch(out, /loaded secrets|Keychain|env sources/i);
