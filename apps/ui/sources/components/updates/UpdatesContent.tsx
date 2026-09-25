@@ -12,6 +12,7 @@ import { StatusTransition } from '@/components/ui/motion/StatusTransition';
 import { Text } from '@/components/ui/text/Text';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
+import { useIsTablet } from '@/utils/platform/responsive';
 import { isUpdateItemActionable, type UpdateItem } from '@/updates/items/updateItem';
 import type { UpdatesContentModel, UpdatesGroup } from '@/updates/useUpdatesContentModel';
 
@@ -48,12 +49,18 @@ function groupWhere(group: UpdatesGroup): string {
 
 const SummaryHeader = React.memo(function SummaryHeader(props: Readonly<{ model: UpdatesContentModel; presentation: Presentation }>) {
     const { model } = props;
+    const isTablet = useIsTablet();
     const header = describeUpdatesHeader(model.summary, model.batch, model.checkedAt);
     const compact = props.presentation === 'popover';
+    // On a phone-width screen the actions sit under the words, so the title and the freshness
+    // line (the live region) keep the full width instead of truncating beside two buttons.
+    const stacked = !compact && !isTablet;
     // One block, cross-faded on the status settle when the words change; the block's minimum
     // height (one title line + one meta line) keeps the list below from jumping between states.
     const text = (
-        <View style={styles.headerTextInner}>
+        // One polite live region for the whole status: a completion or failure changes the title,
+        // so it is announced; percent ticks live in the rows and never reach it.
+        <View style={styles.headerTextInner} accessibilityLiveRegion="polite">
             <Text
                 style={[styles.headerTitle, compact ? styles.headerTitleCompact : null]}
                 accessibilityRole="header"
@@ -64,8 +71,6 @@ const SummaryHeader = React.memo(function SummaryHeader(props: Readonly<{ model:
             </Text>
             <Text
                 style={[styles.headerMeta, Typography.tabular()]}
-                accessibilityLiveRegion="polite"
-                numberOfLines={1}
                 testID="updates.summary.meta"
             >
                 {header.meta}
@@ -73,13 +78,13 @@ const SummaryHeader = React.memo(function SummaryHeader(props: Readonly<{ model:
         </View>
     );
     return (
-        <View style={[styles.header, compact ? styles.headerCompact : styles.headerComfortable]} testID="updates.summary">
-            <View style={[styles.headerText, compact ? styles.headerTextCompact : styles.headerTextComfortable]}>
+        <View style={[styles.header, compact ? styles.headerCompact : styles.headerComfortable, stacked ? styles.headerStacked : null]} testID="updates.summary">
+            <View style={[styles.headerText, compact ? styles.headerTextCompact : styles.headerTextComfortable, stacked ? styles.headerTextStacked : null]}>
                 <StatusTransition transitionKey={`${header.title}\u0000${header.meta}`} fromScale={1} sizing={text}>
                     {text}
                 </StatusTransition>
             </View>
-            <View style={styles.headerActions}>
+            <View style={[styles.headerActions, stacked ? styles.headerActionsStacked : null]}>
                 {!model.batch && props.presentation === 'screen' ? (
                     <UpdatesTextButton label={t('updates.action.checkNow')} onPress={model.checkNow} testID="updates.checkNow" />
                 ) : null}
@@ -269,6 +274,17 @@ const styles = StyleSheet.create((theme) => ({
         flexDirection: 'row',
         alignItems: 'center',
         gap: theme.margins.md,
+    },
+    headerStacked: {
+        flexDirection: 'column',
+        alignItems: 'stretch',
+        gap: theme.margins.sm,
+    },
+    headerTextStacked: {
+        flex: 0,
+    },
+    headerActionsStacked: {
+        justifyContent: 'flex-end',
     },
     groupMeta: {
         ...Typography.default(),

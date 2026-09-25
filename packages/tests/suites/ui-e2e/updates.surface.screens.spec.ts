@@ -154,13 +154,15 @@ test.describe('ui e2e: Updates surface screens (R13 e)', () => {
       for (const width of [1280, 390] as const) {
         await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 });
         for (const state of ['available', 'downloading', 'ready', 'failed'] as const) {
-          await navigateSpa(page, `/dev/updates-demo?state=${state}`);
-          await expect(page.getByTestId('updates-demo')).toBeVisible({ timeout: 120_000 });
-          await page.waitForTimeout(300);
           const size = width === 390 ? 'phone' : 'desktop';
-          await page.getByTestId('updates-demo.pills').screenshot({ path: join(screensDir, `demo-${theme}-${size}-pills.png`) });
-          await page.getByTestId('updates-demo.popover').screenshot({ path: join(screensDir, `demo-${theme}-${size}-popover-${state}.png`) });
-          await page.getByTestId('updates-demo.screen').screenshot({ path: join(screensDir, `demo-${theme}-${size}-screen-${state}.png`) });
+          for (const section of ['pills', 'popover', 'screen'] as const) {
+            if (section === 'pills' && state !== 'available') continue;
+            await navigateSpa(page, `/dev/updates-demo?state=${state}&only=${section}`);
+            await expect(page.getByTestId(`updates-demo.${section}`)).toBeVisible({ timeout: 120_000 });
+            await page.waitForTimeout(300);
+            const name = section === 'pills' ? `demo-${theme}-${size}-pills` : `demo-${theme}-${size}-${section}-${state}`;
+            await page.getByTestId(`updates-demo.${section}`).screenshot({ path: join(screensDir, `${name}.png`) });
+          }
         }
       }
     }

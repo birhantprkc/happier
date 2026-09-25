@@ -135,7 +135,9 @@ const PILL_SUMMARIES: ReadonlyArray<UpdatesSummary> = [
 ];
 
 export default function UpdatesDemoScreen() {
-    const params = useLocalSearchParams<{ state?: string }>();
+    const params = useLocalSearchParams<{ state?: string; only?: string }>();
+    // `only=` renders one section at the top, for a capture that nothing else scrolls over.
+    const only = params.only === 'pills' || params.only === 'popover' || params.only === 'screen' ? params.only : null;
     const state: DemoState = params.state === 'downloading' || params.state === 'ready' || params.state === 'failed' ? params.state : 'available';
     const model = React.useMemo<UpdatesContentModel>(() => {
         const groups = buildDemoGroups(state);
@@ -156,6 +158,7 @@ export default function UpdatesDemoScreen() {
 
     return (
         <ScrollView style={styles.page} contentContainerStyle={styles.content} testID="updates-demo">
+            {only == null || only === 'pills' ? <>
             <Text style={styles.caption}>Pill</Text>
             <View style={styles.pills} testID="updates-demo.pills">
                 {PILL_SUMMARIES.map((summary) => (
@@ -163,14 +166,19 @@ export default function UpdatesDemoScreen() {
                 ))}
                 <UpdatesPopoverButton summary={PILL_SUMMARIES[0]} variant="rail" testID="updates-demo.rail" />
             </View>
+            </> : null}
+            {only == null || only === 'popover' ? <>
             <Text style={styles.caption}>Popover</Text>
             <View style={styles.popover} testID="updates-demo.popover">
                 <UpdatesContent model={model} presentation="popover" />
             </View>
+            </> : null}
+            {only == null || only === 'screen' ? <>
             <Text style={styles.caption}>Screen</Text>
             <View style={styles.screen} testID="updates-demo.screen">
                 <UpdatesContent model={model} presentation="screen" />
             </View>
+            </> : null}
         </ScrollView>
     );
 }
