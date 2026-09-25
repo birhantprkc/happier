@@ -10,7 +10,6 @@ const resolveWindowsCommandInvocationMock = vi.fn((
   args: [...args],
 }));
 const resolveOpenCodeCliLaunchSpecMock = vi.fn(() => ({ command: 'opencode', args: [], apiGeneration: 'auto' as const }));
-const resolveOpenCodeServerAuthHeadersFromEnvMock = vi.fn(() => ({}));
 const resolveOpenCodeManagedServerChildEnvMock = vi.fn(() => ({ PATH: process.env.PATH ?? '' }));
 const resolveOpenCodeManagedServerTrackedPidMock = vi.fn(async ({ spawnPid }: { spawnPid: number }) => spawnPid);
 const terminateManagedOpenCodeServerPidBestEffortMock = vi.fn();
@@ -40,10 +39,6 @@ vi.mock('@happier-dev/cli-common/process', () => ({
 
 vi.mock('@/backends/opencode/utils/resolveOpenCodeCliCommand', () => ({
   resolveOpenCodeCliLaunchSpec: resolveOpenCodeCliLaunchSpecMock,
-}));
-
-vi.mock('./openCodeServerAuth', () => ({
-  resolveOpenCodeServerAuthHeadersFromEnv: resolveOpenCodeServerAuthHeadersFromEnvMock,
 }));
 
 vi.mock('./openCodeManagedServerEnv', async (importOriginal) => ({
@@ -110,7 +105,6 @@ describe('startManagedOpenCodeServer close fallback', () => {
       args: [...args],
     }));
     resolveOpenCodeCliLaunchSpecMock.mockClear();
-    resolveOpenCodeServerAuthHeadersFromEnvMock.mockClear();
     resolveOpenCodeManagedServerChildEnvMock.mockClear();
     resolveOpenCodeManagedServerTrackedPidMock.mockReset();
     resolveOpenCodeManagedServerTrackedPidMock.mockImplementation(async ({ spawnPid }: { spawnPid: number }) => spawnPid);
@@ -178,12 +172,12 @@ describe('startManagedOpenCodeServer close fallback', () => {
     );
     expect(started.pid).toBe(48123);
     expect(started.logPath).toBe(MOCK_LOG_PATH);
-    expect(onSpawned).toHaveBeenCalledWith({
+    expect(onSpawned).toHaveBeenCalledWith(expect.objectContaining({
       baseUrl: 'http://127.0.0.1:43111',
       pid: 48123,
       logPath: MOCK_LOG_PATH,
       apiGeneration: 'auto',
-    });
+    }));
     expect(callOrder).toEqual(['health', 'resolveTrackedPid', 'onSpawned']);
 
     await started.close();

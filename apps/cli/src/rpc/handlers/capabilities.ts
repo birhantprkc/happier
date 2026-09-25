@@ -320,9 +320,9 @@ async function invokeCliProbeMethod(
     const preflightAdapter = entry?.getPreflightSessionControlsProbeAdapter
         ? await entry.getPreflightSessionControlsProbeAdapter().catch(() => null)
         : null;
-    const requiresMaterializedAuth = Boolean(
-        connectedServices && preflightAdapter?.connectedServiceAuth === 'materialized-env',
-    );
+    const requiresMaterializedAuth = preflightAdapter?.connectedServiceAuth === 'materialized-env'
+        && Boolean(connectedServices && Object.values(connectedServices.bindingsByServiceId)
+            .some((binding) => binding.source === 'connected'));
     const probeContext = await resolveProbeBackendContext(
         { ...params, agentId },
         { requireCredentials: requiresMaterializedAuth },

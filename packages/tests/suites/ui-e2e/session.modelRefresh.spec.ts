@@ -42,6 +42,7 @@ test.describe('UI e2e: inactive session model refresh', () => {
             testDir: suiteDir,
             env: {
                 HAPPIER_E2E_UI_WEB_MODE: 'metro',
+                NODE_OPTIONS: process.env.NODE_OPTIONS,
                 EXPO_PUBLIC_HAPPY_SERVER_URL: server.baseUrl,
                 EXPO_PUBLIC_HAPPY_STORAGE_SCOPE: run.runId,
                 EXPO_PUBLIC_DEBUG: '1',
@@ -75,6 +76,7 @@ test.describe('UI e2e: inactive session model refresh', () => {
                 page, testDir: suiteDir, cliHomeDir, serverUrl: server.baseUrl, uiBaseUrl,
                 extraEnv: {
                     HAPPIER_CODEX_APP_SERVER_BIN: fakeAppServer,
+                    HAPPIER_CODEX_APP_SERVER_RPC_LOG_PATH: join(suiteDir, 'provider.rpc.jsonl'),
                     HAPPIER_E2E_CLI_SNAPSHOT_NODE_MODULES_MODE: 'symlink',
                     HAPPIER_E2E_PROVIDER_SKIP_CLI_SHARED_DEPS_BUILD: '1',
                 },
@@ -82,8 +84,12 @@ test.describe('UI e2e: inactive session model refresh', () => {
             const credentials = await readCliAccessKey(cliHomeDir);
             if (!credentials) throw new Error('Missing fixture credentials');
             const headers = { Authorization: `Bearer ${credentials.token}`, 'Content-Type': 'application/json' };
-            const machines = await fetchJson<Array<{ id: string }>>(`${server.baseUrl}/v1/machines`, { headers });
-            const machineId = machines.data?.[0]?.id;
+            let machineId: string | undefined;
+            await expect.poll(async () => {
+                const machines = await fetchJson<Array<{ id: string }>>(`${server!.baseUrl}/v1/machines`, { headers });
+                machineId = machines.data?.[0]?.id;
+                return machineId;
+            }, { timeout: 60_000 }).toBeTruthy();
             if (!machineId) throw new Error('Fixture daemon did not register a machine');
             const created = await fetchJson<{ session: { id: string } }>(`${server.baseUrl}/v1/sessions`, {
                 method: 'POST', headers,

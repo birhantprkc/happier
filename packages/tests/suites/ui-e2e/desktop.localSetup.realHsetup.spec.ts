@@ -326,7 +326,7 @@ test.describe('ui e2e: desktop local setup through the real hsetup (hermetic com
         await server?.stop().catch(() => {});
     });
 
-    async function newComputer(label: string, options: Readonly<{ ring?: 'stable' | 'publicdev'; foreignCli?: boolean }> = {}): Promise<HermeticDesktopComputer> {
+    async function newComputer(label: string, options: Readonly<{ ring?: 'stable' | 'publicdev'; foreignCli?: boolean; foreignCliFirst?: boolean }> = {}): Promise<HermeticDesktopComputer> {
         const computer = await createHermeticDesktopComputer({ label, testDir: run.testDir(`desktop-local-setup-${label}`), ...options });
         computers.push(computer);
         return computer;
@@ -623,7 +623,7 @@ test.describe('ui e2e: desktop local setup through the real hsetup (hermetic com
         if (!server) throw new Error('missing server');
         // Cross-ring on purpose: this dev app's leftover managed CLI is dev while the kept npm CLI's
         // service is the default channel's; Manage must still be a pure runtime switch (R13 b).
-        const computer = await newComputer('cli-keep', { foreignCli: true });
+        const computer = await newComputer('cli-keep', { foreignCli: true, foreignCliFirst: true });
         const own = computer.foreignCli!;
         const first = await openDesktopApp({ context, computer, uiBaseUrl });
         try {
@@ -654,12 +654,11 @@ test.describe('ui e2e: desktop local setup through the real hsetup (hermetic com
     });
 
     /**
-     * R12 + R13 (b), "Let Happier manage it": the managed stable CLI's `happier` shim leads PATH and
-     * the user's npm copy stays installed. Setup converges on the managed CLI with no confirmation
-     * beyond the question, and Settings › This computer still names the old copy with the command
+     * R12 + R13 (b): the managed stable CLI's `happier` shim leads PATH, so no CLI-choice question
+     * is needed. The user's npm copy stays installed, and Settings › This computer names it with the command
      * that removes it (shown, never run): discovery walks past the managed shim.
      */
-    test('R12: Let Happier manage it: setup converges on the managed CLI and Settings still lists the old copy', async ({ context }) => {
+    test('R12: managed CLI first needs no choice and Settings still lists the old copy', async ({ context }) => {
         test.setTimeout(480_000);
         if (!server) throw new Error('missing server');
         const computer = await newComputer('cli-manage', { ring: 'stable', foreignCli: true });
@@ -667,10 +666,9 @@ test.describe('ui e2e: desktop local setup through the real hsetup (hermetic com
         const app = await openDesktopApp({ context, computer, uiBaseUrl });
         try {
             await ensureAccountReadyForConnect({ page: app.page, timeoutMs: 180_000 });
-            await answerCliChoice(app, own.command, 'managed', 240_000);
             const setup = await waitForSuccessfulSetupRun(app.host, 240_000);
-            expect(readHappierCliChoiceSync({ processEnv: computer.env })).toEqual({ mode: 'managed' });
-            expect(userFacingPromptKinds(app.host)).toEqual([SETUP_CLI_CHOICE_PROMPT_KIND]);
+            expect(readHappierCliChoiceSync({ processEnv: computer.env })).toBeNull();
+            expect(userFacingPromptKinds(app.host)).toEqual([]);
             await expectThisComputerReady(app, readSetupMachineId(setup), 180_000);
 
             await navigateSpa(app.page, '/settings/machines/this-computer?happier_hmr=0');

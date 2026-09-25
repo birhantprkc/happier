@@ -495,6 +495,27 @@ describe('LocalDaemonControlSection', () => {
         expect(screen.findByTestId('settings.localDaemonControl.changeCli')).toBeTruthy();
     });
 
+    it('shows a second CLI behind the managed one even when nobody needed to answer a choice', async () => {
+        ambient.data = {
+            ...HEALTHY_AMBIENT_STATUS_DATA,
+            cli: {
+                update: null,
+                choice: {
+                    mode: null,
+                    otherCli: { command: '/usr/local/bin/happier', origin: 'npm', removalCommand: 'npm uninstall -g @happier-dev/cli', updateCommand: 'npm install -g @happier-dev/cli@latest' },
+                },
+            },
+        };
+
+        const { LocalDaemonControlSection } = await import('./LocalDaemonControlSection');
+        const screen = await renderScreen(React.createElement(LocalDaemonControlSection));
+        await settleAmbientInspection();
+
+        const oldCopy = screen.findByTestId('settings.localDaemonControl.oldCli');
+        expect(oldCopy?.props.subtitle).toBe('machine.thisComputer.cliOldCopyRemove');
+        expect(oldCopy?.props.copy).toBe('npm uninstall -g @happier-dev/cli');
+    });
+
     it('offers no change when there is no other command line to choose (R12)', async () => {
         ambient.data = {
             ...HEALTHY_AMBIENT_STATUS_DATA,

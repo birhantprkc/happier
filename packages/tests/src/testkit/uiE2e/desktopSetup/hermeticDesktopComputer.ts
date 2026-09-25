@@ -193,6 +193,8 @@ export async function createHermeticDesktopComputer(params: Readonly<{
      * the managed shim finds the shim instead of the user's copy.
      */
     foreignCli?: boolean;
+    /** Put the user-installed CLI ahead of the managed shim, as on a computer not yet managed by Desktop. */
+    foreignCliFirst?: boolean;
 }>): Promise<HermeticDesktopComputer> {
     if (process.platform !== 'linux') {
         throw new Error('The hermetic desktop computer models the systemd user manager and runs on Linux only.');
@@ -231,9 +233,10 @@ export async function createHermeticDesktopComputer(params: Readonly<{
         SHELL: '/bin/bash',
         TMPDIR: join(homeDir, 'tmp'),
         PATH: [
-            ...(params.foreignCli ? [join(happierHomeDir, 'bin')] : []),
+            ...(params.foreignCli && !params.foreignCliFirst ? [join(happierHomeDir, 'bin')] : []),
             binDir,
             ...(params.foreignCli ? [join(npmPrefixDir, 'bin')] : []),
+            ...(params.foreignCli && params.foreignCliFirst ? [join(happierHomeDir, 'bin')] : []),
             dirname(process.execPath),
             '/usr/local/bin',
             '/usr/bin',

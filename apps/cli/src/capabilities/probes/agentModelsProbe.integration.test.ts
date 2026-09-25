@@ -359,8 +359,11 @@ describe('probeAgentModelsBestEffort', () => {
       opencodePath,
       `#!/usr/bin/env node
 const args = process.argv.slice(2);
-if (args[0] === "models") {
-  process.stdout.write("openai/gpt-4.1\\nopenai/gpt-4.1-mini\\n");
+if (args[0] === "models" && args[1] === "--verbose") {
+  process.stdout.write(
+    'openai/gpt-4.1\\n{"id":"gpt-4.1","providerID":"openai","name":"GPT-4.1","capabilities":{"toolcall":true}}\\n' +
+    'openai/gpt-4.1-mini\\n{"id":"gpt-4.1-mini","providerID":"openai","name":"GPT-4.1 Mini","capabilities":{"toolcall":true}}\\n'
+  );
   process.exit(0);
 }
 process.exit(1);
@@ -555,10 +558,14 @@ process.exit(1);
       expect(res.source).toBe('dynamic');
       expect(res.availableModels[0]).toEqual({ id: 'default', name: 'Default' });
       expect(res.availableModels).toEqual(expect.arrayContaining([
-        { id: 'composer-2.5', name: 'Composer 2.5' },
-        { id: 'composer-2.5-fast', name: 'Composer 2.5 Fast' },
+        expect.objectContaining({
+          id: 'composer-2.5',
+          name: 'Composer 2.5',
+          modelOptions: [expect.objectContaining({ id: 'fast' })],
+        }),
         { id: 'gpt-5.5', name: 'GPT-5.5' },
       ]));
+      expect(res.availableModels.some((model) => model.id === 'composer-2.5-fast')).toBe(false);
     } finally {
       process.env.PATH = prevPath;
       if (typeof prevOverride === 'string') {

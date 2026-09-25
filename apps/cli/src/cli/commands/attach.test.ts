@@ -280,7 +280,10 @@ describe('happier attach', () => {
     });
     const runTmuxAttachFn = vi.fn(async () => 0);
     const runProviderAttachFn = vi.fn(async () => 0);
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true })));
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ healthy: true, version: '1.2.15' }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })));
 
     await (handleAttachCommand as any)([], {
       readCredentialsFn: async () => credentials,

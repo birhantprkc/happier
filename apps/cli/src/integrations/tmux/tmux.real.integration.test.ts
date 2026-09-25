@@ -203,6 +203,8 @@ describe.skipIf(!shouldRunTmuxIntegration())('tmux (real) integration tests (opt
             );
 
             expect(results.every((r) => r.success)).toBe(true);
+            await Promise.all(Array.from({ length: 12 }, (_, i) =>
+                waitForFile(join(dir, `out-w${i + 1}.json`), 10_000)));
         } finally {
             killIsolatedTmuxServer(socketPath);
             removeIsolatedTmuxTempDir(dir);

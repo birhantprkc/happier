@@ -73,11 +73,12 @@ function resolveCliDetail(facts: DesktopLocalReadinessFacts): string | undefined
 }
 
 /**
- * R12 — the copy of `happier` still installed beside the managed one after "Let Happier manage
- * it". Its removal command is shown and copyable, never run: it belongs to the package manager.
+ * R12 — the copy of `happier` still installed beside the managed one, whether or not the managed
+ * shim was already first on PATH and a choice was unnecessary. Its removal command is shown and
+ * copyable, never run: it belongs to the package manager.
  */
 function resolveOldCliCopy(facts: DesktopLocalReadinessFacts | null): Readonly<{ subtitle: string; removalCommand: string | null }> | null {
-    const other = facts?.cliChoice.mode === 'managed' ? facts.cliChoice.otherCli : null;
+    const other = facts?.acquisition.provenance === 'managed' ? facts.cliChoice.otherCli : null;
     if (!other) return null;
     return {
         subtitle: other.removalCommand
