@@ -939,12 +939,14 @@ posixDescribe('createHsetupSystemTaskRegistry cli.pathExposure kinds', () => {
     const previousShell = process.env.SHELL;
     const previousHappierHome = process.env.HAPPIER_HOME_DIR;
     const previousNoPathUpdate = process.env.HAPPIER_NO_PATH_UPDATE;
+    const previousPath = process.env.PATH;
     const zshrcPath = join(homeDir, '.zshrc');
     writeFileSync(zshrcPath, '# mine\n', 'utf8');
     try {
       process.env.HOME = homeDir;
       process.env.SHELL = '/bin/zsh';
       process.env.HAPPIER_HOME_DIR = join(homeDir, '.happier');
+      process.env.PATH = '';
       delete process.env.HAPPIER_NO_PATH_UPDATE;
       const registry = createHsetupSystemTaskRegistry();
       const params = { surface: 'desktop.ui', target: { kind: 'local' }, mode: 'user' };
@@ -983,6 +985,7 @@ posixDescribe('createHsetupSystemTaskRegistry cli.pathExposure kinds', () => {
       restoreEnvVar('SHELL', previousShell);
       restoreEnvVar('HAPPIER_HOME_DIR', previousHappierHome);
       restoreEnvVar('HAPPIER_NO_PATH_UPDATE', previousNoPathUpdate);
+      restoreEnvVar('PATH', previousPath);
       rmSync(homeDir, { recursive: true, force: true });
     }
   });

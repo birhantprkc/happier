@@ -313,8 +313,9 @@ describe('ensureSetupCapableLocalHappierCli', () => {
       });
       writeFileSync(join(happyHomeDir, 'default-cli-release-channel.json'), '{"releaseChannel":"stable"}\n', 'utf8');
       const readVersion = vi.fn(async () => SETUP_CLI_VERSION_FLOOR);
-      // A temp repo root keeps the walk from finding this checkout as a repo-local override.
-      const processEnv = { ...process.env, HAPPIER_HOME_DIR: happyHomeDir, HAPPIER_BOOTSTRAP_CLI_PATH: '', HAPPIER_STACK_REPO_DIR: rootDir };
+      // A temp repo root keeps the walk from finding this checkout as a repo-local override; an
+      // empty PATH keeps package-manager test runners from contributing their own happier binary.
+      const processEnv = { ...process.env, HAPPIER_HOME_DIR: happyHomeDir, HAPPIER_BOOTSTRAP_CLI_PATH: '', HAPPIER_STACK_REPO_DIR: rootDir, PATH: '' };
 
       await expect(ensureSetupCapableLocalHappierCli({ releaseRing: 'preview', processEnv }, { readVersion }))
         .resolves.toEqual({
