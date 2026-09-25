@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
+import { createRequire } from 'node:module';
 
 import { createRunDirs } from '../../src/testkit/runDir';
 import { startServerLight, type StartedServer } from '../../src/testkit/process/serverLight';
@@ -23,7 +24,12 @@ import { ensureAccountReadyForConnect } from '../../src/testkit/uiE2e/ensureAcco
 import { parseTestTerminalAttachmentInfo, type TestTerminalAttachmentInfo } from '../../src/testkit/uiE2e/terminalAttachmentInfo';
 import { waitForDaemonMachineIdFromCliSettings } from '../../src/testkit/uiE2e/daemonMachineId';
 import { appendBrowserDiagnostics, collectBrowserDiagnostics } from '../../src/testkit/uiE2e/browserDiagnostics';
+import { readCliAccessKey } from '../../src/testkit/cliAccessKey';
+import { waitForSessionActive } from '../../src/testkit/providers/scenarios/sessionRuntime';
 
+// The UI package is CommonJS; use its real lifecycle budget from this ESM test.
+const { readSpawnSessionRpcTimeoutMsFromEnv }: typeof import('../../../../apps/ui/sources/sync/domains/session/spawn/spawnSessionRpcTimeout') =
+    createRequire(import.meta.url)('../../../../apps/ui/sources/sync/domains/session/spawn/spawnSessionRpcTimeout.ts');
 
 const run = createRunDirs({ runLabel: 'ui-e2e' });
 
@@ -315,6 +321,16 @@ test.describe('ui e2e: tmux spawn → attach', () => {
                 await expect(resume).toBeEnabled();
                 await resume.click();
 
+                // Resume acknowledges before the new runtime is ready. Wait for its
+                // authoritative active state using the owning spawn lifecycle budget.
+                const accessKey = await readCliAccessKey(cliHomeDir);
+                if (!accessKey) throw new Error('Missing test CLI access key');
+                await waitForSessionActive({
+                    baseUrl: server!.baseUrl,
+                    token: accessKey.token,
+                    sessionId,
+                    timeoutMs: readSpawnSessionRpcTimeoutMsFromEnv(),
+                });
                 const resumedInfo = await waitForAttachmentInfo(cliHomeDir, sessionId, info.attachmentId);
                 expect(resumedInfo.terminal.mode).toBe('tmux');
                 expect(resumedInfo.terminal.tmux?.target?.startsWith(`${tmuxSessionName}:`)).toBe(true);
