@@ -195,9 +195,9 @@ import {
 import {
   getPreferredHostName,
   initialMachineMetadata,
-  refreshMachineMetadataForCurrentDaemon,
 } from './machine/metadata';
 import { readCliUpdateFactsForThisCli } from '@/cli/runtime/update/cliUpdateFacts';
+import { createCliUpdateMetadataPublisher, type CliUpdateMetadataPublisher } from './machine/cliUpdateMetadataPublisher';
 import { createDaemonShutdownController } from './lifecycle/shutdown';
 import { buildTmuxSpawnConfig, buildTmuxWindowEnv } from './platform/tmux/spawnConfig';
 export { buildTmuxSpawnConfig, buildTmuxWindowEnv } from './platform/tmux/spawnConfig';
@@ -2049,6 +2049,7 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
       let apiMachineForSessions: ApiMachineClient | null = null;
       let automationWorker: AutomationWorkerHandle | null = null;
       let memoryWorker: MemoryWorkerHandle | null = null;
+      let cliUpdateMetadataPublisher: CliUpdateMetadataPublisher | null = null;
       let apiMachine: ApiMachineClient | null = null;
       const eventLoopStallMonitor = createDaemonEventLoopStallMonitor({
         getActiveRpcOperations: () => apiMachineForSessions?.getActiveRpcHandlerExecutions() ?? [],
@@ -8494,7 +8495,22 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
                 });
               });
 
-              let didRefreshMachineMetadata = false;
+              // Daemon-owned metadata, K5 CLI update facts included: published on every (re)connect
+              // and whenever an update attempt records its end (a failure before activation, or a
+              // manual daemon the update did not restart) — a restarted daemon publishes on connect.
+              cliUpdateMetadataPublisher?.stop();
+              cliUpdateMetadataPublisher = createCliUpdateMetadataPublisher({
+                updateMachineMetadata: async (handler) => await connectedApiMachine.updateMachineMetadata(handler),
+                fallbackMetadata: () => (machine.metadata ?? {}) as Partial<MachineMetadata>,
+                preferredHost,
+                readFacts: readCliUpdateFactsForThisCli,
+                onError: (message, error) => logger.warn(message, error),
+              });
+              cliUpdateMetadataPublisher.watch({
+                channel: configuration.publicReleaseRing,
+                processEnv: { ...process.env, HAPPIER_HOME_DIR: configuration.happyHomeDir },
+              });
+              const publishDaemonMetadata = cliUpdateMetadataPublisher.publish;
               connectedApiMachine.connect({
                 takeover: takeoverRequested,
                 onConnect: async () => {
@@ -8522,14 +8538,9 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
                     });
                   }
 
-                  if (didRefreshMachineMetadata) return;
-                  didRefreshMachineMetadata = true;
-                  // Keep machine metadata fresh without clobbering user-provided fields (e.g. displayName) that may exist.
-                  await connectedApiMachine.updateMachineMetadata((metadata) => {
-                    const base = (metadata ?? machine.metadata ?? {}) as Partial<MachineMetadata>;
-                    return refreshMachineMetadataForCurrentDaemon(base, preferredHost, readCliUpdateFactsForThisCli());
-                  }).catch((error) => {
-                    didRefreshMachineMetadata = false;
+                  // Keep machine metadata fresh without clobbering user-provided fields (e.g. displayName)
+                  // on every (re)connect — a no-op write when nothing changed.
+                  await publishDaemonMetadata().catch((error) => {
                     logger.warn('[DAEMON RUN] Failed to refresh machine metadata on reconnect', error);
                   });
                 },
@@ -8733,6 +8744,7 @@ export async function startDaemon(options: Readonly<{ takeover?: boolean }> = {}
       if (automationWorker) {
         automationWorker.stop();
       }
+      cliUpdateMetadataPublisher?.stop();
       if (memoryWorker) {
         memoryWorker.stop();
       }
