@@ -64,7 +64,10 @@ function shouldPrefetchAgentCliLatestVersion(result: CapabilityDetectResult | nu
     const data = result.data as Record<string, unknown>;
     if (data.available !== true || typeof data.updateSupported !== 'boolean') return false;
     if (!('latestVersion' in data)) return true;
-    const checkedAt = typeof result.checkedAt === 'number' ? result.checkedAt : 0;
+    // The time the latest version was learned, which the cache keeps apart from later detects.
+    const checkedAt = typeof data.latestVersionCheckedAt === 'number'
+        ? data.latestVersionCheckedAt
+        : typeof result.checkedAt === 'number' ? result.checkedAt : 0;
     if (checkedAt <= 0) return true;
     return isLatestVersionCheckDue({ checkedAt, ok: typeof data.latestVersion === 'string', now: Date.now() });
 }
