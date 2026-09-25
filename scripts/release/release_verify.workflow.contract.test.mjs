@@ -166,6 +166,36 @@ test('release candidate verification runs trusted workflow control bytes under t
   assert.doesNotMatch(String(artifactVerification.run ?? ''), /\$\{\{\s*inputs\./);
 });
 
+test('grouped and independent candidate verifiers install trusted control dependencies before artifact checks', async () => {
+  for (const [workflowFile, jobName] of [
+    ['release-verify.yml', 'verify_candidate'],
+    ['verify-release-resume-candidates.yml', 'verify'],
+  ]) {
+    const workflow = YAML.parse(
+      await readFile(join(repoRoot, '.github', 'workflows', workflowFile), 'utf8'),
+      { prettyErrors: true },
+    );
+    const steps = workflow.jobs[jobName].steps;
+    const firstVerifierIndex = steps.findIndex(
+      (step) => step?.uses === './.release-control/.github/actions/verify-immutable-release-candidate',
+    );
+    const corepackIndex = steps.findIndex((step) => step?.name === 'Enable trusted control Yarn');
+    const installIndex = steps.findIndex((step) => step?.name === 'Install trusted verification dependencies');
+
+    assert.ok(firstVerifierIndex > 0, `${workflowFile} must invoke the shared artifact verifier`);
+    assert.ok(corepackIndex >= 0 && corepackIndex < installIndex, `${workflowFile} must enable Yarn before installation`);
+    assert.ok(installIndex < firstVerifierIndex, `${workflowFile} must install dependencies before artifact verification`);
+    assert.equal(steps[installIndex]['working-directory'], '.release-control');
+    assert.match(steps[installIndex].run, /scripts\/ci\/yarn-install-with-retry\.sh/);
+    assert.deepEqual(
+      new Set(String(steps[installIndex].env.HAPPIER_INSTALL_SCOPE).split(',')),
+      new Set(['protocol', 'agents', 'release-runtime', 'cli-common']),
+    );
+    assert.equal(steps[installIndex].env.GH_TOKEN, undefined);
+    assert.equal(steps[installIndex].env.GITHUB_TOKEN, undefined);
+  }
+});
+
 test('release-verify proves a deployed server loaded the exact candidate revision', async () => {
   const raw = await readFile(join(repoRoot, '.github', 'workflows', 'release-verify.yml'), 'utf8');
   const workflow = YAML.parse(raw, { prettyErrors: true });
