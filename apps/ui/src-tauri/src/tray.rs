@@ -16,8 +16,9 @@ use serde::Deserialize;
 const TRAY_ICON_ID: &str = "main";
 /// The tray shows only the Happier mark; status lives in the menu it opens, so the icon never
 /// changes and never grows a title. macOS gets a template image the menu bar tints for light and
-/// dark bars (tray-icon draws it 18pt tall; 36px is its @2x). Windows and Linux get a white glyph
-/// with a dark keyline, legible on light and dark trays alike. Both derive from `logo-black.png`.
+/// dark bars (tray-icon draws it 18pt tall; 36px is its @2x). Windows and Linux get the full-colour
+/// mark at 32px. Both are rendered from `icons/AppIcon.icon/Assets/*.svg` by
+/// `node scripts/generateTrayIcons.mjs`.
 #[cfg(target_os = "macos")]
 const TRAY_ICON: Image<'static> = tauri::include_image!("./icons/tray/tray-template.png");
 #[cfg(all(desktop, not(target_os = "macos")))]
@@ -46,6 +47,7 @@ pub fn register<R: Runtime>(app: &mut App<R>) -> tauri::Result<()> {
         open_label: default_open_label(),
         quit_label: default_quit_label(),
         updates_label: None,
+        updates_enabled: None,
     };
 
     // No click handler: every platform opens the menu on click (Linux can only ever do that), and
@@ -78,6 +80,9 @@ pub struct DesktopTrayStatePayload {
     /// apps, nothing to update) means no item.
     #[serde(default)]
     pub updates_label: Option<String>,
+    /// `false` while the item only reports ("Updating…"). Absent (older apps) = enabled.
+    #[serde(default)]
+    pub updates_enabled: Option<bool>,
 }
 
 #[cfg(desktop)]
@@ -136,7 +141,11 @@ fn build_menu<R: Runtime>(
         .map(str::trim)
         .filter(|label| !label.is_empty())
     {
-        menu = menu.item(&MenuItemBuilder::with_id(OPEN_UPDATES_MENU_ID, label).build(app)?);
+        menu = menu.item(
+            &MenuItemBuilder::with_id(OPEN_UPDATES_MENU_ID, label)
+                .enabled(state.updates_enabled.unwrap_or(true))
+                .build(app)?,
+        );
     }
     menu.item(&show_main_window_item)
         .separator()
@@ -184,6 +193,13 @@ mod tests {
             with_updates.updates_label.as_deref(),
             Some("Updates available (2)…")
         );
+        assert_eq!(with_updates.updates_enabled, None);
+
+        let reporting: DesktopTrayStatePayload = serde_json::from_str(
+            r#"{"label":"Connected","detail":"Online","updatesLabel":"Updating…","updatesEnabled":false}"#,
+        )
+        .expect("payload with a disabled updates item parses");
+        assert_eq!(reporting.updates_enabled, Some(false));
     }
 
     #[test]

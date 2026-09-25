@@ -43,7 +43,7 @@ import { SettingsBelowFoldSections } from '@/components/settings/SettingsBelowFo
 import { runAfterInteractionsWithFallback } from '@/utils/timing/runAfterInteractionsWithFallback';
 import { Icon } from '@/components/ui/icons/Icon';
 import { describeUpdatesSettingsSubtitle } from '@/components/updates/describeUpdatesSummary';
-import { useUpdatesSummary } from '@/updates/useUpdatesSummary';
+import { useSharedUpdatesSummary } from '@/updates/useUpdatesSummary';
 
 const DEFER_BELOW_FOLD_SETTINGS_SECTIONS_DELAY_MS = 0;
 const DEFER_BELOW_FOLD_SETTINGS_STAGE_DELAY_MS = 16;
@@ -80,7 +80,7 @@ export const SettingsView = React.memo(function SettingsView() {
     const displayName = getDisplayName(profile);
     const avatarUrl = getAvatarUrl(profile);
     const bio = getBio(profile);
-    const updatesSubtitle = describeUpdatesSettingsSubtitle(useUpdatesSummary());
+    const updatesSubtitle = describeUpdatesSettingsSubtitle(useSharedUpdatesSummary());
     const pushRoute = React.useCallback((route: Parameters<typeof router.push>[0]) => {
         deferOnWeb(() => {
             navigateWithBlurOnWeb(() => {

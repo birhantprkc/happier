@@ -3,12 +3,12 @@ import * as React from 'react';
 import { useRouter } from 'expo-router';
 
 import { useConnectionHealth } from '@/components/navigation/connectionStatus/useConnectionHealth';
-import { describeUpdatesTrayLabel } from '@/components/updates/describeUpdatesSummary';
+import { describeUpdatesTrayItem } from '@/components/updates/describeUpdatesSummary';
 import { UPDATES_ROUTE } from '@/components/updates/updatesRoute';
 import { useRelayDriftSummary } from '@/components/settings/server/useRelayDriftSummary';
 import { t } from '@/text';
 import { isTauriDesktop, listenTauriEvent } from '@/utils/platform/tauri';
-import { useUpdatesSummary } from '@/updates/useUpdatesSummary';
+import { useSharedUpdatesSummary } from '@/updates/useUpdatesSummary';
 import { fireAndForget } from '@/utils/system/fireAndForget';
 
 import { applyTauriTrayState } from './applyTauriTrayState';
@@ -19,7 +19,9 @@ function TauriDesktopTrayRuntime(): React.ReactElement | null {
     // The summary projection only: the tray is always mounted, so it must not hold the repair's
     // setup task or prompt handling (`apps/ui/AGENTS.md`).
     const thisComputer = useRelayDriftSummary();
-    const updatesLabel = describeUpdatesTrayLabel(useUpdatesSummary());
+    const updatesItem = describeUpdatesTrayItem(useSharedUpdatesSummary());
+    const updatesLabel = updatesItem?.label ?? null;
+    const updatesEnabled = updatesItem?.enabled ?? true;
     const router = useRouter();
 
     const trayState = React.useMemo(() => buildDesktopTrayState({
@@ -31,9 +33,10 @@ function TauriDesktopTrayRuntime(): React.ReactElement | null {
             machineLabelKey: connectionHealth.machineLabelKey,
         },
         thisComputerSentence: thisComputer?.description ?? null,
-        updatesLabel,
+        updatesItem: updatesLabel ? { label: updatesLabel, enabled: updatesEnabled } : null,
         t,
     }), [
+        updatesEnabled,
         updatesLabel,
         connectionHealth.kind,
         connectionHealth.machineCount,

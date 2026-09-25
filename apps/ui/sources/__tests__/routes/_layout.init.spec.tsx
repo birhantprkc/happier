@@ -361,6 +361,12 @@ vi.mock('@/components/ui/layout/StatusBarProvider', () => ({
     StatusBarProvider: () => null,
 }));
 
+// The root layout's Updates summary host; its classification has its own owner tests.
+vi.mock('@/updates/useUpdatesSummary', () => ({
+    UpdatesSummaryProvider: ({ children }: { children: React.ReactNode }) => children,
+    useSharedUpdatesSummary: () => ({ actionableCount: 0, failedCount: 0, runningCount: 0, phase: 'none', status: 'upToDate', visible: false }),
+}));
+
 vi.mock('@/components/updates/UpdatesPopoverButton', () => {
     const React = require('react');
     return {

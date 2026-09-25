@@ -117,10 +117,11 @@ describe('buildDesktopTrayState', () => {
             statusLabelKey: 'status.connected' as const,
             machineLabelKey: 'status.online' as const,
         };
-        expect(buildDesktopTrayState({ health, updatesLabel: 'Updates available (2)…', t: translate }).updatesLabel)
-            .toBe('Updates available (2)…');
-        expect(buildDesktopTrayState({ health, thisComputerSentence: 'Drift.', updatesLabel: 'Updating…', t: translate }).updatesLabel)
-            .toBe('Updating…');
-        expect('updatesLabel' in buildDesktopTrayState({ health, updatesLabel: null, t: translate })).toBe(false);
+        expect(buildDesktopTrayState({ health, updatesItem: { label: 'Updates available (2)…', enabled: true }, t: translate }))
+            .toMatchObject({ updatesLabel: 'Updates available (2)…', updatesEnabled: true });
+        // "Updating…" says what is happening; it is not an action.
+        expect(buildDesktopTrayState({ health, thisComputerSentence: 'Drift.', updatesItem: { label: 'Updating…', enabled: false }, t: translate }))
+            .toMatchObject({ updatesLabel: 'Updating…', updatesEnabled: false });
+        expect('updatesLabel' in buildDesktopTrayState({ health, updatesItem: null, t: translate })).toBe(false);
     });
 });

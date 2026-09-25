@@ -15,7 +15,7 @@ import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 import type { UpdatesSummary } from '@/updates/items/buildUpdatesSummary';
 import { useUpdatesContentModel } from '@/updates/useUpdatesContentModel';
-import { useUpdatesSummary } from '@/updates/useUpdatesSummary';
+import { useSharedUpdatesSummary } from '@/updates/useUpdatesSummary';
 
 import { UpdatesContent } from './UpdatesContent';
 import { UPDATES_ROUTE } from './updatesRoute';
@@ -241,6 +241,6 @@ export const UpdatesEntry = React.memo(function UpdatesEntry(props: Readonly<{
     buttonSize?: number;
     testID?: string;
 }>) {
-    const summary = useUpdatesSummary();
+    const summary = useSharedUpdatesSummary();
     return <UpdatesPopoverButton summary={summary} {...props} />;
 });

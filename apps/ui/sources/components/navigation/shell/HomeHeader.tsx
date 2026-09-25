@@ -12,7 +12,7 @@ import { useAutomationsSupport } from '@/hooks/server/useAutomationsSupport';
 import { Text } from '@/components/ui/text/Text';
 import { useConnectionHealth } from '@/components/navigation/connectionStatus/useConnectionHealth';
 import { UpdatesPopoverButton } from '@/components/updates/UpdatesPopoverButton';
-import { useUpdatesSummary } from '@/updates/useUpdatesSummary';
+import { useSharedUpdatesSummary } from '@/updates/useUpdatesSummary';
 import { Icon } from '@/components/ui/icons/Icon';
 import {
     shouldForceFreshNewSessionEntryFromPressEvent,
@@ -151,7 +151,7 @@ function HeaderRightNotAuth() {
 
 function HeaderLeft(props: { showAutomations: boolean }) {
     const router = useRouter();
-    const updates = useUpdatesSummary();
+    const updates = useSharedUpdatesSummary();
     const styles = stylesheet;
     const { theme } = useUnistyles();
     const logo = (

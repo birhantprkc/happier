@@ -38,6 +38,7 @@ import { FaviconPermissionIndicator } from '@/components/web/FaviconPermissionIn
 import { CommandPaletteProvider } from '@/components/appShell/commandPalette/CommandPaletteProvider';
 import { StatusBarProvider } from '@/components/ui/layout/StatusBarProvider';
 import { UpdatesEntry } from '@/components/updates/UpdatesPopoverButton';
+import { UpdatesSummaryProvider } from '@/updates/useUpdatesSummary';
 import { monkeyPatchConsoleForRemoteLoggingForFasterAiAutoDebuggingOnlyInLocalBuilds } from '@/utils/system/remoteLogger';
 import { installBugReportConsoleCapture } from '@/utils/system/bugReportLogBuffer';
 import { configureBugReportUserActionTrail } from '@/utils/system/bugReportActionTrail';
@@ -854,7 +855,8 @@ function RootAppShell(props: Readonly<{
             leftOffsetPx={0}
             style={{ flex: 1 }}
         >
-            {shellContent}
+            {/* One Updates summary for every always-mounted entry (sidebar, rail, header, Settings, tray). */}
+            <UpdatesSummaryProvider>{shellContent}</UpdatesSummaryProvider>
         </DesktopMainContentDragSurface>
     );
 }

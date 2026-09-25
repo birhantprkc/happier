@@ -19,34 +19,13 @@ vi.mock('react-native-unistyles', async () => {
 const routerMock = createExpoRouterMock();
 vi.mock('expo-router', () => routerMock.module);
 
-const capture = vi.hoisted(() => ({
-    contentModelMounts: 0,
-    activeContentModels: 0,
-    contentProps: null as Record<string, unknown> | null,
-}));
+vi.mock('@/sync/domains/state/storage', async (importOriginal) => {
+    const { createStorageModuleMock } = await import('@/dev/testkit/mocks/storage');
+    return createStorageModuleMock({ importOriginal, overrides: {} });
+});
 
-// The detail owner and its content are the leaf this test proves stays unmounted behind a closed
-// entry (`apps/ui/AGENTS.md`: always-mounted chrome reads only the summary).
-vi.mock('@/updates/useUpdatesContentModel', () => ({
-    useUpdatesContentModel: () => {
-        capture.contentModelMounts += 1;
-        React.useEffect(() => {
-            capture.activeContentModels += 1;
-            return () => {
-                capture.activeContentModels -= 1;
-            };
-        }, []);
-        return { kind: 'model' };
-    },
-}));
-
-vi.mock('./UpdatesContent', () => ({
-    UpdatesContent: (props: Record<string, unknown>) => {
-        capture.contentProps = props;
-        return React.createElement('UpdatesContent', props);
-    },
-}));
-
+// The real Updates owner and content render beneath; only the portal host and the overlay
+// surface (platform presentation boundaries) are replaced.
 vi.mock('@/components/ui/popover', () => ({
     Popover: (props: Record<string, unknown> & { children: (layout: { maxHeight: number; maxWidth: number }) => React.ReactNode }) => (
         React.createElement('Popover', props, props.children({ maxHeight: 600, maxWidth: 500 }))
@@ -66,8 +45,7 @@ const NONE: UpdatesSummary = { actionableCount: 0, failedCount: 0, runningCount:
 const TWO: UpdatesSummary = { actionableCount: 2, failedCount: 0, runningCount: 0, phase: 'available', status: 'available', visible: true };
 
 describe('UpdatesPopoverButton', () => {
-    it('is absent at zero, and a closed pill never mounts the detail model', async () => {
-        capture.contentModelMounts = 0;
+    it('is absent at zero, and a closed pill renders no detail content', async () => {
         const { UpdatesPopoverButton } = await import('./UpdatesPopoverButton');
         const screen = await renderScreen(<UpdatesPopoverButton summary={NONE} variant="pill" testID="pill" />);
         expect(screen.findAllHostsByTestId('pill')).toHaveLength(0);
@@ -75,12 +53,11 @@ describe('UpdatesPopoverButton', () => {
         await screen.update(<UpdatesPopoverButton summary={TWO} variant="pill" testID="pill" />);
         expect(screen.findByTestId('pill')?.props.accessibilityLabel).toBe('updates.a11y.pillAvailable');
         expect(screen.findByTestId('pill')?.props.accessibilityState).toMatchObject({ expanded: false });
-        expect(capture.contentModelMounts).toBe(0);
+        expect(screen.findAllByTestId('updates.content.popover')).toHaveLength(0);
     });
 
-    it('opens the shared content in the popover density, and unmounts it again on close', async () => {
-        capture.contentModelMounts = 0;
-        capture.activeContentModels = 0;
+    it('opens the real content in the popover density, and removes it again on close', async () => {
+        routerMock.spies.push.mockClear();
         const { UpdatesPopoverButton } = await import('./UpdatesPopoverButton');
         const screen = await renderScreen(<UpdatesPopoverButton summary={TWO} variant="pill" testID="pill" />);
 
@@ -88,17 +65,15 @@ describe('UpdatesPopoverButton', () => {
             await screen.findByTestId('pill')?.props.onPress({});
         });
         expect(screen.findByTestId('pill')?.props.accessibilityState).toMatchObject({ expanded: true });
-        expect(capture.activeContentModels).toBe(1);
-        expect(capture.contentProps).toMatchObject({ presentation: 'popover' });
+        expect(screen.findAllByTestId('updates.content.popover').length).toBeGreaterThan(0);
 
         await screen.pressByTestIdAsync('updates.open_full');
         expect(routerMock.spies.push).toHaveBeenCalledWith('/(app)/settings/updates');
         expect(screen.findAllByType('Popover' as never)).toHaveLength(0);
-        expect(capture.activeContentModels).toBe(0);
+        expect(screen.findAllByTestId('updates.content.popover')).toHaveLength(0);
     });
 
     it('on the phone header, goes to Settings › Updates instead of opening a popover', async () => {
-        capture.contentModelMounts = 0;
         routerMock.spies.push.mockClear();
         const { UpdatesPopoverButton } = await import('./UpdatesPopoverButton');
         const screen = await renderScreen(<UpdatesPopoverButton summary={TWO} variant="header" testID="header" />);
@@ -106,6 +81,6 @@ describe('UpdatesPopoverButton', () => {
             await screen.findByTestId('header')?.props.onPress({});
         });
         expect(routerMock.spies.push).toHaveBeenCalledWith('/(app)/settings/updates');
-        expect(capture.contentModelMounts).toBe(0);
+        expect(screen.findAllByTestId('updates.content.popover')).toHaveLength(0);
     });
 });

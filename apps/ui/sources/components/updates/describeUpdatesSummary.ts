@@ -87,21 +87,24 @@ export function describeUpdatesSettingsSubtitle(summary: UpdatesSummary): string
     }
 }
 
-/** The tray's optional Updates item (sent in the localized tray payload); `null` = no item. */
-export function describeUpdatesTrayLabel(summary: UpdatesSummary): string | null {
+/**
+ * The tray's optional Updates item (sent in the localized tray payload); `null` = no item.
+ * "Updating…" only reports, so it is disabled; every other phase opens Updates.
+ */
+export function describeUpdatesTrayItem(summary: UpdatesSummary): Readonly<{ label: string; enabled: boolean }> | null {
     switch (summary.phase) {
         case 'none':
         case 'completed':
             return null;
         case 'available':
-            return t('updates.tray.available', { count: summary.actionableCount });
+            return { label: t('updates.tray.available', { count: summary.actionableCount }), enabled: true };
         case 'running':
-            return t('updates.tray.running');
+            return { label: t('updates.tray.running'), enabled: false };
         case 'ready':
-            return t('updates.tray.ready');
+            return { label: t('updates.tray.ready'), enabled: true };
         case 'required':
-            return t('updates.tray.required');
+            return { label: t('updates.tray.required'), enabled: true };
         case 'failed':
-            return t('updates.tray.failed');
+            return { label: t('updates.tray.failed'), enabled: true };
     }
 }

@@ -44,3 +44,29 @@ export function useUpdatesSummary(): UpdatesSummary {
         [summary.actionableCount, summary.phase, summary.status, summary.visible],
     );
 }
+
+const NOTHING_TO_SHOW: UpdatesSummary = {
+    actionableCount: 0,
+    failedCount: 0,
+    runningCount: 0,
+    phase: 'none',
+    status: 'upToDate',
+    visible: false,
+};
+
+/** Hosts without the provider (the pet overlay webview) show no Updates entry. */
+const UpdatesSummaryContext = React.createContext<UpdatesSummary>(NOTHING_TO_SHOW);
+
+/**
+ * Computes the summary once for the whole app shell; every always-mounted entry (sidebar pill,
+ * collapsed rail, phone header, Settings row, tray) reads it through `useSharedUpdatesSummary`
+ * instead of rebuilding every machine's rows itself (the inbox summary pattern).
+ */
+export function UpdatesSummaryProvider(props: Readonly<{ children: React.ReactNode }>) {
+    const summary = useUpdatesSummary();
+    return React.createElement(UpdatesSummaryContext.Provider, { value: summary }, props.children);
+}
+
+export function useSharedUpdatesSummary(): UpdatesSummary {
+    return React.useContext(UpdatesSummaryContext);
+}

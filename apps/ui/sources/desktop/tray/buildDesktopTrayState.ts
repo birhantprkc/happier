@@ -16,6 +16,8 @@ export type DesktopTrayState = Readonly<{
      * is nothing to act on, which is also what older native shells expect.
      */
     updatesLabel?: string;
+    /** `false` while the item only reports ("Updating…"); absent = enabled (older payloads). */
+    updatesEnabled?: boolean;
 }>;
 
 type TrayLabelKey = ConnectionHealthStatusLabelKey | ConnectionHealthMachineLabelKey | 'settingsDesktop.trayOpen' | 'settingsDesktop.trayQuit';
@@ -38,14 +40,14 @@ export function buildDesktopTrayState(params: Readonly<{
     }>;
     /** The drift summary's one sentence naming what this computer is connected to (U7/R17). */
     thisComputerSentence?: string | null;
-    /** The Updates summary's tray label (`describeUpdatesTrayLabel`); `null` = no item. */
-    updatesLabel?: string | null;
+    /** The Updates summary's tray item (`describeUpdatesTrayItem`); `null` = no item. */
+    updatesItem?: Readonly<{ label: string; enabled: boolean }> | null;
     t: (key: TrayLabelKey) => string;
 }>): DesktopTrayState {
     const menuLabels = {
         openLabel: params.t('settingsDesktop.trayOpen'),
         quitLabel: params.t('settingsDesktop.trayQuit'),
-        ...(params.updatesLabel ? { updatesLabel: params.updatesLabel } : null),
+        ...(params.updatesItem ? { updatesLabel: params.updatesItem.label, updatesEnabled: params.updatesItem.enabled } : null),
     };
     const sentence = typeof params.thisComputerSentence === 'string'
         ? params.thisComputerSentence.trim()
