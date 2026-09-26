@@ -142,6 +142,14 @@ describe('another machine — Happier CLI row (K5)', () => {
 });
 
 describe('agent CLI rows (K6)', () => {
+    it('keeps an unorderable vendor prerelease visible without crashing or offering an update', () => {
+        const item = buildAgentCliUpdateItem({
+            machineId: 'm1', agentId: 'claude', title: 'Claude Code', online: true, task: IDLE_TASK,
+            data: { available: true, version: '2.1.3-beta.1', latestVersion: '2.1.4', installSource: 'managed', updateSupported: true },
+        });
+        expect(item).toMatchObject({ currentVersion: '2.1.3-beta.1', state: 'unknown', action: { kind: 'none' } });
+    });
+
     it('lists an installed agent with its version but claims nothing without a latest version', () => {
         const item = buildAgentCliUpdateItem({
             machineId: 'm1', agentId: 'claude', title: 'Claude Code', online: true, task: IDLE_TASK,
@@ -196,6 +204,17 @@ describe('failed rows keep the executor\'s log', () => {
 });
 
 describe('helper installable rows', () => {
+    it('does not crash or claim up-to-date when an installed helper uses an opaque vendor prerelease', () => {
+        const item = buildInstallableUpdateItem({
+            machineId: 'm1', installableKey: 'gh', title: 'GitHub CLI', online: true, task: IDLE_TASK,
+            data: {
+                installed: true, installedVersion: '2.61.0-beta.1', sourceKind: 'managed', lastInstallLogPath: null, lastBackgroundUpdateCheckAtMs: null,
+                latestVersionCheck: { ok: true, latestVersion: '2.62.0', label: null },
+            },
+        });
+        expect(item).toMatchObject({ currentVersion: '2.61.0-beta.1', state: 'unknown', action: { kind: 'none' } });
+    });
+
     it('offers the upgrade when the installables check found a newer version, and says when it could not check', () => {
         const available = buildInstallableUpdateItem({
             machineId: 'm1', installableKey: 'gh', title: 'GitHub CLI', online: true, task: IDLE_TASK,

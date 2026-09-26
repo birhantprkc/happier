@@ -1,6 +1,6 @@
 import type { CliUpdateFacts } from '@happier-dev/protocol';
 
-import { isInstallableDepUpdateAvailable } from '@/capabilities/installablesUpdateAvailable';
+import { getInstallableDepUpdateAvailability } from '@/capabilities/installablesUpdateAvailable';
 import { t } from '@/text';
 import type { InstallableDepDataLike } from '@/capabilities/installablesRegistry';
 
@@ -57,7 +57,9 @@ function baseItem(params: Readonly<{
 
 function versionState(current: string | null, latest: string | null): UpdateItemState {
     if (!latest || !current) return 'unknown';
-    return isNewerVersion(current, latest) ? 'available' : 'upToDate';
+    const newer = isNewerVersion(current, latest);
+    if (newer === null) return 'unknown';
+    return newer ? 'available' : 'upToDate';
 }
 
 /**
@@ -282,12 +284,13 @@ export function buildInstallableUpdateItem(params: Readonly<{
         latestVersion,
     });
     // One predicate decides "a newer helper exists": the installables owner's own.
+    const updateAvailable = getInstallableDepUpdateAvailability(data);
     const resolved = resolveRow(item, {
         online: params.online,
         task: params.task,
         canRun: true,
         manual: null,
-        state: latestVersion == null ? 'unknown' : isInstallableDepUpdateAvailable(data) ? 'available' : 'upToDate',
+        state: updateAvailable === null ? 'unknown' : updateAvailable ? 'available' : 'upToDate',
     });
     if (resolved.state === 'unknown' && check && !check.ok) {
         return { ...resolved, failure: { kind: 'latestUnknown' } };

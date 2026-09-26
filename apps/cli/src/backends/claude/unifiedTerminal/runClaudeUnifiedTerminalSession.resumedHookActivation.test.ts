@@ -840,7 +840,7 @@ describe('runClaudeUnifiedTerminalSession resumed hook activation', () => {
     const onRawTranscriptValue = (message: unknown) => {
       if (!message || typeof message !== 'object' || !('uuid' in message)
         || message.uuid !== 'resumed-hook-accepted-user-row') return;
-      transcriptObservedDuringInjection = !injected;
+      transcriptObservedDuringInjection ||= !injected;
       resolveTranscriptObserved();
     };
     const onPromptAcceptedByProvider = vi.fn();
