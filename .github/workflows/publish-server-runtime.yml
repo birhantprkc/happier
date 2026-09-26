@@ -500,7 +500,7 @@ jobs:
         with:
           node-version: 22.x
       - name: Enable trusted control Yarn
-        run: bash scripts/ci/corepack-prepare-yarn-with-retry.sh
+        uses: ./.github/actions/enable-corepack-yarn
       - name: Install artifact verifier dependencies
         uses: ./.github/actions/install-yarn-dependencies
         env:
@@ -566,7 +566,7 @@ jobs:
         with:
           node-version: 22.x
       - name: Enable trusted control Yarn
-        run: bash scripts/ci/corepack-prepare-yarn-with-retry.sh
+        uses: ./.github/actions/enable-corepack-yarn
       - name: Install artifact verifier dependencies
         uses: ./.github/actions/install-yarn-dependencies
         env:

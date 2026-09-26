@@ -21,7 +21,7 @@ test('rolling-only promotion jobs prepare artifact verifier dependencies before 
     const workflow = YAML.parse(raw, { prettyErrors: true });
     for (const jobId of jobIds) {
       const steps = workflow.jobs[jobId]?.steps ?? [];
-      const corepackIndex = steps.findIndex((step) => /corepack-prepare-yarn-with-retry\.sh/.test(String(step.run ?? '')));
+      const corepackIndex = steps.findIndex((step) => step.uses === './.github/actions/enable-corepack-yarn');
       const installIndex = steps.findIndex((step) => step.uses === './.github/actions/install-yarn-dependencies');
       const promoteIndex = steps.findIndex((step) => /Re-promote exact verified immutable release bytes|Recover rolling projection from immutable bytes|Promote verified immutable desktop release/.test(String(step.name ?? '')));
       assert.ok(corepackIndex >= 0 && corepackIndex < installIndex, `${workflowFile}:${jobId} must enable Yarn before dependency installation`);

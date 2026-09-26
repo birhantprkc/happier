@@ -975,7 +975,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Enable trusted control Yarn
-        run: bash scripts/ci/corepack-prepare-yarn-with-retry.sh
+        uses: ./.github/actions/enable-corepack-yarn
 
       - name: Install artifact verifier dependencies
         uses: ./.github/actions/install-yarn-dependencies
