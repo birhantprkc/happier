@@ -974,6 +974,17 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
+      - name: Enable trusted control Yarn
+        run: bash scripts/ci/corepack-prepare-yarn-with-retry.sh
+
+      - name: Install artifact verifier dependencies
+        uses: ./.github/actions/install-yarn-dependencies
+        env:
+          YARN_PRODUCTION: 'false'
+          npm_config_production: 'false'
+          HAPPIER_INSTALL_SCOPE: protocol,agents,release-runtime,cli-common
+          HAPPIER_UI_VENDOR_WEB_ASSETS: '0'
+
       - name: Install minisign
         uses: ./.github/actions/bootstrap-minisign
 

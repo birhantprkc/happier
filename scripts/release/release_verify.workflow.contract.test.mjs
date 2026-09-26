@@ -9,6 +9,33 @@ import YAML from 'yaml';
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '..', '..');
 
+test('rolling-only promotion jobs prepare artifact verifier dependencies before touching releases', async () => {
+  for (const [workflowFile, jobIds] of [
+    ['publish-cli-binaries.yml', ['promote_existing']],
+    ['publish-hstack-binaries.yml', ['promote_existing']],
+    ['publish-server-runtime.yml', ['promote_existing', 'promote_existing_fresh_runner_retry']],
+    ['publish-ui-web.yml', ['promote_existing']],
+    ['build-tauri.yml', ['promote_stable_feed']],
+  ]) {
+    const raw = await readFile(join(repoRoot, '.github', 'workflows', workflowFile), 'utf8');
+    const workflow = YAML.parse(raw, { prettyErrors: true });
+    for (const jobId of jobIds) {
+      const steps = workflow.jobs[jobId]?.steps ?? [];
+      const corepackIndex = steps.findIndex((step) => /corepack-prepare-yarn-with-retry\.sh/.test(String(step.run ?? '')));
+      const installIndex = steps.findIndex((step) => step.uses === './.github/actions/install-yarn-dependencies');
+      const promoteIndex = steps.findIndex((step) => /Re-promote exact verified immutable release bytes|Recover rolling projection from immutable bytes|Promote verified immutable desktop release/.test(String(step.name ?? '')));
+      assert.ok(corepackIndex >= 0 && corepackIndex < installIndex, `${workflowFile}:${jobId} must enable Yarn before dependency installation`);
+      assert.ok(installIndex > 0 && installIndex < promoteIndex, `${workflowFile}:${jobId} must install verifier dependencies before promotion`);
+      assert.deepEqual(
+        new Set(String(steps[installIndex].env?.HAPPIER_INSTALL_SCOPE ?? '').split(',')),
+        new Set(['protocol', 'agents', 'release-runtime', 'cli-common']),
+        `${workflowFile}:${jobId} must include the artifact verifier's workspace dependencies`,
+      );
+      assert.equal(steps[installIndex].env?.GH_TOKEN, undefined);
+    }
+  }
+});
+
 test('release-verify resolves one public profile with explicit suite refinements', async () => {
   const raw = await readFile(join(repoRoot, '.github', 'workflows', 'release-verify.yml'), 'utf8');
   const workflow = YAML.parse(raw, { prettyErrors: true });
